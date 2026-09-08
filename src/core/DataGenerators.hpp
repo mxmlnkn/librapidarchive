@@ -158,8 +158,9 @@ createRandomWords( const std::string& filePath,
     std::ofstream file{ filePath, std::ios_base::out | std::ios_base::binary };
     for ( size_t i = 0; i < fileSize; ) {
         const auto iWord = static_cast<size_t>( rand() ) % words.size();
-        file.write( words[iWord].data(), words[iWord].size() );
-        i += words[iWord].size();
+        const auto sizeToWrite = std::min( words[iWord].size(), fileSize - i );
+        file.write( words[iWord].data(), sizeToWrite );
+        i += sizeToWrite;
     }
 }
 }  // namespace rapidgzip
