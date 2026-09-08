@@ -110,7 +110,13 @@ public:
         }
 
         try {
-            const auto value = bitReader.peek( this->m_maxCodeLength );
+            /* Use the compile-time peek when the alphabet reaches the full template code length so the
+             * index mask becomes a constant. m_maxCodeLength is the actual maximum code length from the
+             * tree, which is below MAX_CODE_LENGTH whenever the alphabet does not use the longest codes
+             * (peeking MAX_CODE_LENGTH bits would then index unfilled high entries). */
+            const auto value = MAX_CODE_LENGTH == this->m_maxCodeLength
+                               ? bitReader.template peek<MAX_CODE_LENGTH>()
+                               : bitReader.peek( this->m_maxCodeLength );
 
             assert( value < m_codeCache.size() );
             const auto [length, symbol] = m_codeCache[(int)value];

@@ -107,7 +107,13 @@ public:
         }
 
         try {
-            const auto [length, symbol] = m_codeCache[bitReader.peek( m_lutBitsCount )];
+            /* Use the compile-time peek when the full LUT is in use so the index mask and size become
+             * constants. m_lutBitsCount only differs from LUT_BITS_COUNT when the alphabet's maximum code
+             * length is smaller than the LUT (then peeking LUT_BITS_COUNT bits may read past valid codes). */
+            const auto index = LUT_BITS_COUNT == m_lutBitsCount
+                               ? static_cast<HuffmanCode>( bitReader.template peek<LUT_BITS_COUNT>() )
+                               : static_cast<HuffmanCode>( bitReader.peek( m_lutBitsCount ) );
+            const auto [length, symbol] = m_codeCache[index];
             if ( length == 0 ) {
                 return decodeLong( bitReader );
             }
