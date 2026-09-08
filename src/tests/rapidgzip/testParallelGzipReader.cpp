@@ -1051,18 +1051,18 @@ printClassSizes()
 #endif
     /* 18916 */
     std::cout << "  LiteralOrLengthHuffmanCoding  : " << sizeof( deflate::LiteralOrLengthHuffmanCoding ) << "\n";
-    std::cout << "  FixedHuffmanCoding            : " << sizeof( deflate::FixedHuffmanCoding ) << "\n";  // 131776
+    std::cout << "  FixedHuffmanCoding            : " << sizeof( deflate::FixedHuffmanCoding ) << "\n";  // 2752 (9-bit LUT)
     std::cout << "  PrecodeHuffmanCoding          : " << sizeof( deflate::PrecodeHuffmanCoding ) << "\n";  // 320
     std::cout << "  DistanceHuffmanCoding         : " << sizeof( deflate::DistanceHuffmanCoding ) << "\n";  // 65728
     std::cout << "  LiteralAndDistanceCLBuffer    : " << sizeof( deflate::LiteralAndDistanceCLBuffer ) << "\n";  // 572
     std::cout << "  GzipIndex                     : " << sizeof( GzipIndex ) << "\n";  // 72
     std::cout << "  GzipBlockFinder               : " << sizeof( GzipBlockFinder ) << "\n";  // 192
     std::cout << "  ParallelGzipReader            : " << sizeof( ParallelGzipReader<ChunkData> ) << "\n";  // 288
-    std::cout << "  deflate::Block                : " << sizeof( deflate::Block<> ) << "\n";  // 207616
-    std::cout << "  std::optional<deflate::Block> : " << sizeof( std::optional<deflate::Block<> >) << "\n";  // 217216
+    std::cout << "  deflate::Block                : " << sizeof( deflate::Block<> ) << "\n";  // 78592
+    std::cout << "  std::optional<deflate::Block> : " << sizeof( std::optional<deflate::Block<> >) << "\n";  // 88192
     std::cout << "  Bzip2Chunk                    : " << sizeof( Bzip2Chunk<ChunkData> ) << "\n";
     std::cout << "  GzipChunk                     : " << sizeof( GzipChunk<ChunkData> ) << "\n";
-    std::cout << "  GzipReader                    : " << sizeof( GzipReader ) << "\n";  // 208064
+    std::cout << "  GzipReader                    : " << sizeof( GzipReader ) << "\n";  // 79040
     std::cout << "  GzipChunkFetcher              : " << sizeof( GzipChunkFetcher<FetchingStrategy::FetchMultiStream> )
               << "\n";
 }

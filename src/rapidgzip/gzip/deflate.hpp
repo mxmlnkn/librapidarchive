@@ -192,8 +192,10 @@ using LiteralOrLengthHuffmanCoding = HuffmanCodingShortBitsCached<
  * @todo Make it such that the implementations can handle the case that the construction might result in
  *       larger symbol values than are allowed to appear in the first place! I.e., cut-off construction there.
  *       Note that changing this from 286 to 512, lead to an increase of the runtime! We need to reduce it again! */
+/* The fixed DEFLATE Huffman tree uses code lengths 7 to 9, so a 9-bit cache suffices. Using the full 15-bit cache
+ * here would make the per-decode peek runtime-counted and blow the LUT out of L1 for no reason. */
 using FixedHuffmanCoding =
-    HuffmanCodingReversedBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + 2>;
+    HuffmanCodingReversedBitsCached<uint16_t, /* MAX_CODE_LENGTH */ 9, uint16_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + 2>;
 
 
 

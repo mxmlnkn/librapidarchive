@@ -84,7 +84,7 @@ benchmarkDecompression( const std::vector<std::byte>& dataToCompress,
     std::cout << "Compressed " << formatBytes( dataToCompress.size() )
               << " " << dataLabel << " to " << formatBytes( fileContents.size() )
               << ", compression ratio: " << compressionRatio
-              << ", compression strategy: " << toString( compressionStrategy )
+              << ",\n  compression strategy: " << toString( compressionStrategy )
               << ", compression bandwidth: " << compressionBandwidth / 1e6 << " MB/s\n";
 
     const auto [size, durations] = benchmarkFunction<3>(
