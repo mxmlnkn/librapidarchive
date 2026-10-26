@@ -88,18 +88,16 @@ if(NOT LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB AND LIBRAPIDARCHIVE_USE_ZLIB_NG)
         ${ZLIB_HOME}/deflate_slow.c
         ${ZLIB_HOME}/deflate_stored.c
         ${ZLIB_HOME}/insert_string.c
-        ${ZLIB_HOME}/insert_string_roll.c
         ${ZLIB_HOME}/trees.c
         ${ZLIB_HOME}/trees.h
         # Generic implementations
         ${ZLIB_HOME}/arch/generic/adler32_c.c
-        ${ZLIB_HOME}/arch/generic/adler32_fold_c.c
-        ${ZLIB_HOME}/arch/generic/chunk_permute_table.h
         ${ZLIB_HOME}/arch/generic/chunkset_c.c
+        ${ZLIB_HOME}/arch/shared/chunk_permute_table.h
         ${ZLIB_HOME}/arch/generic/compare256_c.c
         ${ZLIB_HOME}/arch/generic/compare256_p.h
         ${ZLIB_HOME}/arch/generic/crc32_braid_c.c
-        ${ZLIB_HOME}/arch/generic/crc32_fold_c.c
+        ${ZLIB_HOME}/arch/generic/crc32_chorba_c.c
         ${ZLIB_HOME}/arch/generic/generic_functions.h
         ${ZLIB_HOME}/arch/generic/slide_hash_c.c
     )
@@ -153,11 +151,21 @@ if(LIBRAPIDARCHIVE_WITH_ISAL)
     # https://discourse.cmake.org/t/fetchcontent-declare-with-cmake-args-does-not-work/11227
     # https://discourse.cmake.org/t/what-is-the-correct-way-to-set-options-of-a-project-before-fetch-content/268
     set(ISAL_BUILD_TESTS OFF CACHE BOOL "Disable ISA-L tests" FORCE)
+    set(ISAL_BUILD_PERF_TESTS OFF CACHE BOOL "Disable ISA-L performance tests" FORCE)
+    set(ISAL_BUILD_ISAL_SHIM OFF CACHE BOOL "Disable ISA-L zlib shim" FORCE)
     set(ISAL_BUILD_SHARED_LIBS OFF CACHE BOOL "Build static ISA-L" FORCE)
+    if(WIN32)
+        # ISA-L passes "-f win64" for NASM, but force the CMake object format as well so that a
+        # platform-detection fallback cannot select ELF after it.
+        set(CMAKE_ASM_NASM_OBJECT_FORMAT win64)
+    endif()
     FetchContent_MakeAvailable(isal_project)
 
-    # I am not using the guarded <isa-l/igzip_lib.h> includes because it would not work in the current setup.py :(.
-    # The guarded includes are also not necessary or possible with FetchContent, only with ExternalProject_Add!
+    # The parent and setup.py include ISA-L headers without the "isa-l/" prefix. The new ISA-L CMake
+    # interface only exposes the install-style build_include directory, so add the source include directory.
+    target_include_directories(isal INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/isa-l/include>)
+
     add_library(ISAL::isal ALIAS isal)
 endif()
 

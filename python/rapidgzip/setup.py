@@ -105,14 +105,12 @@ if withZlibng == 'enable':
         "deflate_slow.c",
         "deflate_stored.c",
         "insert_string.c",
-        "insert_string_roll.c",
         "trees.c",
         "arch/generic/adler32_c.c",
-        "arch/generic/adler32_fold_c.c",
         "arch/generic/chunkset_c.c",
         "arch/generic/compare256_c.c",
         "arch/generic/crc32_braid_c.c",
-        "arch/generic/crc32_fold_c.c",
+        "arch/generic/crc32_chorba_c.c",
         "arch/generic/slide_hash_c.c",
     ]
     zlib_sources = ["src/external/zlib-ng/" + source for source in zlib_sources]
@@ -185,8 +183,9 @@ isal_sources_by_architecture = {
         "igzip/adler32_sse.asm",
         #
         "crc/crc_multibinary.asm",
+        "crc/crc_const.asm",
         "crc/crc32_gzip_refl_by16_10.asm",
-        "crc/crc32_gzip_refl_by8_02.asm",
+        "crc/crc32_gzip_refl_avx2.asm",
         "crc/crc32_gzip_refl_by8.asm",
     ],
     'aarch64': [
@@ -229,7 +228,12 @@ isal_sources = ['src/external/isa-l/' + source for source in set(isal_sources)] 
 include_dirs = ['src']
 libraries = []
 
-isal_includes = ['src/external/isa-l/include', 'src/external/isa-l/igzip', 'src/external/isa-l']
+isal_includes = [
+    'src/external/isa-l/include',
+    'src/external/isa-l/igzip',
+    'src/external/isa-l/crc',
+    'src/external/isa-l',
+]
 if withIsal == 'enable':
     include_dirs += isal_includes
 elif withIsal == 'system':
