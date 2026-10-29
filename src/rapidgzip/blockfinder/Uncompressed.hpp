@@ -64,6 +64,12 @@ seekToNonFinalUncompressedDeflateBlock( gzip::BitReader& bitReader,
              * and seek back possibly expensively to check the block header. Beware the bit order! They are
              * read and numbered from the lowest bits first, i.e., the three bits right before the size are
              * the three HIGHEST bits and the padding are the lower bits! */
+            /* The candidate at the very first byte cannot be preceded by MAX_PRECEDING_BITS bits.
+             * It would also describe the current block, not a following one, so skip it. */
+            if ( offset < MAX_PRECEDING_BITS ) {
+                bitReader.seekTo( oldOffset );
+                continue;
+            }
             bitReader.seekTo( offset - MAX_PRECEDING_BITS );
             const auto previousBits = bitReader.peek<MAX_PRECEDING_BITS>();
 

@@ -13,6 +13,7 @@
 #include <core/common.hpp>
 #include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
+#include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
 #include <rapidgzip/blockfinder/DynamicHuffman.hpp>
 #include <rapidgzip/blockfinder/Uncompressed.hpp>
@@ -88,6 +89,19 @@ testDynamicHuffmanBlockFinder()
                       << "\n";
         }
     }
+}
+
+
+void
+testUncompressedBlockFinderAtStart()
+{
+    /* A stored-block-like pattern at the very first byte used to underflow offset - MAX_PRECEDING_BITS
+     * and throw instead of reporting that no following block was found. */
+    const std::vector<uint8_t> data{ 0x01, 0x04, 0x00, 0xFB, 0xFF, 'a', 'b', 'c', 'd' };
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( data ) );
+    const auto result = blockfinder::seekToNonFinalUncompressedDeflateBlock( bitReader );
+    REQUIRE_EQUAL( result.first, std::numeric_limits<size_t>::max() );
+    REQUIRE_EQUAL( result.second, std::numeric_limits<size_t>::max() );
 }
 
 
@@ -208,6 +222,7 @@ main( int    argc,
     testUncompressedBlockFinder( testsFolder / "random-128KiB.gz", expectedOffsetRanges );
 
     testDynamicHuffmanBlockFinder();
+    testUncompressedBlockFinderAtStart();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
