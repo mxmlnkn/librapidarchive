@@ -372,6 +372,35 @@ testEmptyStoredZlibStream()
 
 template<typename InflateWrapper>
 void
+testEmptyInputHeader()
+{
+    /* This is the gztool-index case: an empty compressed window makes refillBuffer a no-op, leaving
+     * next_in == nullptr and avail_in == 0. Reading a header from such a stream used to call
+     * memcpy(..., nullptr, 0), which UBSan reports. */
+    const std::vector<uint8_t> empty;
+    gzip::BitReader bitReader(
+        std::make_unique<BufferViewFileReader>( empty ) );
+    InflateWrapper inflateWrapper( std::move( bitReader ), /* encodedUntilOffset */ 0U );
+    inflateWrapper.setFileType( FileType::ZLIB );
+    inflateWrapper.setStartWithHeader( true );
+
+    std::byte dummy{ 0 };
+    bool threw{ false };
+    size_t decompressedSize{ 0 };
+    try {
+        std::tie( decompressedSize, std::ignore ) =
+            inflateWrapper.readStream( reinterpret_cast<uint8_t*>( &dummy ), 1U );
+    } catch ( const std::exception& ) {
+        threw = true;
+    }
+    /* The important part is executing readBytes on an empty input buffer. Whether the missing header
+     * is reported as an exception or as zero decoded bytes depends on the wrapper. */
+    REQUIRE( threw || ( decompressedSize == 0 ) );
+}
+
+
+template<typename InflateWrapper>
+void
 testEmptyInitialWindow( const std::filesystem::path& rootFolder )
 {
     /* An empty window is valid at the start of a raw deflate stream. Passing a null/zero dictionary to
@@ -975,6 +1004,7 @@ testInflateWrapper( const std::filesystem::path& rootFolder )
     testEmptyGzipStreamPlacement<InflateWrapper>();
     testEmptyStoredZlibStream<InflateWrapper>();
     testEmptyInitialWindow<InflateWrapper>( rootFolder );
+    testEmptyInputHeader<InflateWrapper>();
     testNoProgressAfterStreamEnd<InflateWrapper>();
     testGettingFooter<InflateWrapper>();
 }

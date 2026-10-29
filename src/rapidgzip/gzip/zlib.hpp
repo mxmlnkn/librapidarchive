@@ -444,10 +444,13 @@ ZlibInflateWrapper::readBytes()
             m_stream.next_in += stillToRemove;
             stillToRemove = 0;
         } else {
-            std::memcpy( buffer.data() + footerSize, m_stream.next_in, m_stream.avail_in );
-            footerSize += m_stream.avail_in;
+            if ( m_stream.avail_in > 0 ) {
+                std::memcpy( buffer.data() + footerSize, m_stream.next_in, m_stream.avail_in );
+                footerSize += m_stream.avail_in;
 
-            stillToRemove -= m_stream.avail_in;
+                stillToRemove -= m_stream.avail_in;
+                m_stream.next_in += m_stream.avail_in;
+            }
             m_stream.avail_in = 0;
             refillBuffer();
             if ( m_stream.avail_in == 0 ) {
