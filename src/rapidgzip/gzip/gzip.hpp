@@ -409,7 +409,12 @@ readFooter( gzip::BitReader& bitReader )
     }
 
     Footer footer;
-    footer.adler32 = static_cast<uint32_t>( bitReader.read<32>() );
+    /* In contrast to the gzip footer, the zlib Adler-32 is stored in big-endian byte order. */
+    const auto adler32 = static_cast<uint32_t>( bitReader.read<32>() );
+    footer.adler32 = ( ( adler32 >> 24U ) & 0x000000FFU )
+                     | ( ( adler32 >> 8U ) & 0x0000FF00U )
+                     | ( ( adler32 << 8U ) & 0x00FF0000U )
+                     | ( ( adler32 << 24U ) & 0xFF000000U );
     return footer;
 }
 }  // namespace rapidgzip::zlib

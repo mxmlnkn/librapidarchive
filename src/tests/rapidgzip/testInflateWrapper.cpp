@@ -359,6 +359,10 @@ testEmptyStoredZlibStream()
         reinterpret_cast<uint8_t*>( &dummy ), 1U );
     REQUIRE_EQUAL( decompressedSize, 0U );
     REQUIRE( footer.has_value() );
+    /* The zlib Adler-32 of empty data is 1. Also pins the big-endian footer parsing. */
+    if ( footer ) {
+        REQUIRE_EQUAL( footer->zlibFooter.adler32, 1U );
+    }
     REQUIRE_EQUAL( inflateWrapper.tellCompressed(), compressedData.size() * BYTE_SIZE );
 
     const auto endOffset = inflateWrapper.tellCompressed();
@@ -460,6 +464,10 @@ testZlibFooter( const std::filesystem::path& rootFolder )
     const auto [decompressedSize, footer] = inflateWrapper.readStream( output.data(), output.size() );
     REQUIRE_EQUAL( decompressedSize, output.size() );
     REQUIRE( footer.has_value() );
+    if ( footer ) {
+        /* Adler-32 of the uncompressed base64-32KiB data. This pins the big-endian footer parsing. */
+        REQUIRE_EQUAL( footer->zlibFooter.adler32, 0x523450faU );
+    }
 }
 
 template<typename InflateWrapper>

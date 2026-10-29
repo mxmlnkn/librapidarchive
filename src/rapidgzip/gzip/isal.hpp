@@ -462,10 +462,9 @@ IsalInflateWrapper::readZlibFooter()
     const auto footerBuffer = readBytes<4U>();
     zlib::Footer footer;
 
-    /* Get Adler32 machine-endian-agnostically. */
+    /* The zlib Adler-32 is stored in big-endian byte order, in contrast to the gzip footer. */
     for ( auto i = 0U; i < 4U; ++i ) {
-        const auto subbyte = static_cast<uint8_t>( footerBuffer[i] );
-        footer.adler32 += static_cast<uint32_t>( subbyte ) << ( i * BYTE_SIZE );
+        footer.adler32 = ( footer.adler32 << BYTE_SIZE ) | static_cast<uint8_t>( footerBuffer[i] );
     }
 
     Footer result;

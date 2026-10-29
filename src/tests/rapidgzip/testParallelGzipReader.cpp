@@ -1240,6 +1240,60 @@ requireReadError( const std::vector<uint8_t>&        data,
 
 
 void
+testZlibAdler32( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.zlib" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-32KiB" );
+
+    {
+        rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+            std::make_unique<BufferViewFileReader>( member ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+        reader.setCRC32Enabled( true );
+        std::vector<char> decoded;
+        std::array<char, 4_Ki> buffer{};
+        while ( true ) {
+            const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+            if ( nBytesRead == 0 ) {
+                break;
+            }
+            decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+        }
+        REQUIRE_EQUAL( decoded.size(), expected.size() );
+        REQUIRE( ( decoded.size() == expected.size() )
+                 && std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+    }
+
+    const auto index = createGzipIndex( member, 16_Ki );
+    auto corruptedAdler = member;
+    corruptedAdler.back() ^= 0xFF;
+
+    for ( const auto chunkSize : { 16_Ki, 1_Mi } ) {
+        requireReadError( corruptedAdler, chunkSize, 4_Ki, nullptr, 0, std::nullopt,
+                          "Mismatching Adler32", /* verifyChecksums */ true );
+    }
+
+    /* Importing an index and reading from offset 0 must verify the first stream. */
+    requireReadError( corruptedAdler, 16_Ki, 4_Ki, &index, 0, std::nullopt,
+                      "Mismatching Adler32", /* verifyChecksums */ true );
+    /* Seeking back to 0 after a partial read must reset the checksum state. */
+    const auto largeMember = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.zlib" );
+    auto largeCorruptedAdler = largeMember;
+    largeCorruptedAdler.back() ^= 0xFF;
+    requireReadError( largeCorruptedAdler, 16_Ki, 4_Ki, nullptr, 32_Ki, size_t( 0 ),
+                      "Mismatching Adler32", /* verifyChecksums */ true );
+
+    /* The checksum state has to reset between concatenated zlib streams. */
+    auto concatenated = member;
+    concatenated.insert( concatenated.end(), member.begin(), member.end() );
+    concatenated.back() ^= 0xFF;
+    for ( const auto chunkSize : { 16_Ki, 1_Mi } ) {
+        requireReadError( concatenated, chunkSize, 4_Ki, nullptr, 0, std::nullopt,
+                          "Mismatching Adler32", /* verifyChecksums */ true );
+    }
+}
+
+
+void
 testGzipISIZE( const std::filesystem::path& rootFolder )
 {
     const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
@@ -1706,6 +1760,7 @@ main( int    argc,
     testChecksumStateAfterFailedSeek( rootFolder );
     testChecksumErrorIsRepeatable( rootFolder );
     testGzipISIZE( rootFolder );
+    testZlibAdler32( rootFolder );
     testMultiThreadedUsage();
     testCRC32AndCleanUnmarkedData();
     testPrefetchingAfterSplit();

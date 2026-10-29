@@ -17,6 +17,7 @@
 #include <filereader/FileReader.hpp>
 #include <filereader/Shared.hpp>
 #include <rapidgzip/DecodedDataView.hpp>
+#include <rapidgzip/gzip/adler32.hpp>
 #include <rapidgzip/gzip/crc32.hpp>
 #include <rapidgzip/gzip/definitions.hpp>
 #include <rapidgzip/gzip/deflate.hpp>
@@ -71,6 +72,7 @@ public:
         m_streamBytesCount( other.m_streamBytesCount ),
         m_offsetInLastBuffers( other.m_offsetInLastBuffers ),
         m_crc32Calculator( other.m_crc32Calculator ),
+        m_adler32Calculator( other.m_adler32Calculator ),
         m_blockMap( other.m_blockMap ),
         m_windowMap( other.m_windowMap ),
         m_didReadHeader( other.m_didReadHeader )
@@ -369,6 +371,7 @@ public:
     setCRC32Enabled( bool enabled )
     {
         m_crc32Calculator.setEnabled( enabled );
+        m_adler32Calculator.setEnabled( enabled );
     }
 
     void
@@ -463,6 +466,7 @@ private:
         m_streamBytesCount = 0;
         m_currentPoint = StoppingPoint::END_OF_STREAM_HEADER;
         m_crc32Calculator.reset();
+        m_adler32Calculator.reset();
         m_didReadHeader = true;
     }
 
@@ -584,6 +588,7 @@ private:
     std::optional<size_t> m_offsetInLastBuffers;
 
     CRC32Calculator m_crc32Calculator;
+    Adler32Calculator m_adler32Calculator;
 
     std::shared_ptr<const BlockMap> m_blockMap;
     std::shared_ptr<const WindowMap> m_windowMap;
@@ -609,6 +614,10 @@ GzipReader::flushOutputBuffer( const WriteFunctor& writeFunctor,
             const auto nBytesToWrite = std::min( buffer.size() - offsetInBuffer, maxBytesToFlush - totalBytesFlushed );
 
             m_crc32Calculator.update( reinterpret_cast<const char*>( buffer.data() + offsetInBuffer ), nBytesToWrite );
+            if ( m_fileType == FileType::ZLIB ) {
+                m_adler32Calculator.update( reinterpret_cast<const char*>( buffer.data() + offsetInBuffer ),
+                                            nBytesToWrite );
+            }
 
             if ( writeFunctor ) {
                 writeFunctor( buffer.data() + offsetInBuffer, nBytesToWrite );
@@ -724,11 +733,15 @@ GzipReader::readFooter()
     }
     case FileType::ZLIB:
     {
-        zlib::readFooter( m_bitReader );
+        const auto footer = zlib::readFooter( m_bitReader );
 
         if ( !m_currentDeflateBlock.has_value() || !m_currentDeflateBlock->isValid() ) {
             /* A gzip stream should at least contain an end-of-stream block! */
             throw std::logic_error( "Call readHeader and readBlockHeader before readFooter!" );
+        }
+
+        if ( m_didReadHeader ) {
+            m_adler32Calculator.verify( footer.adler32 );
         }
 
         break;

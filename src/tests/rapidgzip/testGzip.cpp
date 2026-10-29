@@ -459,6 +459,50 @@ testFileTypeDetectionWithTruncatedHeader()
 }
 
 
+void
+testSerialDecoderZlibAdler32( const std::filesystem::path& rootFolder )
+{
+    const auto encoded = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.zlib" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-32KiB" );
+
+    const auto decodeAll =
+        [] ( const std::vector<uint8_t>& data )
+        {
+            GzipReader reader( std::make_unique<BufferViewFileReader>( data ) );
+            reader.setCRC32Enabled( true );
+
+            std::vector<char> result;
+            std::array<char, 4_Ki> buffer{};
+            size_t nBytesRead{ 0 };
+            do {
+                nBytesRead = reader.read( -1, buffer.data(), buffer.size() );
+                result.insert( result.end(), buffer.data(), buffer.data() + nBytesRead );
+            } while ( nBytesRead > 0 );
+            return result;
+        };
+
+    const auto decoded = decodeAll( encoded );
+    REQUIRE_EQUAL( decoded.size(), expected.size() );
+    REQUIRE( ( decoded.size() == expected.size() )
+             && std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+
+    /* The last four bytes contain the big-endian Adler-32 of the decompressed data. */
+    auto corruptedAdler = encoded;
+    corruptedAdler.back() ^= 0xFF;
+
+    bool threw{ false };
+    std::string message;
+    try {
+        (void)decodeAll( corruptedAdler );
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        message = exception.what();
+    }
+    REQUIRE( threw );
+    REQUIRE( message.find( "Mismatching Adler32" ) != std::string::npos );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -488,6 +532,7 @@ main( int    argc,
             findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bgz" )
         ) / "src" / "tests" / "data";
 
+    testSerialDecoderZlibAdler32( testsFolder );
     testCloningAfterPartialRead( testsFolder / "base64-256KiB.gz", testsFolder / "base64-256KiB" );
     for ( auto const& entry : std::filesystem::directory_iterator( testsFolder ) ) {
         if ( !entry.is_regular_file() || !entry.path().has_extension() ) {

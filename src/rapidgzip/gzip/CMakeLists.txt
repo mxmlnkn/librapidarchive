@@ -2,6 +2,7 @@ add_library(librapidgzipgzip INTERFACE)
 add_library(rapidgzip::gzip ALIAS librapidgzipgzip)
 target_include_directories(librapidgzipgzip INTERFACE ${CMAKE_CURRENT_LIST_DIR}/../..)
 target_sources(librapidgzipgzip INTERFACE
+    ${CMAKE_CURRENT_LIST_DIR}/adler32.hpp
     ${CMAKE_CURRENT_LIST_DIR}/crc32.hpp
     ${CMAKE_CURRENT_LIST_DIR}/definitions.hpp
     ${CMAKE_CURRENT_LIST_DIR}/deflate.hpp
