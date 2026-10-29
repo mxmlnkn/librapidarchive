@@ -5,6 +5,7 @@ Distutils doesn't support nasm, so this is a custom compiler for NASM
 from distutils.errors import CompileError, DistutilsExecError
 from distutils.unixccompiler import UnixCCompiler
 from distutils.sysconfig import get_config_var
+import inspect
 import platform
 import sys
 
@@ -30,7 +31,12 @@ class NasmCompiler(UnixCCompiler):
 
     def __init__(self, verbose=0, dry_run=0, force=0):
 
-        UnixCCompiler.__init__(self, verbose, dry_run, force)
+        # Setuptools 84 removed the dry_run argument from the compiler constructor.
+        if "dry_run" in inspect.signature(UnixCCompiler.__init__).parameters:
+            UnixCCompiler.__init__(self, verbose, dry_run, force)
+        else:
+            UnixCCompiler.__init__(self, verbose, force)
+            self.dry_run = dry_run
         self.set_executable("compiler", "nasm")
 
     def _is_gcc(self, compiler_name):

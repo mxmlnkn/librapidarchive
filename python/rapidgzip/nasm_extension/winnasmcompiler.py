@@ -4,8 +4,13 @@ Distutils doesn't support nasm, so this is a custom compiler for NASM
 
 from distutils.errors import DistutilsExecError, CompileError
 
-from distutils.msvc9compiler import MSVCCompiler
+try:
+    from distutils.msvc9compiler import MSVCCompiler
+except ImportError:
+    from setuptools._distutils._msvccompiler import MSVCCompiler
+import inspect
 import os
+import shutil
 
 
 class WinNasmCompiler(MSVCCompiler):
@@ -14,7 +19,21 @@ class WinNasmCompiler(MSVCCompiler):
 
     def __init__(self, verbose=0, dry_run=0, force=0):
 
-        MSVCCompiler.__init__(self, verbose, dry_run, force)
+        # Setuptools 84 removed the dry_run argument from the compiler constructor.
+        if "dry_run" in inspect.signature(MSVCCompiler.__init__).parameters:
+            MSVCCompiler.__init__(self, verbose, dry_run, force)
+        else:
+            MSVCCompiler.__init__(self, verbose, force)
+            self.dry_run = dry_run
+
+    def find_exe(self, exe):
+        find_exe = getattr(super(), "find_exe", None)
+        if find_exe is not None:
+            return find_exe(exe)
+        path = shutil.which(exe)
+        if path is None:
+            raise DistutilsExecError(f"Could not find {exe}")
+        return path
 
     def initialize(self, plat_name=None):
         self.cc = self.find_exe("nasm.exe")
