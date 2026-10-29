@@ -103,7 +103,8 @@ public:
     }
 
 private:
-    alignas( 8 ) std::array<uint8_t, MAX_SYMBOL_COUNT> m_codeLengths{};
+    /* Code lengths are stored shifted by one so that zero can mean "no cached symbol". */
+    alignas( 8 ) std::array<uint8_t, MAX_SYMBOL_COUNT + 1> m_codeLengths{};
     alignas( 8 ) std::array<Symbol, ( 1UL << MAX_CODE_LENGTH )> m_codeCache{};
     bool m_needsToBeZeroed{ false };
 };

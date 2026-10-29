@@ -17,6 +17,7 @@
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCached.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCachedCompressed.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedCodesPerLength.hpp>
+#include <rapidgzip/huffman/HuffmanCodingReversedBitsCachedSeparateLengths.hpp>
 
 
 using namespace rapidgzip;
@@ -140,9 +141,21 @@ testHuffmanCoding( bool testOneSymbolCoding = true )
 }
 
 
+void
+testSeparateLengthsMaxSymbolCount()
+{
+    /* Using exactly MAX_SYMBOL_COUNT code lengths used to write one past m_codeLengths. */
+    using HuffmanCoding = HuffmanCodingReversedBitsCachedSeparateLengths<uint16_t, 15, uint16_t, 4>;
+    const std::vector<uint8_t> codeLengths{ 1, 2, 2, 0 };
+    HuffmanCoding coding;
+    REQUIRE_EQUAL( coding.initializeFromLengths( codeLengths ), rapidgzip::Error::NONE );
+}
+
+
 int
 main()
 {
+    testSeparateLengthsMaxSymbolCount();
     static constexpr auto MAX_CODE_LENGTH = 15;
     static constexpr auto MAX_SYMBOL_COUNT = 512;
 
