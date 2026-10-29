@@ -1497,10 +1497,25 @@ Block<ENABLE_STATISTICS>::readInternalUncompressed( gzip::BitReader& bitReader,
         for ( size_t i = 0; i < nBytesRead; ++i ) {
             appendToWindow( window, buffer[i] );
         }
+        /* A short read means the file ended before the declared stored block size was read. This check is necessary
+         * because bitReader.read will not throw EndOfFileReached and this loop would hang when incrementing by
+         * nBytesRead or, as it is now, we would increment the loop counter by more than we actually read. */
+        if ( nBytesRead < buffer.size() ) {
+            m_atEndOfBlock = true;
+            m_decodedBytes += totalBytesRead + nBytesRead;
+            return { totalBytesRead + nBytesRead, Error::EOF_UNCOMPRESSED };
+        }
     }
     for ( ; totalBytesRead < m_uncompressedSize; ++totalBytesRead ) {
-        appendToWindow( window, static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() ) );
+        try {
+            appendToWindow( window, static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() ) );
+        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+            m_atEndOfBlock = true;
+            m_decodedBytes += totalBytesRead;
+            return { totalBytesRead, Error::EOF_UNCOMPRESSED };
+        }
     }
+
     m_atEndOfBlock = true;
     m_decodedBytes += m_uncompressedSize;
     return { m_uncompressedSize, Error::NONE };

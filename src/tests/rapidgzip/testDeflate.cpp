@@ -8,6 +8,7 @@
 #include <core/common.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/Buffered.hpp>
+#include <filereader/BufferView.hpp>
 #include <rapidgzip/gzip/definitions.hpp>
 #include <rapidgzip/gzip/deflate.hpp>
 
@@ -199,12 +200,60 @@ testFixedHuffmanCoding()
 }
 
 
+void
+testTruncatedStoredBlock()
+{
+    /* Raw DEFLATE: BFINAL=1, BTYPE=stored, LEN=64, NLEN=~64, but no payload. */
+    const std::vector<uint8_t> truncatedData{ 0x01, 0x40, 0x00, 0xBF, 0xFF };
+    for ( const auto readSize : { 1, 63, /* internal buffer size for cache line performance */ 64, 65 } ) {
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( truncatedData ) );
+        deflate::Block<false> block;
+        REQUIRE( block.readHeader( bitReader ) == Error::NONE );
+
+        /* Previously, view.size() was always 64, the internal buffer size, and Error::NONE!
+         * This effectively would return wrong data to a user. */
+        const auto [view, error] = block.read( bitReader, readSize );
+        REQUIRE( error == Error::EOF_UNCOMPRESSED );
+        REQUIRE_EQUAL( view.size(), 0U );
+
+        /* A partially present payload must only return the bytes that were actually read. */
+        auto partiallyTruncatedData = truncatedData;
+        partiallyTruncatedData.insert( partiallyTruncatedData.end(), { 'a', 'b', 'c' } );
+        gzip::BitReader partialBitReader( std::make_unique<BufferViewFileReader>( partiallyTruncatedData ) );
+        deflate::Block<false> partialBlock;
+        REQUIRE( partialBlock.readHeader( partialBitReader ) == Error::NONE );
+
+        /* Previously, view.size() was always 64, the internal buffer size, and Error::NONE! */
+        const auto [partialView, partialError] = partialBlock.read( partialBitReader, readSize );
+        REQUIRE( partialError == Error::EOF_UNCOMPRESSED );
+        REQUIRE_EQUAL( partialView.size(), 3U );
+    }
+
+    /* LEN=100 with only 90 payload bytes exercises the remainder after the 64-byte bulk loop. */
+    std::vector<uint8_t> nonMultipleOf64{ 0x01, 100, 0x00, 0x9B, 0xFF };
+    nonMultipleOf64.insert( nonMultipleOf64.end(), 90, 'x' );
+    gzip::BitReader remainderBitReader( std::make_unique<BufferViewFileReader>( nonMultipleOf64 ) );
+    deflate::Block<false> remainderBlock;
+    REQUIRE( remainderBlock.readHeader( remainderBitReader ) == Error::NONE );
+
+    /* Previously, this threw rapidgzip::BitReader<false, unsigned long>::EndOfFileReached. But then why do we
+     * even have an error argument being returned? Instead, it should convert the exception into an error. */
+    const auto [remainderView, remainderError] = remainderBlock.read( remainderBitReader, 100 );
+    REQUIRE( remainderError == Error::EOF_UNCOMPRESSED );
+    REQUIRE_EQUAL( remainderView.size(), 90U );
+    for ( const auto& view : remainderView.data ) {
+        REQUIRE( std::all_of( view.begin(), view.end(), [] ( const auto c ) { return c == 'x'; } ) );
+    }
+}
+
+
 int
 main()
 {
     testCalculateDistance();
     testCalculateLength();
     testFixedHuffmanCoding();
+    testTruncatedStoredBlock();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
