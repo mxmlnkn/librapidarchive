@@ -965,12 +965,8 @@ template<bool ENABLE_STATISTICS>
 template<bool treatLastBlockAsError>
 Error
 Block<ENABLE_STATISTICS>::readHeader( gzip::BitReader& bitReader )
-{
-    try {
-        m_isLastBlock = bitReader.read<1>();
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
-        return Error::END_OF_FILE;
-    }
+try {
+    m_isLastBlock = bitReader.read<1>();
 
     if constexpr ( treatLastBlockAsError ) {
         if ( m_isLastBlock ) {
@@ -1019,6 +1015,8 @@ Block<ENABLE_STATISTICS>::readHeader( gzip::BitReader& bitReader )
     m_backreferences.clear();
 
     return error;
+} catch ( const gzip::BitReader::EndOfFileReached& ) {
+    return Error::END_OF_FILE;
 }
 
 

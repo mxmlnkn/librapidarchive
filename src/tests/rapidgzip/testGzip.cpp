@@ -16,8 +16,10 @@
 #include <core/common.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/Buffered.hpp>
+#include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
 #include <rapidgzip/gzip/GzipReader.hpp>
+#include <rapidgzip/gzip/format.hpp>
 #include <rapidgzip/rapidgzip.hpp>
 
 
@@ -406,6 +408,18 @@ testCloning( const std::filesystem::path& encodedFilePath )
     REQUIRE_EQUAL( decompressed, cloneDecompressed );
 }
 
+void
+testFileTypeDetectionWithTruncatedHeader()
+{
+    /* Two bytes whose first three bits look like a deflate header. Detection must return no type instead of
+     * letting EndOfFileReached escape while reading the remaining header bits. */
+    const std::vector<uint8_t> data{ 0x00, 0x00 };
+    const UniqueFileReader reader = std::make_unique<BufferViewFileReader>( data );
+    const auto result = determineFileTypeAndOffset( reader );
+    REQUIRE( !result.has_value() );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -474,6 +488,8 @@ main( int    argc,
         testSeekingWithIndex( encodedFilePath, gzipIndexPath, decodedFilePath );
         testCloning( encodedFilePath );
     }
+
+    testFileTypeDetectionWithTruncatedHeader();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
