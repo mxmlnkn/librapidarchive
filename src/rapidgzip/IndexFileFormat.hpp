@@ -113,6 +113,17 @@ operator<<( std::ostream& out,
 }
 
 
+/** Shrink only when the capacity overhead is larger than 20% to avoid pointless reallocations. */
+template<typename Container>
+inline void
+shrinkIfWorthwhile( Container& container )
+{
+    if ( container.capacity() > container.size() + container.size() / 5U ) {
+        container.shrink_to_fit();
+    }
+}
+
+
 struct GzipIndex
 {
 public:
@@ -154,7 +165,7 @@ public:
     NewlineFormat newlineFormat{ NewlineFormat::LINE_FEED };
 
     [[nodiscard]] constexpr bool
-    operator==( const GzipIndex& other ) const noexcept
+    operator==( const GzipIndex& other ) const
     {
         // *INDENT-OFF*
         return ( compressedSizeInBytes   == other.compressedSizeInBytes   ) &&
@@ -321,13 +332,19 @@ readGzipIndex( UniqueFileReader         indexFile,
         index.uncompressedSizeInBytes = 0;
     }
 
+    /* Check for overflow before computing the expected file size. Otherwise, a crafted count can wrap
+     * the multiplication and pass the file-size check. */
+    if ( numberOfEntries > ( std::numeric_limits<uint64_t>::max() / sizeof( uint64_t ) - 1U ) / 2U ) {
+        throw std::invalid_argument( "Invalid BGZF index: unreasonably large checkpoint count!" );
+    }
     const auto expectedFileSize = ( 2U * numberOfEntries + 1U ) * sizeof( uint64_t );
-    if ( ( indexFile->size() > 0 ) && ( indexFile->size() != expectedFileSize ) ) {
+    if ( const auto indexFileSize = indexFile->size();
+         indexFileSize && ( static_cast<uint64_t>( *indexFileSize ) != expectedFileSize ) ) {
         throw std::invalid_argument( "Invalid magic bytes!" );
     }
     index.compressedSizeInBytes = *archiveSize;
 
-    index.checkpoints.reserve( numberOfEntries + 1 );
+    /* Do not reserve from the untrusted count. The loop stops at EOF, so the file size bounds the work. */
 
     const auto sharedArchiveFile = ensureSharedFileReader( std::move( archiveFile ) );
 
@@ -355,10 +372,14 @@ readGzipIndex( UniqueFileReader         indexFile,
 
     for ( uint64_t i = 1; i < numberOfEntries; ++i ) {
         auto& checkpoint = index.checkpoints.emplace_back();
-        checkpoint.compressedOffsetInBits = readValue<uint64_t>( indexFile.get() );
+        const auto compressedOffsetInBytes = readValue<uint64_t>( indexFile.get() );
         checkpoint.uncompressedOffsetInBytes = readValue<uint64_t>( indexFile.get() );
-        checkpoint.compressedOffsetInBits += 18U;  // Jump over gzip header
-        checkpoint.compressedOffsetInBits *= 8U;
+        /* Jump over the gzip header and convert to bits, checking both operations for overflow. */
+        if ( ( compressedOffsetInBytes > index.compressedSizeInBytes )
+             || ( compressedOffsetInBytes > ( std::numeric_limits<uint64_t>::max() - 18U ) / 8U ) ) {
+            throw std::invalid_argument( "BGZF checkpoint compressed offset is out of range!" );
+        }
+        checkpoint.compressedOffsetInBits = ( compressedOffsetInBytes + 18U ) * 8U;
 
         const auto& lastCheckPoint = *( index.checkpoints.rbegin() + 1 );
 
@@ -477,13 +498,16 @@ readGzipIndex( UniqueFileReader            indexFile,
     std::vector<std::tuple</* encoded offset */ size_t, /* window size */ size_t,
                            /* compression ratio */ double> > windowInfos;
 
-    index.checkpoints.resize( checkpointCount );
+    /* Do not resize based on the untrusted count. Reading stops with an exception at EOF, so the number of
+     * checkpoints is naturally bounded by the index file size instead of allowing multi-gigabyte allocations. */
+    index.checkpoints.clear();
     for ( uint32_t i = 0; i < checkpointCount; ++i ) {
-        auto& checkpoint = index.checkpoints[i];
+        auto& checkpoint = index.checkpoints.emplace_back();
 
         /* First load only compressed offset rounded down in bytes, the bits are loaded down below! */
         checkpoint.compressedOffsetInBits = readValue<uint64_t>( indexFile.get() );
-        if ( checkpoint.compressedOffsetInBits > index.compressedSizeInBytes ) {
+        if ( ( checkpoint.compressedOffsetInBits > index.compressedSizeInBytes )
+             || ( checkpoint.compressedOffsetInBits > std::numeric_limits<uint64_t>::max() / 8U ) ) {
             throw std::invalid_argument( "Checkpoint compressed offset is after the file end!" );
         }
         checkpoint.compressedOffsetInBits *= 8;
@@ -504,6 +528,16 @@ readGzipIndex( UniqueFileReader            indexFile,
             checkpoint.compressedOffsetInBits -= bits;
         }
 
+        if ( i > 0 ) {
+            const auto& previousCheckpoint = index.checkpoints.at( i - 1 );
+            if ( checkpoint.compressedOffsetInBits <= previousCheckpoint.compressedOffsetInBits ) {
+                throw std::invalid_argument( "Checkpoint compressed offsets are not strictly increasing!" );
+            }
+            if ( checkpoint.uncompressedOffsetInBytes < previousCheckpoint.uncompressedOffsetInBytes ) {
+                throw std::invalid_argument( "Checkpoint uncompressed offsets are not non-decreasing!" );
+            }
+        }
+
         size_t windowSize{ 0 };
         if ( formatVersion == 0 ) {
             if ( i != 0 ) {
@@ -517,7 +551,7 @@ readGzipIndex( UniqueFileReader            indexFile,
 
         auto compressionRatio = 1.0;
         if ( i >= 1 ) {
-            const auto& previousCheckpoint = index.checkpoints[i - 1];
+            const auto& previousCheckpoint = index.checkpoints.at( i - 1 );
             compressionRatio = static_cast<double>( checkpoint.uncompressedOffsetInBytes
                                                     - previousCheckpoint.uncompressedOffsetInBytes ) * 8
                                / static_cast<double>( checkpoint.compressedOffsetInBits
@@ -525,6 +559,7 @@ readGzipIndex( UniqueFileReader            indexFile,
         }
         windowInfos.emplace_back( checkpoint.compressedOffsetInBits, windowSize, compressionRatio );
     }
+    shrinkIfWorthwhile( index.checkpoints );
 
     const auto backgroundThreadCount = parallelization == 1 ? 0 : parallelization;
     ThreadPool threadPool{ backgroundThreadCount };
@@ -566,6 +601,14 @@ readGzipIndex( UniqueFileReader            indexFile,
          * requires every capture to be copyable. While it may compile with Clang and GCC, it does not with MSVC. */
         auto window = std::make_shared<FasterVector<uint8_t> >();
         if ( windowSize > 0 ) {
+            /* Do not allocate a window if the index file cannot possibly contain it. Without this check,
+             * many checkpoint records with the data flag set could request GiB of window storage before
+             * the first read fails. */
+            if ( const auto indexFileSize = indexFile->size();
+                 indexFileSize && ( ( indexFile->tell() > *indexFileSize )
+                                    || ( windowSize > *indexFileSize - indexFile->tell() ) ) ) {
+                throw std::invalid_argument( "Index window exceeds the remaining index file size!" );
+            }
             window->resize( windowSize );
             checkedRead( indexFile.get(), window->data(), window->size() );
         }
@@ -819,14 +862,13 @@ readGzipIndex( UniqueFileReader            indexFile,
 
     std::array<uint8_t, rapidgzip::deflate::MAX_WINDOW_SIZE> decompressedWindow{};
 
-    index.checkpoints.resize( checkpointCount );
-    for ( uint32_t i = 0; i < checkpointCount; ++i ) {
-        auto& checkpoint = index.checkpoints[i];
+    /* Do not resize based on the untrusted count. Reading stops with an exception at EOF, so the number of
+     * checkpoints is naturally bounded by the index file size instead of allowing multi-gigabyte allocations. */
+    index.checkpoints.clear();
+    for ( uint64_t i = 0; i < checkpointCount; ++i ) {
+        auto& checkpoint = index.checkpoints.emplace_back();
 
         checkpoint.uncompressedOffsetInBytes = readBigEndianValue<uint64_t>( indexFile.get() );
-        if ( checkpoint.uncompressedOffsetInBytes > index.uncompressedSizeInBytes ) {
-            throw std::invalid_argument( "Checkpoint uncompressed offset is after the file end!" );
-        }
 
         /* First load only compressed offset rounded down in bytes, the bits are loaded down below! */
         checkpoint.compressedOffsetInBits = readBigEndianValue<uint64_t>( indexFile.get() );
@@ -846,7 +888,30 @@ readGzipIndex( UniqueFileReader            indexFile,
             checkpoint.compressedOffsetInBits -= bits;
         }
 
+        if ( i > 0 ) {
+            const auto& previousCheckpoint = index.checkpoints.at( i - 1 );
+            if ( checkpoint.compressedOffsetInBits <= previousCheckpoint.compressedOffsetInBits ) {
+                throw std::invalid_argument( "Checkpoint compressed offsets are not strictly increasing!" );
+            }
+            if ( checkpoint.uncompressedOffsetInBytes < previousCheckpoint.uncompressedOffsetInBytes ) {
+                throw std::invalid_argument( "Checkpoint uncompressed offsets are not non-decreasing!" );
+            }
+        }
+
         const auto compressedWindowSize = readBigEndianValue<uint32_t>( indexFile.get() );
+        /* The gztool window decompresses to at most 32 KiB, so a much larger compressed representation is
+         * invalid. This hard cap also protects readers with unknown file size from a 4 GiB allocation. */
+        static constexpr size_t MAX_COMPRESSED_WINDOW_SIZE = 2 * rapidgzip::deflate::MAX_WINDOW_SIZE;
+        if ( compressedWindowSize > MAX_COMPRESSED_WINDOW_SIZE ) {
+            throw std::invalid_argument( "Compressed window size is unreasonably large!" );
+        }
+        if ( const auto indexFileSize = indexFile->size();
+             indexFileSize && ( indexFile->tell() <= *indexFileSize )
+             && ( compressedWindowSize > *indexFileSize - indexFile->tell() ) )
+        {
+            throw std::invalid_argument( "Compressed window size exceeds the remaining index file size!" );
+        }
+
         if ( compressedWindowSize == 0 ) {
             /* Emplace an empty window to show that the chunk does not need data. */
             index.windows->emplace( checkpoint.compressedOffsetInBits, {}, CompressionType::NONE );
@@ -889,6 +954,7 @@ readGzipIndex( UniqueFileReader            indexFile,
             checkpoint.lineOffset -= 1;
         }
     }
+    shrinkIfWorthwhile( index.checkpoints );
 
     if ( indexIsComplete ) {
         index.uncompressedSizeInBytes = readBigEndianValue<uint64_t>( indexFile.get() );
@@ -908,6 +974,13 @@ readGzipIndex( UniqueFileReader            indexFile,
             }
             index.checkpoints.back().lineOffset = readBigEndianValue<uint64_t>( indexFile.get() );
         }
+    }
+
+    /* Ordering is checked while reading. Because the offsets are monotonic, checking the last checkpoint
+     * against the now-known uncompressed size covers all checkpoints. */
+    if ( !index.checkpoints.empty()
+         && ( index.checkpoints.back().uncompressedOffsetInBytes > index.uncompressedSizeInBytes ) ) {
+        throw std::invalid_argument( "Checkpoint uncompressed offset is after the file end!" );
     }
 
     return index;
