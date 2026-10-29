@@ -53,6 +53,10 @@ public:
     setWindow( VectorView<uint8_t> const& window )
     {
         m_setWindowSize = window.size();
+        /* An empty window is valid at a gzip/zlib stream start and there is nothing to set. */
+        if ( window.empty() ) {
+            return;
+        }
         if ( isal_inflate_set_dict( &m_stream, window.data(), window.size() ) != COMP_OK ) {
             throw std::runtime_error( "Failed to set back-reference window in ISA-l!" );
         }

@@ -154,6 +154,11 @@ public:
     setWindow( VectorView<uint8_t> const& window )
     {
         m_setWindowSize = window.size();
+        /* zlib requires a non-null dictionary pointer even for a zero-size dictionary. An empty window is
+         * valid at a gzip/zlib stream start and there is nothing to set. */
+        if ( window.empty() ) {
+            return;
+        }
         if ( inflateSetDictionary( &m_stream, window.data(), window.size() ) != Z_OK ) {
             throw std::runtime_error( "Failed to set back-reference window in zlib!" );
         }

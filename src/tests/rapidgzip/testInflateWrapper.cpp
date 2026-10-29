@@ -10,6 +10,8 @@
 #include <vector>
 
 #include <core/common.hpp>
+#include <core/VectorView.hpp>
+#include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/BufferView.hpp>
 #include <filereader/Shared.hpp>
@@ -365,6 +367,27 @@ testEmptyStoredZlibStream()
     REQUIRE_EQUAL( decompressedSize, 0U );
     REQUIRE( !footer.has_value() );
     REQUIRE_EQUAL( inflateWrapper.tellCompressed(), endOffset );
+}
+
+
+template<typename InflateWrapper>
+void
+testEmptyInitialWindow( const std::filesystem::path& rootFolder )
+{
+    /* An empty window is valid at the start of a raw deflate stream. Passing a null/zero dictionary to
+     * zlib/ISA-L was undefined behavior (UBSan) before the empty-window guard. */
+    const auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.deflate" );
+
+    gzip::BitReader bitReader(
+        std::make_unique<BufferViewFileReader>( compressed ) );
+    InflateWrapper inflateWrapper( std::move( bitReader ), compressed.size() * BYTE_SIZE );
+    inflateWrapper.setFileType( FileType::DEFLATE );
+    inflateWrapper.setWindow( VectorView<uint8_t>{} );
+
+    std::vector<uint8_t> output( 32_Ki );
+    const auto [decompressedSize, footer] = inflateWrapper.readStream( output.data(), output.size() );
+    REQUIRE_EQUAL( decompressedSize, output.size() );
+    (void)footer;
 }
 
 
@@ -951,6 +974,7 @@ testInflateWrapper( const std::filesystem::path& rootFolder )
     testReadingPastEnd<InflateWrapper>( ContainerFormat::GZIP );
     testEmptyGzipStreamPlacement<InflateWrapper>();
     testEmptyStoredZlibStream<InflateWrapper>();
+    testEmptyInitialWindow<InflateWrapper>( rootFolder );
     testNoProgressAfterStreamEnd<InflateWrapper>();
     testGettingFooter<InflateWrapper>();
 }
