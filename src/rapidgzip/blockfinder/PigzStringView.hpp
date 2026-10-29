@@ -106,8 +106,9 @@ private:
 
         if ( checkBoundary ) {
             boundaryBufferSize = std::min( m_bufferSize, nBytesToRetain );
+            const auto boundaryStart = m_bufferSize - boundaryBufferSize;
             for ( std::size_t i = 0; i < boundaryBufferSize; ++i ) {
-                boundaryBuffer[i] = m_buffer[i + ( m_bufferSize - nBytesToRetain )];
+                boundaryBuffer[i] = m_buffer[boundaryStart + i];
             }
         }
 
@@ -117,10 +118,13 @@ private:
         m_bufferSize = m_fileReader->read( m_buffer.data(), m_readSize );
 
         if ( checkBoundary ) {
-            boundaryBufferSize += std::min( nBytesToRetain, m_bufferSize );
-            for ( std::size_t i = 0; i < std::min( nBytesToRetain, m_bufferSize ); ++i ) {
-                boundaryBuffer[nBytesToRetain + i] = m_buffer[i];
+            const auto nNewBytes = std::min( nBytesToRetain, m_bufferSize );
+            /* Append the new bytes directly after the retained previous bytes so that the view is contiguous
+             * even when the previous read returned fewer than nBytesToRetain bytes. */
+            for ( std::size_t i = 0; i < nNewBytes; ++i ) {
+                boundaryBuffer[boundaryBufferSize + i] = m_buffer[i];
             }
+            boundaryBufferSize += nNewBytes;
 
             findBlockOffsets( { boundaryBuffer.data(), boundaryBufferSize }, boundaryBufferOffset );
         }

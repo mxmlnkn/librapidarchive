@@ -16,6 +16,7 @@
 #include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
 #include <rapidgzip/blockfinder/DynamicHuffman.hpp>
+#include <rapidgzip/blockfinder/PigzStringView.hpp>
 #include <rapidgzip/blockfinder/Uncompressed.hpp>
 
 
@@ -89,6 +90,27 @@ testDynamicHuffmanBlockFinder()
                       << "\n";
         }
     }
+}
+
+
+void
+testPigzStringViewShortBoundary()
+{
+    /* Valid gzip header whose bytes 3..6 are 00 00 FF FF, i.e., the empty deflate block pattern starts at 3.
+     * Using a small analysis read size forces the pattern to be found across a buffer boundary without
+     * requiring a custom FileReader. */
+    std::vector<uint8_t> data{ 0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0xFF };
+    data.resize( 64, 0 );
+
+    blockfinder::PigzStringView blockFinder(
+        std::make_unique<BufferViewFileReader>( data ), /* readSize */ 3U );
+
+    REQUIRE_EQUAL( blockFinder.find(), 10U * CHAR_BIT );  // First deflate block after the gzip header.
+
+    /* The pattern is at byte offset 4, so it is only visible after the boundary view includes bytes 3..7. */
+    const auto blockOffset = blockFinder.find();
+    REQUIRE_EQUAL( blockOffset, 8U * CHAR_BIT );
+    REQUIRE_EQUAL( blockFinder.find(), std::numeric_limits<size_t>::max() );
 }
 
 
@@ -223,6 +245,7 @@ main( int    argc,
 
     testDynamicHuffmanBlockFinder();
     testUncompressedBlockFinderAtStart();
+    testPigzStringViewShortBoundary();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
