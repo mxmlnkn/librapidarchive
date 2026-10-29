@@ -391,9 +391,22 @@ public:
         m_cleanup( std::move( cleanup ) )
     {}
 
-    ~Finally()
+    /**
+     * Runs the cleanup on both normal exit and stack unwinding. If the cleanup throws during unwinding,
+     * the original exception is preserved; on normal exit, cleanup errors propagate like a Python/Java
+     * finally block.
+     */
+    ~Finally() noexcept( false )
     {
-        if ( m_cleanup ) {
+        if ( !m_cleanup ) {
+            return;
+        }
+        if ( std::uncaught_exceptions() > 0 ) {
+            try {
+                m_cleanup();
+            } catch ( ... ) {
+            }
+        } else {
             m_cleanup();
         }
     }

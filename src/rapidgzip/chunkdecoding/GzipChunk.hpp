@@ -73,12 +73,12 @@ public:
             return;
         }
 
+        /* Get the window as soon as possible to avoid costly long seeks back outside the BitReader buffer.
+         * Especially, don't do it during chunk splitting because it would be too late in general.
+         * The guard is outside the try/catch so that a restore failure on the normal path propagates and
+         * the postcondition (same offset after the call) is not silently violated. */
+        const Finally seekBack{ [&bitReader, oldOffset = bitReader.tell()] () { bitReader.seekTo( oldOffset ); } };
         try {
-            /* Get the window as soon as possible to avoid costly long seeks back outside the BitReader buffer.
-             * Especially, don't do it during chunk splitting because it would be too late in general. */
-            const Finally seekBack{ [&bitReader, oldOffset = bitReader.tell()] () {
-                bitReader.seekTo( oldOffset ); }
-            };
             bitReader.seek( subchunk.encodedOffset + subchunk.encodedSize );
             subchunk.usedWindowSymbols = deflate::getUsedWindowSymbols( bitReader );
         } catch ( const std::exception& ) {
