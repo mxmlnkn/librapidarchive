@@ -481,7 +481,11 @@ public:
     [[nodiscard]] std::pair<BitBuffer, size_t>
     peekAvailable() const
     {
-        return { peekUnsafe( bitBufferSize() ), bitBufferSize() };
+        const auto availableBits = bitBufferSize();
+        if ( availableBits == 0 ) {
+            return { 0, 0 };
+        }
+        return { peekUnsafe( availableBits ), availableBits };
     }
 
     /**

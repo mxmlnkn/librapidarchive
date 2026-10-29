@@ -115,17 +115,19 @@ public:
          * @endverbatim
          */
         uint64_t nextBits{ 0 };
+        std::optional<size_t> availableBitsCount;
         try
         {
             nextBits = bitReader.peek<32>();
-        } catch ( const gzip::BitReader::EndOfFileReached& exception ) {
+        } catch ( const gzip::BitReader::EndOfFileReached& ) {
             /* This should only happen in the error case or for raw deflate streams because those don't have
              * any footer acting as a kind of buffer to ensure that peek always works. */
             const auto [availableBits, count] = bitReader.peekAvailable();
             if ( count == 0 ) {
-                throw exception;
+                throw;
             }
             nextBits = availableBits;
+            availableBitsCount = count;
         }
 
         /* next_sym is a possible symbol decoded from next_bits. If bit 15 is 0,
@@ -140,6 +142,11 @@ public:
             /* Return symbol found if next_code is a complete huffman code
              * and shift in buffer over by the length of the next_code */
             const auto bit_count = next_sym >> LARGE_SHORT_CODE_LEN_OFFSET;
+            /* peek<32> may have failed because the stream is truncated. Do not seek past the bits that
+             * are actually available; that would assert in Debug and corrupt the buffer in Release. */
+            if ( availableBitsCount && ( bit_count > *availableBitsCount ) ) {
+                throw gzip::BitReader::EndOfFileReached();
+            }
             bitReader.seekAfterPeek( bit_count );
 
             if ( bit_count == 0 ) {
@@ -173,6 +180,9 @@ public:
         next_sym = m_huffmanCode.long_code_lookup[( next_sym & LARGE_SHORT_SYM_MASK )
                                                   + ( nextBits >> ISAL_DECODE_LONG_BITS )];
         const auto bit_count = next_sym >> LARGE_LONG_CODE_LEN_OFFSET;
+        if ( ( availableBitsCount > 0 ) && ( bit_count > availableBitsCount ) ) {
+            throw gzip::BitReader::EndOfFileReached();
+        }
         bitReader.seekAfterPeek( bit_count );
 
         if ( bit_count == 0 ) {
