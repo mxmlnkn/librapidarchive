@@ -1,4 +1,6 @@
 #include <iostream>
+#include <filesystem>
+#include <stdexcept>
 #include <memory>
 #include <random>
 #include <string>

@@ -1,4 +1,7 @@
 #include <iostream>
+#include <cstdint>
+#include <limits>
+#include <vector>
 #include <filesystem>
 #include <memory>
 #include <stdexcept>
