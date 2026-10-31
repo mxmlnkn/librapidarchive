@@ -695,7 +695,7 @@ testSmallReadsUntilOffset( const std::filesystem::path& compressedFilePath,
 
         /* Initialize the window */
         const auto windowStart = blockOffsets[i].second >= deflate::MAX_WINDOW_SIZE
-                                 ? deflate::MAX_WINDOW_SIZE - blockOffsets[i].second
+                                 ? blockOffsets[i].second - deflate::MAX_WINDOW_SIZE
                                  : 0;
         inflateWrapper.setWindow( VectorView<uint8_t>( originalData.data() + windowStart,
                                                        originalData.data() + blockOffsets[i].second ) );
