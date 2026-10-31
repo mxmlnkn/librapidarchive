@@ -53,6 +53,9 @@ public:
 
     ~RpmallocThreadInit()
     {
+        /* Collecting first releases blocks other threads freed into this thread's heaps. Finalizing alone
+         * only queues the heap, and a queued heap that is never adopted keeps its free pages committed. */
+        rpmalloc_thread_collect();
         rpmalloc_thread_finalize();
     }
 };

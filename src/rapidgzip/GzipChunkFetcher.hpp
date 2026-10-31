@@ -109,6 +109,10 @@ public:
     ~GzipChunkFetcher() override
     {
         m_cancelThreads = true;
+        /* Free the cached chunks while the worker threads are still alive so that the heaps of those threads
+         * collect the cross-thread frees when they exit. Freeing them after joining leaves the blocks in
+         * deferred free lists of heaps no thread owns anymore. */
+        this->clearCache();
         this->stopThreadPool();
 
         if ( BaseType::m_showProfileOnDestruction ) {

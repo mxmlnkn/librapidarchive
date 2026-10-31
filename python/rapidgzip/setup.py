@@ -51,9 +51,9 @@ abi3Version = '0x030E0000'
 abi3WheelTag = 'cp314'
 
 
-def getDependencyOption(key):
+def getDependencyOption(key, default='enable'):
     key = optionsPrefix + key
-    option = buildConfig.get(key, 'enable')
+    option = buildConfig.get(key, default)
     validValues = ['enable', 'disable', 'system']
     if option not in validValues:
         print(f"Unrecognized option for rapidgzip dependency: {key}={option}. Valid values are: {validValues}")
@@ -65,8 +65,13 @@ withIsal = getDependencyOption('ISAL')
 withRpmalloc = getDependencyOption('RPMALLOC')
 withZlibng = getDependencyOption('ZLIB')
 
+# rpmalloc 2.0.2 does not support 32-bit builds.
+if withRpmalloc != 'disable' and sys.maxsize <= 2**32:
+    print("[Warning] rpmalloc does not support 32-bit builds. Will disable it.")
+    withRpmalloc = 'disable'
+
 if withCxxopts == 'disable':
-    print("[Warning] Cxxopts can not be disabled! Will enable it.")
+    print("[Warning] Cxxopts cannot be disabled! Will enable it.")
     withCxxopts = 'enable'
 
 # ISA-l does not compile on 32-bit because it contains statements such as [bits 64].
