@@ -18,6 +18,11 @@ if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
     set(LIBRAPIDARCHIVE_WITH_RPMALLOC OFF)
 endif()
 
+# rpmalloc 2.0.2 does not support 32-bit builds.
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(LIBRAPIDARCHIVE_WITH_RPMALLOC OFF)
+endif()
+
 # There are too many bugs on macOS and I don't have a local test system.
 # See https://github.com/mxmlnkn/librapidarchive/pull/22#issuecomment-3156326658
 # Help from macOS users in the form of a PR fixing the linked issue would be very welcome!

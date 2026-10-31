@@ -198,6 +198,17 @@ public:
         m_finalized = true;
     }
 
+    void
+    clear()
+    {
+        const std::scoped_lock lock( m_mutex );
+        m_blockToDataOffsets.clear();
+        m_eosBlocks.clear();
+        m_lastBlockEncodedSize = 0;
+        m_lastBlockDecodedSize = 0;
+        m_finalized = false;
+    }
+
     [[nodiscard]] bool
     finalized() const
     {

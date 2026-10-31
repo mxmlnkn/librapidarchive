@@ -17,6 +17,7 @@
 
 #include <core/AffinityHelpers.hpp>
 #include <core/BlockMap.hpp>
+#include <core/Memory.hpp>
 #include <core/common.hpp>
 #include <filereader/FileReader.hpp>
 #include <filereader/Shared.hpp>
@@ -372,6 +373,7 @@ public:
             out << "    Window sparsity    : " << m_windowSparsity << "\n";
             std::cerr << out.str() << std::endl;
         }
+        close();
     }
 
     void
@@ -428,6 +430,14 @@ public:
         m_chunkFetcher.reset();
         m_blockFinder.reset();
         m_sharedFileReader.reset();
+        /* Keep maps that are still referenced by an exported index. */
+        if ( m_windowMap.use_count() == 1 ) {
+            m_windowMap->clear();
+        }
+        if ( m_blockMap.use_count() == 1 ) {
+            m_blockMap->clear();
+        }
+        releaseUnusedMemory();
     }
 
     [[nodiscard]] bool

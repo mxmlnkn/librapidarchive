@@ -6,6 +6,7 @@ import bz2
 import collections
 import concurrent.futures
 import faulthandler
+import gc
 import gzip
 import hashlib
 import io
@@ -465,6 +466,47 @@ def testRpmallocThreadSafety(encoder):
         thread.join()
 
 
+def testMemoryReleaseAfterClose():
+    """
+    Closing a reader must return the memory of decoded chunks to the OS. Allocator caches otherwise make a
+    long-running process appear to retain the peak memory usage of a large decompression.
+    """
+    if not sys.platform.startswith('linux'):
+        return
+
+    import ctypes
+
+    def currentRss():
+        with open('/proc/self/statm') as file:
+            return int(file.read().split()[1]) * os.sysconf('SC_PAGE_SIZE')
+
+    originalData = bytes(256 * 1024 * 1024)
+    compressedData = gzip.compress(originalData, compresslevel=1)
+    del originalData
+    # Release allocator caches left over from generating the fixture so that the baseline is meaningful.
+    try:
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+    gc.collect()
+    baseline = currentRss()
+
+    gzipFile = rapidgzip.RapidgzipFile(
+        io.BytesIO(compressedData), chunk_size=16 * 1024 * 1024, parallelization=4
+    )
+    gzipFile.export_index(io.BytesIO())
+    gzipFile.close()
+    del gzipFile
+    gc.collect()
+
+    hasRpmalloc = hasattr(ctypes.CDLL(rapidgzip.__file__), 'rpmalloc_finalize')
+    print(f"rpmalloc compiled into rapidgzip: {hasRpmalloc}")
+    print(f"Base memory usage: {baseline / 1e6:.1f} MB")
+    print(f"Current memory usage: {currentRss() / 1e6:.1f} MB")
+    retained = currentRss() - baseline
+    assert retained < 64 * 1024 * 1024, f"Closed reader retained {retained / 1e6:.1f} MB"
+
+
 def getFileTypeFromReader(format):
     rawFile, gzipFile = createRandomCompressedFile(1024, 6, format if format == 'uncompressed' else 'py' + format)
     with RapidgzipFile(gzipFile.name) as decompressedGzipFile:
@@ -506,6 +548,7 @@ if __name__ == '__main__':
     testReadReturnsMoreThanRequested()
     testDeadlock('pygzip')
     testRpmallocThreadSafety('pygzip')
+    testMemoryReleaseAfterClose()
 
     def test(openIndexedFileFromName, closeUnderlyingFile=None):
         testPythonInterface(

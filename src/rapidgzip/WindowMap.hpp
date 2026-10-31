@@ -97,6 +97,13 @@ public:
     }
 
     void
+    clear()
+    {
+        const std::scoped_lock lock( m_mutex );
+        m_windows.clear();
+    }
+
+    void
     releaseUpTo( size_t encodedOffset )
     {
         const std::scoped_lock lock( m_mutex );

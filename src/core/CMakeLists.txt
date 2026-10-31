@@ -18,6 +18,7 @@ target_sources(core INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/FileRanges.hpp
     ${CMAKE_CURRENT_LIST_DIR}/FileUtils.hpp
     ${CMAKE_CURRENT_LIST_DIR}/JoiningThread.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Memory.hpp
     ${CMAKE_CURRENT_LIST_DIR}/ParallelBitStringFinder.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Prefetcher.hpp
     ${CMAKE_CURRENT_LIST_DIR}/ScopedGIL.hpp
