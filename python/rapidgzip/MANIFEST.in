@@ -4,6 +4,7 @@ include README.md
 include rapidgzip.svg
 include CHANGELOG.md
 include rapidgzip.pyx
+exclude rapidgzip.cpp
 recursive-include src/core *.hpp
 recursive-include src/filereader *.hpp
 recursive-include src/huffman *.hpp
