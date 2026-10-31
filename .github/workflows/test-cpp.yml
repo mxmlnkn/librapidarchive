@@ -262,6 +262,9 @@ jobs:
   Asan:
     name: ASan
 
+    env:
+      ASAN_OPTIONS: abort_on_error=1
+
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -302,7 +305,7 @@ jobs:
         sanitizer=address
         mkdir -p "build-sanitized-$sanitizer" && cd -- "$_"
         cmake -G Ninja -DLIBRAPIDARCHIVE_WITH_ISAL=OFF -DLIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=OFF -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
+            -DCMAKE_C_FLAGS="-fsanitize=$sanitizer" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
         cmake --build . -- check
 
     - name: Run Tests With Sanitizers
@@ -310,13 +313,16 @@ jobs:
       run: |
         sanitizer=address
         mkdir -p "build-sanitized-$sanitizer" && cd -- "$_"
-        CXX=clang++ CC=clang cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
+        CXX=clang++ CC=clang cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=$sanitizer" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
         cmake --build . -- check
         cmake --build .
         bash ../src/tests/testRapidgzip.sh
 
   UBSan:
     name: UBSan
+
+    env:
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
     runs-on: ${{ matrix.os }}
     strategy:
@@ -358,7 +364,7 @@ jobs:
         sanitizer=undefined
         mkdir -p "build-sanitized-$sanitizer" && cd -- "$_"
         cmake -G Ninja -DLIBRAPIDARCHIVE_WITH_ISAL=OFF -DLIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=OFF -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
+            -DCMAKE_C_FLAGS="-fsanitize=$sanitizer -fno-sanitize-recover=$sanitizer" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -fno-sanitize-recover=$sanitizer -DSHORT_TESTS" ..
         cmake --build . -- testParallelGzipReader
         src/tests/rapidgzip/testParallelGzipReader
 
@@ -367,7 +373,7 @@ jobs:
       run: |
         sanitizer=undefined
         mkdir -p "build-sanitized-$sanitizer" && cd -- "$_"
-        CXX=clang++ CC=clang cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
+        CXX=clang++ CC=clang cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=$sanitizer -fno-sanitize-recover=$sanitizer" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -fno-sanitize-recover=$sanitizer -DSHORT_TESTS" ..
         cmake --build . -- check
 
   Safe-Stack:
@@ -413,7 +419,7 @@ jobs:
         sanitizer=address
         mkdir -p "build-sanitized-$sanitizer" && cd -- "$_"
         CXX=g++ CC=gcc cmake -G Ninja -DLIBRAPIDARCHIVE_WITH_ISAL=OFF -DLIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=OFF -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
+            -DCMAKE_C_FLAGS="-fsanitize=$sanitizer" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
         cmake --build . -- testParallelGzipReader
         src/tests/rapidgzip/testParallelGzipReader
 
@@ -422,11 +428,13 @@ jobs:
       run: |
         sanitizer=safe-stack
         mkdir -p "build-sanitized-$sanitizer" && cd -- "$_"
-        CXX=clang++ CC=clang cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
+        CXX=clang++ CC=clang cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=$sanitizer" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitizer -DSHORT_TESTS" ..
         cmake --build . -- check
 
   TSan:
     name: TSan
+    env:
+      TSAN_OPTIONS: halt_on_error=1
     runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v7
@@ -470,7 +478,7 @@ jobs:
         fi
         export CC CXX
         #
-        cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=$sanitized -DSHORT_TESTS" ..
+        cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-fsanitize=$sanitized" -DCMAKE_CXX_FLAGS="-fsanitize=$sanitized -DSHORT_TESTS" ..
         cmake --build . -- check
 
   Code-Checks:
