@@ -142,17 +142,33 @@ if (LIBRAPIDARCHIVE_BUILD_TESTS)
 endif()
 
 
-# Add beautify target
+# Add formatting targets
 
 find_package(Git QUIET)
+find_program(UNCRUSTIFY_EXECUTABLE NAMES uncrustify)
 
 if(GIT_FOUND)
-    add_custom_target(beautify-all
-        COMMAND ${GIT_EXECUTABLE} ls-tree -r --name-only HEAD > ${CMAKE_BINARY_DIR}/.beautify.lst
-        COMMAND sed -i -E "/[.](h|c)(pp)?$/!d; /external\\//d; /indexed_bzip2.cpp/d;" ${CMAKE_BINARY_DIR}/.beautify.lst
-        COMMAND uncrustify -c uncrustify.cfg -F ${CMAKE_BINARY_DIR}/.beautify.lst --no-backup
+    if(NOT UNCRUSTIFY_EXECUTABLE)
+        set(UNCRUSTIFY_EXECUTABLE uncrustify)
+    endif()
+
+    add_custom_target(format
+        COMMAND ${CMAKE_COMMAND} -E env "GIT=${GIT_EXECUTABLE}" "UNCRUSTIFY=${UNCRUSTIFY_EXECUTABLE}"
+                bash "${CMAKE_SOURCE_DIR}/format.sh" changed
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        USES_TERMINAL
         VERBATIM
-        # git ls-tree needs to be executed in git root
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
+
+    add_custom_target(beautify DEPENDS format)
+
+    add_custom_target(format-all
+        COMMAND ${CMAKE_COMMAND} -E env "GIT=${GIT_EXECUTABLE}" "UNCRUSTIFY=${UNCRUSTIFY_EXECUTABLE}"
+                bash "${CMAKE_SOURCE_DIR}/format.sh" all
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        USES_TERMINAL
+        VERBATIM
+    )
+
+    add_custom_target(beautify-all DEPENDS format-all)
 endif()
