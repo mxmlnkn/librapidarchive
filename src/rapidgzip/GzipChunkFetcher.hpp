@@ -237,6 +237,29 @@ public:
     }
 
     /**
+     * Waits for in-flight marker replacements before clearing the caches. Otherwise, a stale future for a newly
+     * decoded chunk with the same encoded offset would prevent the new chunk from being post-processed.
+     */
+    void
+    clearCache() override
+    {
+    #ifdef WITH_PYTHON_SUPPORT
+        const ScopedGILUnlock unlockedGIL;
+    #endif
+        for ( auto& [blockOffset, future] : m_markersBeingReplaced ) {
+            if ( future.valid() ) {
+                try {
+                    future.get();
+                } catch ( const std::exception& ) {
+                    /* Errors are rethrown when the chunk is requested directly. */
+                }
+            }
+        }
+        m_markersBeingReplaced.clear();
+        BaseType::clearCache();
+    }
+
+    /**
      * Add a callback which will be called for first seen chunks after they have been fully post-processed.
      * At this point of the algorithm, the offsets and windows of this chunk were added to the indexes.
      * As this is run on the orchestrator thread, it should not be compute-intensive. Compute-intensive stuff

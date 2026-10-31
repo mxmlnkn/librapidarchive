@@ -1056,6 +1056,7 @@ public:
 
         setBlockOffsets( newBlockOffsets );
 
+        /* Ensure the fetcher exists and start from an empty cache after replacing the block map. */
         chunkFetcher().clearCache();
     }
 

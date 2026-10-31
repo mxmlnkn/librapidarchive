@@ -1124,6 +1124,50 @@ testChunkRemerging()
 }
 
 
+void
+testClearCacheWithInFlightMarkerReplacements()
+{
+    std::mt19937_64 randomEngine;
+    constexpr auto INITIAL_RANDOM_SIZE = rapidgzip::deflate::MAX_WINDOW_SIZE;
+    auto randomData = createRandomData( INITIAL_RANDOM_SIZE, DNA_SYMBOLS );
+    randomData.resize( LARGE_TEST_SIZE );
+    for ( size_t i = INITIAL_RANDOM_SIZE; i < randomData.size(); ) {
+        const auto distance = randomEngine() % INITIAL_RANDOM_SIZE;
+        const auto remainingSize = randomData.size() - i;
+        const auto length = std::min<size_t>( randomEngine() % 256, remainingSize );
+        if ( ( length < 4 ) || ( length > distance ) ) {
+            continue;
+        }
+        std::memcpy( randomData.data() + i, randomData.data() + ( i - distance ), length );
+        i += length;
+    }
+    const auto compressed = compressWithZlib<std::vector<std::byte> >( randomData );
+
+    std::optional<GzipIndex> index;
+    {
+        ParallelGzipReader<ChunkData> reader(
+            std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2, /* chunkSize */ 1_Mi );
+        reader.read( -1, nullptr, std::numeric_limits<size_t>::max() );
+        index = reader.gzipIndex().clone();
+    }
+    REQUIRE( index.has_value() );
+
+    ParallelGzipReader<ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 8, /* chunkSize */ 1_Mi );
+    REQUIRE( reader.read( -1, nullptr, 2_Mi ) > 0 );
+    std::this_thread::sleep_for( std::chrono::milliseconds( 200 ) );
+    REQUIRE( reader.read( -1, nullptr, 2_Mi ) > 0 );
+
+    reader.setBlockOffsets( *index );
+    reader.seek( 0 );
+
+    std::vector<std::byte> actual( randomData.size() );
+    const auto nBytesRead = reader.read( -1, reinterpret_cast<char*>( actual.data() ), actual.size() );
+    REQUIRE_EQUAL( nBytesRead, actual.size() );
+    REQUIRE( actual == randomData );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -1153,6 +1197,7 @@ main( int    argc,
     testCRC32AndCleanUnmarkedData();
     testPrefetchingAfterSplit();
     testCachedChunkReuseAfterSplit();
+    testClearCacheWithInFlightMarkerReplacements();
     testParallelDecoderNano();
 
     const auto tmpFolder = createTemporaryDirectory( "rapidgzip.testParallelGzipReader" );

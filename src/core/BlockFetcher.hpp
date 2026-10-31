@@ -328,10 +328,35 @@ public:
         return result;
     }
 
-    void
+    /**
+     * Clears all caches and waits for outstanding prefetches. Use this when the decoding configuration
+     * changes, e.g., when enabling checksum verification, because prefetched chunks decoded with the old
+     * configuration must not be reused. The wait is a quiescence barrier, not result collection: dropping
+     * the futures would leave the worker tasks running against the old configuration.
+     */
+    virtual void
     clearCache()
     {
+    #ifdef WITH_PYTHON_SUPPORT
+        /* Worker threads may need the GIL to read from a Python file object. */
+        const ScopedGILUnlock unlockedGIL;
+    #endif
+        for ( auto& [blockOffset, future] : m_prefetching ) {
+            if ( future.valid() ) {
+                try {
+                    (void)future.get();
+                } catch ( const std::exception& ) {
+                    /* Errors are rethrown when the block is requested directly. */
+                }
+            }
+        }
+        m_prefetching.clear();
         m_cache.clear();
+        m_prefetchCache.clear();
+        {
+            const std::scoped_lock lock( m_failedPrefetchCacheMutex );
+            m_failedPrefetchCache.clear();
+        }
     }
 
     [[nodiscard]] Statistics
