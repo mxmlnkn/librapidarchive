@@ -370,7 +370,7 @@ public:
                                                     ? toString( *m_windowCompressionType )
                                                     : std::string( "Default" ) ) << "\n";
             out << "    Window sparsity    : " << m_windowSparsity << "\n";
-            std::cerr << std::endl;
+            std::cerr << out.str() << std::endl;
         }
     }
 
