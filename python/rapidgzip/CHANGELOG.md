@@ -1,3 +1,16 @@
+# Version 0.16.1 built on 2026-10-31
+
+## Fixes
+
+ - Do not stop at empty gzip streams that consist of a single stored block.
+ - Harden index format reading. e.g., to avoid overly large allocations.
+ - Avoid invalid seeks at stream start, handle EOF while reading the deflate block header,
+   and detect short reads in truncated stored blocks.
+ - Do not pass empty windows to inflate dictionaries and avoid null-pointer `memcpy` on empty input buffers.
+ - Handle truncated input in the ISA-L Huffman decoder without over-seeking.
+ - Propagate cleanup errors from `GzipChunk`.
+
+
 # Version 0.16.0 built on 2025-11-30
 
 ## Performance
