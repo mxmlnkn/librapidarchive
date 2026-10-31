@@ -538,6 +538,33 @@ testDirectFileReadingBitReaderBug( const std::filesystem::path& path )
 }
 
 
+void
+testPeekAvailableWithEmptyBuffer()
+{
+    /* peekAvailable on a BitReader with no bits must return {0, 0} and must not trigger the
+     * undefined-behavior shift in peekUnsafe (shift by 64) for an empty bit buffer. */
+    const std::vector<char> empty;
+
+    auto testReader =
+        [] ( const auto& bitReader )
+        {
+            REQUIRE( bitReader.eof() );
+            const auto [availableBits, count] = bitReader.peekAvailable();
+            REQUIRE( count == 0 );
+            REQUIRE( availableBits == 0 );
+        };
+
+    {
+        BitReader<true, uint64_t> bitReader( std::make_unique<BufferedFileReader>( empty ) );
+        testReader( bitReader );
+    }
+    {
+        BitReader<false, uint64_t> bitReader( std::make_unique<BufferedFileReader>( empty ) );
+        testReader( bitReader );
+    }
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -551,6 +578,7 @@ main( int    argc,
     testLSBBitReader();
     testMSBBitReaderPeek();
     testLSBBitReaderPeek();
+    testPeekAvailableWithEmptyBuffer();
 
     testBitReader<true>();
     testBitReader<false>();
