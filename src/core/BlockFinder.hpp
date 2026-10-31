@@ -112,9 +112,9 @@ public:
     get( size_t blockNumber,
          double timeoutInSeconds ) override
     {
-#ifdef WITH_PYTHON_SUPPORT
+    #ifdef WITH_PYTHON_SUPPORT
         const ScopedGILUnlock unlockedGIL;
-#endif
+    #endif
 
         if ( !m_blockOffsets.finalized() ) {
             startThreads();

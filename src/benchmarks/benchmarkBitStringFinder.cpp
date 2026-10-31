@@ -154,12 +154,12 @@ findBitString( const uint8_t* buffer,
                uint64_t       bitString,
                uint8_t        firstBitsToIgnore = 0 )
 {
-    #if 1
+#if 1
     const auto shiftedBitStrings = createdShiftedBitStringLUT( bitString, bitStringSize );
-    #elif 0
+#elif 0
     /* Not much of a difference. If anything, it feels like 1% slower */
     const auto shiftedBitStrings = createdShiftedBitStringLUTArray<bitStringSize>( bitString );
-    #else
+#else
     /* This version actually takes 50% longer for some reason! */
     constexpr std::array<std::pair<uint64_t, uint64_t>, 17> shiftedBitStrings = {
         std::make_pair( 0x0000'3141'5926'5359ULL, 0x0000'ffff'ffff'ffffULL ),
@@ -180,14 +180,14 @@ findBitString( const uint8_t* buffer,
         std::make_pair( 0x18a0'ac93'29ac'8000ULL, 0x7fff'ffff'ffff'8000ULL ),
         std::make_pair( 0x3141'5926'5359'0000ULL, 0xffff'ffff'ffff'0000ULL )
     };
-    #endif
+#endif
 
-    #if 0
+#if 0
     std::cerr << "Shifted Bit Strings:\n";
     for ( const auto [shifted, mask] : shiftedBitStrings ) {
         std::cerr << "0x" << std::hex << shifted << " 0x" << mask << "\n";
     }
-    #endif
+#endif
 
     /* Simply load bytewise even if we could load more (uneven) bits by rounding down.
      * This makes this implementation much less performant in comparison to the "% 8 = 0" version! */

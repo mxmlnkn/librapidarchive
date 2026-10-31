@@ -434,10 +434,10 @@ testNoProgressAfterStreamEnd()
     };
 
     for ( const auto& testCase : std::vector<TestCase>{
-              { ContainerFormat::GZIP, FileType::GZIP, 10U },
-              { ContainerFormat::ZLIB, FileType::ZLIB, 2U },
-              { ContainerFormat::DEFLATE, FileType::DEFLATE, 0U },
-          } )
+        { ContainerFormat::GZIP, FileType::GZIP, 10U },
+        { ContainerFormat::ZLIB, FileType::ZLIB, 2U },
+        { ContainerFormat::DEFLATE, FileType::DEFLATE, 0U },
+    } )
     {
         const auto compressedData = compressWithZlib(
             dataToCompress, CompressionStrategy::DEFAULT, {}, testCase.containerFormat );

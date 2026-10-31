@@ -495,10 +495,12 @@ public:
     [[nodiscard]] bool
     hasBeenPostProcessed() const
     {
+        const auto isPostProcessed =
+            [this] ( const auto& subchunk ) {
+                return subchunk.hasBeenPostProcessed( configuration.newlineCharacter.has_value() );
+            };
         return !m_subchunks.empty() && !containsMarkers()
-               && std::all_of( m_subchunks.begin(), m_subchunks.end(), [this] ( const auto& subchunk ) {
-                      return subchunk.hasBeenPostProcessed( configuration.newlineCharacter.has_value() );
-                  } );
+               && std::all_of( m_subchunks.begin(), m_subchunks.end(), isPostProcessed );
     }
 
     [[nodiscard]] const std::vector<Subchunk>&
@@ -527,8 +529,8 @@ public:
                  size_t            skipBytes ) const
     {
         return m_getWindowAt
-                ? m_getWindowAt( *this, previousWindow, skipBytes )
-                : DecodedData::getWindowAt( previousWindow, skipBytes );
+               ? m_getWindowAt( *this, previousWindow, skipBytes )
+               : DecodedData::getWindowAt( previousWindow, skipBytes );
     }
 
 protected:
@@ -622,7 +624,9 @@ ChunkData::setEncodedOffset( size_t offset )
     /* Adjust the encoded offset of the first subchunk because it may have been a range at the time of splitting. */
     if ( !m_subchunks.empty() ) {
         const auto nextSubchunk = std::next( m_subchunks.begin() );
-        const auto nextOffset = nextSubchunk == m_subchunks.end() ? encodedEndOffsetInBits : nextSubchunk->encodedOffset;
+        const auto nextOffset = nextSubchunk == m_subchunks.end()
+                                ? encodedEndOffsetInBits
+                                : nextSubchunk->encodedOffset;
         m_subchunks.front().encodedOffset = offset;
         m_subchunks.front().encodedSize = nextOffset - offset;
     }
@@ -840,16 +844,18 @@ struct ChunkDataCounter final :
          * The index should not be exported when this is used.
          * Return a dummy window so that decoding can be resumed after stopping.
          */
-        m_getWindowAt = [] ( const ChunkData&, WindowView const&, size_t ) {
-            return deflate::DecodedVector( deflate::MAX_WINDOW_SIZE, 0 );
-        };
+        m_getWindowAt =
+            [] ( const ChunkData&, WindowView const&, size_t ) {
+                return deflate::DecodedVector( deflate::MAX_WINDOW_SIZE, 0 );
+            };
     }
 
     ChunkDataCounter()
     {
-        m_getWindowAt = [] ( const ChunkData&, WindowView const&, size_t ) {
-            return deflate::DecodedVector( deflate::MAX_WINDOW_SIZE, 0 );
-        };
+        m_getWindowAt =
+            [] ( const ChunkData&, WindowView const&, size_t ) {
+                return deflate::DecodedVector( deflate::MAX_WINDOW_SIZE, 0 );
+            };
     }
 
     ~ChunkDataCounter() = default;

@@ -44,16 +44,16 @@
     #define S_IFIFO _S_IFIFO
     #define S_IFMT _S_IFMT
 
-    namespace rapidgzip
-    {
-    template<typename FileMode, typename FileType>
-    [[nodiscard]] bool
-    testFileType( FileMode fileMode,
-                  FileType fileType )
-    {
-        return ( fileMode & S_IFMT ) == fileType;
-    }
-    }  // namespace rapidgzip;
+namespace rapidgzip
+{
+template<typename FileMode, typename FileType>
+[[nodiscard]] bool
+testFileType( FileMode fileMode,
+              FileType fileType )
+{
+    return ( fileMode & S_IFMT ) == fileType;
+}
+}      // namespace rapidgzip;
 
     #define S_ISFIFO( m ) testFileType( m, S_IFIFO )
 
@@ -69,7 +69,9 @@
     #define forceinline __forceinline
 #elif defined( __clang__ ) || defined( __GNUC__ )
 /* https://stackoverflow.com/questions/38499462/how-to-tell-clang-to-stop-pretending-to-be-other-compilers */
+/* *INDENT-OFF* */
     #define forceinline __attribute__(( always_inline )) inline
+/* *INDENT-ON* */
 #endif
 
 namespace rapidgzip
@@ -404,8 +406,7 @@ public:
         if ( std::uncaught_exceptions() > 0 ) {
             try {
                 m_cleanup();
-            } catch ( ... ) {
-            }
+            } catch ( ... ) {}
         } else {
             m_cleanup();
         }
@@ -535,8 +536,8 @@ testFlags( const uint64_t value,
 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #if defined( __GNUC__ )
-    #define LIKELY( x ) ( __builtin_expect( static_cast<bool>( x ), 1 ))
-    #define UNLIKELY( x ) ( __builtin_expect( static_cast<bool>( x ), 0 ))
+    #define LIKELY( x ) ( __builtin_expect( static_cast<bool>( x ), 1 ) )
+    #define UNLIKELY( x ) ( __builtin_expect( static_cast<bool>( x ), 0 ) )
 #else
     #define LIKELY( x ) ( x )
     #define UNLIKELY( x ) ( x )

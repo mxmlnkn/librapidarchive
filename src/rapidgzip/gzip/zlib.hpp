@@ -588,9 +588,8 @@ ZlibInflateWrapper::readHeader()
     }
     case FileType::ZLIB:
     {
-        const auto& [header, error] = zlib::readHeader( [this] () {
-            return static_cast<uint64_t>( readBytes<1U>().front() );
-        } );
+        const auto& [header, error] = zlib::readHeader(
+            [this] () { return static_cast<uint64_t>( readBytes<1U>().front() ); } );
         if ( error == Error::END_OF_FILE ) {
             /* Still reset the stream below. Else, it would stay in the DONE state and inflate would return
              * Z_STREAM_END again without making any progress. */

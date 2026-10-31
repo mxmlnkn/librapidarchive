@@ -112,13 +112,17 @@ printIndexAnalytics( const Reader& reader )
     if ( gzipIndex.windows ) {
         const auto [lock, windows] = gzipIndex.windows->data();
         const auto compressedWindowSize =
-            std::accumulate( windows->begin(), windows->end(), size_t( 0 ), [] ( size_t sum, const auto& kv ) {
-                return sum + ( kv.second ? kv.second->compressedSize() : 0 );
-            } );
+            std::accumulate(
+                windows->begin(), windows->end(), size_t( 0 ),
+                [] ( size_t sum, const auto& kv ) {
+                    return sum + ( kv.second ? kv.second->compressedSize() : 0 );
+                } );
         const auto decompressedWindowSize =
-            std::accumulate( windows->begin(), windows->end(), size_t( 0 ), [] ( size_t sum, const auto& kv ) {
-                return sum + ( kv.second ? kv.second->decompressedSize() : 0 );
-            } );
+            std::accumulate(
+                windows->begin(), windows->end(), size_t( 0 ),
+                [] ( size_t sum, const auto& kv ) {
+                    return sum + ( kv.second ? kv.second->decompressedSize() : 0 );
+                } );
         std::cerr << "    Windows Count: " << windows->size() << "\n"
                   << "    Total Compressed Window Size: " << formatBytes( compressedWindowSize ) << "\n"
                   << "    Total Decompressed Window Size: " << formatBytes( decompressedWindowSize ) << "\n";
@@ -181,7 +185,8 @@ decompressParallel( const Arguments&   args,
     }
 
     /* If we have file ranges referencing newlines we have to gather newlines before calling readFunctor. */
-    const auto hasNewlineRange = args.fileRanges && std::any_of( args.fileRanges->begin(), args.fileRanges->end(),
+    const auto hasNewlineRange = args.fileRanges && std::any_of(
+        args.fileRanges->begin(), args.fileRanges->end(),
         [] ( const auto& range ) { return ( range.size > 0 ) && ( range.offsetIsLine || range.sizeIsLine ); } );
     if ( gatherLineOffsets && hasNewlineRange ) {
         reader->gatherLineOffsets();
@@ -269,75 +274,75 @@ rapidgzipCLI( int                  argc,
     cxxopts::Options options( "rapidgzip",
                               "A gzip decompressor tool based on the rapidgzip backend from ratarmount" );
     options.add_options( "Decompression" )
-        ( "c,stdout"     , "Output to standard output. This is the default, when reading from standard input." )
-        ( "f,force"      , "Force overwriting existing output files. "
-                           "Also forces decompression even when piped to /dev/null." )
-        ( "i,input"      , "Input file. If none is given, data is read from standard input.",
-          cxxopts::value<std::string>() )
-        ( "o,output"     ,
-          "Output file. If none is given, use the input file name with '.gz' stripped or '<input file>.out'. "
-          "If no input is read from standard input and not output file is given, then will write to standard output.",
-          cxxopts::value<std::string>() )
-        ( "k,keep"       , "Keep (do not delete) input file. Only for compatibility. "
-                           "This tool will not delete anything automatically!" )
-        ( "P,decoder-parallelism",
-          "Use the parallel decoder. "
-          "If an optional integer >= 1 is given, then that is the number of decoder threads to use. "
-          "Note that there might be further threads being started with non-decoding work. "
-          "If 0 is given, then the parallelism will be determined automatically.",
-          cxxopts::value<unsigned int>()->default_value( "0" ) )
-        ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,5L@20L,inf@40L to decompress "
-                    "the first 10 bytes, 1024 bytes at offset 15 KiB, as well as the 5 lines after skipping the first "
-                    "20 lines, and lastly, everything after skipping the first 40.",
-          cxxopts::value<std::string>() );
+    ( "c,stdout", "Output to standard output. This is the default, when reading from standard input." )
+    ( "f,force", "Force overwriting existing output files. "
+                 "Also forces decompression even when piped to /dev/null." )
+    ( "i,input", "Input file. If none is given, data is read from standard input.",
+      cxxopts::value<std::string>() )
+    ( "o,output",
+      "Output file. If none is given, use the input file name with '.gz' stripped or '<input file>.out'. "
+      "If no input is read from standard input and not output file is given, then will write to standard output.",
+      cxxopts::value<std::string>() )
+    ( "k,keep", "Keep (do not delete) input file. Only for compatibility. "
+                "This tool will not delete anything automatically!" )
+    ( "P,decoder-parallelism",
+      "Use the parallel decoder. "
+      "If an optional integer >= 1 is given, then that is the number of decoder threads to use. "
+      "Note that there might be further threads being started with non-decoding work. "
+      "If 0 is given, then the parallelism will be determined automatically.",
+      cxxopts::value<unsigned int>()->default_value( "0" ) )
+    ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,5L@20L,inf@40L to decompress "
+                "the first 10 bytes, 1024 bytes at offset 15 KiB, as well as the 5 lines after skipping the first "
+                "20 lines, and lastly, everything after skipping the first 40.",
+      cxxopts::value<std::string>() );
 
     options.add_options( "Advanced" )
-        ( "chunk-size", "The chunk size decoded by the parallel workers in KiB.",
-          cxxopts::value<unsigned int>()->default_value( "4096" ) )
-        ( "verify", "Verify CRC32 checksum during decompression. Will slow down decompression and there are already "
-                    "some implicit and explicit checks like whether the end of the file could be reached and whether "
-                    "the stream size is correct. If no action is specified, this will do nothing. Use --test to "
-                    "force checksum verification.",
-          cxxopts::value( args.crc32Enabled )->implicit_value( "true" ) )
-        ( "no-verify", "Do not verify CRC32 checksum during decompression. Might speed up decompression and there are "
-                       "already some implicit and explicit checks like whether the end of the file could be reached "
-                       "and whether the stream size is correct.",
-          cxxopts::value( args.crc32Enabled )->implicit_value( "false" ) )
-        ( "io-read-method", "Option to force a certain I/O method for reading. By default, pread will be used "
-                            "when possible. Possible values: pread, sequential, locked-read",
-          cxxopts::value<std::string>()->default_value( "pread" ) )
-        ( "index-format", "Option to select an output index format. Possible values: gztool, gztool-with-lines, "
-                          "indexed_gzip.",
-          cxxopts::value<std::string>()->default_value( "indexed_gzip" ) )
-        ( "sparse-windows", "On by default. Reduce index compressibility by zeroing out window data that is not "
-                            "referenced in the subsequent stream.",
-          cxxopts::value( args.windowSparsity )->implicit_value( "true" ) )
-        ( "no-sparse-windows", "Do not zero out unreferenced data in index windows. This may very slightly improve "
-                               "first-time decompression speed, but may also lead to higher memory usage. It can also "
-                               "be useful to create exported index that are binary identical to other those created "
-                               "by other tools such as gztool to debug indexes. In normal usage the sparsity is an "
-                               "index modification that is fully compatible with the original tools.",
-          cxxopts::value( args.windowSparsity )->implicit_value( "false" ) );
+    ( "chunk-size", "The chunk size decoded by the parallel workers in KiB.",
+      cxxopts::value<unsigned int>()->default_value( "4096" ) )
+    ( "verify", "Verify CRC32 checksum during decompression. Will slow down decompression and there are already "
+                "some implicit and explicit checks like whether the end of the file could be reached and whether "
+                "the stream size is correct. If no action is specified, this will do nothing. Use --test to "
+                "force checksum verification.",
+      cxxopts::value( args.crc32Enabled )->implicit_value( "true" ) )
+    ( "no-verify", "Do not verify CRC32 checksum during decompression. Might speed up decompression and there are "
+                   "already some implicit and explicit checks like whether the end of the file could be reached "
+                   "and whether the stream size is correct.",
+      cxxopts::value( args.crc32Enabled )->implicit_value( "false" ) )
+    ( "io-read-method", "Option to force a certain I/O method for reading. By default, pread will be used "
+                        "when possible. Possible values: pread, sequential, locked-read",
+      cxxopts::value<std::string>()->default_value( "pread" ) )
+    ( "index-format", "Option to select an output index format. Possible values: gztool, gztool-with-lines, "
+                      "indexed_gzip.",
+      cxxopts::value<std::string>()->default_value( "indexed_gzip" ) )
+    ( "sparse-windows", "On by default. Reduce index compressibility by zeroing out window data that is not "
+                        "referenced in the subsequent stream.",
+      cxxopts::value( args.windowSparsity )->implicit_value( "true" ) )
+    ( "no-sparse-windows", "Do not zero out unreferenced data in index windows. This may very slightly improve "
+                           "first-time decompression speed, but may also lead to higher memory usage. It can also "
+                           "be useful to create exported index that are binary identical to other those created "
+                           "by other tools such as gztool to debug indexes. In normal usage the sparsity is an "
+                           "index modification that is fully compatible with the original tools.",
+      cxxopts::value( args.windowSparsity )->implicit_value( "false" ) );
 
     options.add_options( "Output" )
-        ( "h,help"   , "Print this help message." )
-        ( "q,quiet"  , "Suppress non-critical error messages." )
-        ( "v,verbose", "Print debug output and profiling statistics." )
-        ( "V,version", "Display software version." )
-        ( "oss-attributions", "Display open-source software licenses." )
-        ( "oss-attributions-yaml", "Display open-source software licenses in YAML format for use with Conda." );
+    ( "h,help", "Print this help message." )
+    ( "q,quiet", "Suppress non-critical error messages." )
+    ( "v,verbose", "Print debug output and profiling statistics." )
+    ( "V,version", "Display software version." )
+    ( "oss-attributions", "Display open-source software licenses." )
+    ( "oss-attributions-yaml", "Display open-source software licenses in YAML format for use with Conda." );
 
     /* These options are offered because just piping to other tools can already bottleneck everything! */
     options.add_options( "Actions" )
-        ( "d,decompress" , "Force decompression. Only for compatibility. No compression supported anyways." )
-        ( "import-index" , "Uses an existing gzip index.", cxxopts::value<std::string>() )
-        ( "export-index" , "Write out a gzip index file.", cxxopts::value<std::string>() )
-        ( "count"        , "Prints the decompressed size." )
-        ( "l,count-lines", "Prints the number of newline characters in the decompressed data." )
-        ( "analyze"      , "Print output about the internal file format structure like the block types." )
-        ( "t,test"       , "Verify decompression and checksums, if not disabled with --no-verify. "
-                           "Note that this does not have any additional effect when combined with --decompress "
-                           "or --ranges because it is equivalent to --decompress -o /dev/null." );
+    ( "d,decompress", "Force decompression. Only for compatibility. No compression supported anyways." )
+    ( "import-index", "Uses an existing gzip index.", cxxopts::value<std::string>() )
+    ( "export-index", "Write out a gzip index file.", cxxopts::value<std::string>() )
+    ( "count", "Prints the decompressed size." )
+    ( "l,count-lines", "Prints the number of newline characters in the decompressed data." )
+    ( "analyze", "Print output about the internal file format structure like the block types." )
+    ( "t,test", "Verify decompression and checksums, if not disabled with --no-verify. "
+                "Note that this does not have any additional effect when combined with --decompress "
+                "or --ranges because it is equivalent to --decompress -o /dev/null." );
 
     options.parse_positional( { "input" } );
 
@@ -393,16 +398,16 @@ rapidgzipCLI( int                  argc,
             << "# " << thirdparty::cxxopts::name << "\n\n"
             << thirdparty::cxxopts::url << "\n\n"
             << thirdparty::cxxopts::license << "\n\n"
-        #ifdef LIBRAPIDARCHIVE_WITH_ISAL
+    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
             << "# " << thirdparty::isal::name << "\n\n"
             << thirdparty::isal::url << "\n\n"
             << thirdparty::isal::license << "\n\n"
-        #endif
-        #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
+    #endif
+    #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
             << "# " << thirdparty::rpmalloc::name << "\n\n"
             << thirdparty::rpmalloc::url << "\n\n"
             << thirdparty::rpmalloc::fullLicense << "\n\n"
-        #endif
+    #endif
             << "# " << thirdparty::zlib::name << "\n\n"
             << thirdparty::zlib::url << "\n\n"
             << thirdparty::zlib::license
@@ -425,15 +430,15 @@ rapidgzipCLI( int                  argc,
             << "    licenses:\n"
             << "      - license: Unlicense\n"
             << "        text: " << toYamlString( thirdparty::cxxopts::license ) << "\n"
-        #ifdef LIBRAPIDARCHIVE_WITH_ISAL
+    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
             << "  - package_name: " << thirdparty::isal::name << "\n"
             << "    package_version: 2.30.0\n"
             << "    license: BSD-3\n"
             << "    licenses:\n"
             << "      - license: BSD-3\n"
             << "        text: " << toYamlString( thirdparty::isal::license ) << "\n"
-        #endif
-        #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
+    #endif
+    #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
             << "  - package_name: " << thirdparty::rpmalloc::name << "\n"
             << "    package_version: 1.4.4\n"
             << "    license: Unlicense/MIT\n"
@@ -442,7 +447,7 @@ rapidgzipCLI( int                  argc,
             << "        text: " << toYamlString( thirdparty::rpmalloc::unlicense ) << "\n"
             << "      - license: MIT\n"
             << "        text: " << toYamlString( thirdparty::rpmalloc::mit ) << "\n"
-        #endif
+    #endif
             << "  - package_name: " << thirdparty::zlib::name << "\n"
             << "    package_version: " << ZLIB_VER_MAJOR << "." << ZLIB_VER_MINOR << "." << ZLIB_VER_REVISION << "\n"
             << "    license: Zlib\n"
@@ -467,7 +472,8 @@ rapidgzipCLI( int                  argc,
         /* Check whether the index needs to be kept because the ranges do not traverse the file in order. */
         if ( args.fileRanges->size() > 1 ) {
             for ( size_t i = 0; i + 1 < args.fileRanges->size(); ++i ) {
-                if ( args.fileRanges->at( i ).offset + args.fileRanges->at( i ).size > args.fileRanges->at( i + 1 ).offset ) {
+                if ( args.fileRanges->at( i ).offset + args.fileRanges->at( i ).size
+                     > args.fileRanges->at( i + 1 ).offset ) {
                     args.keepIndex = true;
                     break;
                 }
@@ -758,9 +764,8 @@ rapidgzipCLI( int                  argc,
                     /* Seek to line or byte offset. Note that line 0 starts at byte 0 by definition. */
                     if ( range.offsetIsLine && ( range.offset > 0 ) ) {
                         const auto& newlineOffsets = reader->newlineOffsets();
-                        const auto lessLineOffset = [] ( const auto& a, const auto lineOffset ) {
-                            return a.lineOffset < lineOffset;
-                        };
+                        const auto lessLineOffset =
+                            [] ( const auto& a, const auto lineOffset ) { return a.lineOffset < lineOffset; };
                         auto newlineOffset = std::lower_bound( newlineOffsets.begin(), newlineOffsets.end(),
                                                                range.offset, lessLineOffset );
                         if ( newlineOffset == newlineOffsets.end() ) {
@@ -835,19 +840,13 @@ main( int argc, char** argv )
     try
     {
         return rapidgzipCLI( argc, argv );
-    }
-    catch ( const gzip::BitReader::EndOfFileReached& exception )
-    {
+    } catch ( const gzip::BitReader::EndOfFileReached& exception ) {
         std::cerr << "Unexpected end of file. Truncated or invalid gzip?\n";
         return 1;
-    }
-    catch ( const bzip2::BitReader::EndOfFileReached& exception )
-    {
+    } catch ( const bzip2::BitReader::EndOfFileReached& exception ) {
         std::cerr << "Unexpected end of file. Truncated or invalid bzip2?\n";
         return 1;
-    }
-    catch ( const std::exception& exception )
-    {
+    } catch ( const std::exception& exception ) {
         const std::string_view message{ exception.what() };
         if ( message.empty() ) {
             std::cerr << "Caught exception with typeid: " << typeid( exception ).name() << "\n";

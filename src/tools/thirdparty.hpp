@@ -126,7 +126,8 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 )" };
 
 static const std::string fullLicense{
-    std::string( unlicense ) + R"(
+    std::string( unlicense )
+    + R"(
 You can also use this software under the MIT license if public domain
 is not recognized in your country
 )" + std::string( mit )

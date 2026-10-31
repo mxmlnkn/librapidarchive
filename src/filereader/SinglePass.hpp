@@ -306,9 +306,11 @@ private:
         m_notifyReaderThread.notify_one();
 
         std::unique_lock lock( m_bufferMutex );
-        m_bufferChanged.wait( lock, [this, untilOffset] () {
-            return m_underlyingFileEOF || ( m_buffer.size () * CHUNK_SIZE >= untilOffset );
-        } );
+        m_bufferChanged.wait(
+            lock,
+            [this, untilOffset] () {
+                return m_underlyingFileEOF || ( m_buffer.size() * CHUNK_SIZE >= untilOffset );
+            } );
     }
 
     void
@@ -323,11 +325,13 @@ private:
         while ( !m_cancelReaderThread && !m_underlyingFileEOF ) {
             if ( m_numberOfBytesRead >= saturatingAddition( m_bufferUntilOffset.load(), 64 * CHUNK_SIZE ) ) {
                 std::unique_lock lock( m_bufferUntilOffsetMutex );
-                m_notifyReaderThread.wait( lock, [this] () {
-                    return m_cancelReaderThread
+                m_notifyReaderThread.wait(
+                    lock,
+                    [this] () {
+                        return m_cancelReaderThread
                            || ( m_numberOfBytesRead < saturatingAddition( m_bufferUntilOffset.load(),
                                                                           64 * CHUNK_SIZE ) );
-                } );
+                    } );
                 continue;
             }
 

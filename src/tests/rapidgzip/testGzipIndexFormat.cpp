@@ -126,9 +126,7 @@ testIndexReadWrite( const std::filesystem::path& compressedPath,
         }
 
         REQUIRE( rereadIndex == index );
-    }
-    catch ( const std::exception& exception )
-    {
+    } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
          * @see https://stackoverflow.com/questions/222175/why-destructor-is-not-called-on-exception */
         std::cerr << "Caught exception: " << exception.what() << "\n";
@@ -242,47 +240,49 @@ testMalformedIndexSizes( const std::filesystem::path& rootFolder )
 void
 testCraftedIndexedGzipIndexes()
 {
-    const auto appendLittleEndian = [] ( std::vector<uint8_t>& data, auto value ) {
-        for ( size_t i = 0; i < sizeof( value ); ++i ) {
-            data.push_back( static_cast<uint8_t>( ( value >> ( 8 * i ) ) & 0xFFU ) );
-        }
-    };
+    const auto appendLittleEndian =
+        [] ( std::vector<uint8_t>& data, auto value ) {
+            for ( size_t i = 0; i < sizeof( value ); ++i ) {
+                data.push_back( static_cast<uint8_t>( ( value >> ( 8 * i ) ) & 0xFFU ) );
+            }
+        };
 
-    const auto makeHeader = [&] ( const uint64_t compressedSize,
-                                  const uint64_t uncompressedSize,
-                                  const uint32_t checkpointCount )
-    {
-        std::vector<uint8_t> data{ 'G', 'Z', 'I', 'D', 'X', 1, 0 };
-        appendLittleEndian( data, compressedSize );
-        appendLittleEndian( data, uncompressedSize );
-        appendLittleEndian( data, uint32_t( 1 ) );       // checkpoint spacing
-        appendLittleEndian( data, uint32_t( 32_Ki ) );   // window size
-        appendLittleEndian( data, checkpointCount );
-        return data;
-    };
+    const auto makeHeader =
+        [&] ( const uint64_t compressedSize,
+              const uint64_t uncompressedSize,
+              const uint32_t checkpointCount )
+        {
+            std::vector<uint8_t> data{ 'G', 'Z', 'I', 'D', 'X', 1, 0 };
+            appendLittleEndian( data, compressedSize );
+            appendLittleEndian( data, uncompressedSize );
+            appendLittleEndian( data, uint32_t( 1 ) );   // checkpoint spacing
+            appendLittleEndian( data, uint32_t( 32_Ki ) ); // window size
+            appendLittleEndian( data, checkpointCount );
+            return data;
+        };
 
-    const auto requireInvalidArgument = [&] ( const std::vector<uint8_t>& indexData,
-                                              const std::string&            description )
-    {
-        bool threwInvalidArgument{ false };
-        bool threwAllocationError{ false };
-        try {
-            (void)readGzipIndex( std::make_unique<BufferViewFileReader>( indexData ) );
-        } catch ( const std::bad_alloc& ) {
-            threwAllocationError = true;
-        } catch ( const std::length_error& ) {
-            threwAllocationError = true;
-        } catch ( const std::invalid_argument& ) {
-            threwInvalidArgument = true;
-        } catch ( const std::exception& ) {
-        }
+    const auto requireInvalidArgument =
+        [&] ( const std::vector<uint8_t>& indexData,
+              const std::string&            description )
+        {
+            bool threwInvalidArgument{ false };
+            bool threwAllocationError{ false };
+            try {
+                (void)readGzipIndex( std::make_unique<BufferViewFileReader>( indexData ) );
+            } catch ( const std::bad_alloc& ) {
+                threwAllocationError = true;
+            } catch ( const std::length_error& ) {
+                threwAllocationError = true;
+            } catch ( const std::invalid_argument& ) {
+                threwInvalidArgument = true;
+            } catch ( const std::exception& ) {}
 
-        if ( !threwInvalidArgument || threwAllocationError ) {
-            std::cerr << description << " did not fail with std::invalid_argument without huge allocation!\n";
-        }
-        REQUIRE( threwInvalidArgument );
-        REQUIRE( !threwAllocationError );
-    };
+            if ( !threwInvalidArgument || threwAllocationError ) {
+                std::cerr << description << " did not fail with std::invalid_argument without huge allocation!\n";
+            }
+            REQUIRE( threwInvalidArgument );
+            REQUIRE( !threwAllocationError );
+        };
 
     /* A compressed offset that overflows when converted to bits must be rejected. */
     {

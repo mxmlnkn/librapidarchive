@@ -187,8 +187,9 @@ testFixedHuffmanCoding()
     decoded.clear();
     for ( size_t i = 0; i < 255 - 144 + 1; ++i ) {
         constexpr auto literals7BitsCount = 279 - 256 + 1;
-        const auto mergedCode = reverseBits( static_cast<uint16_t>(
-            ( /* 7-bit */ ( i % literals7BitsCount ) << 9U ) | /* 9-bit */ ( 0b1'1001'0000UL + i )
+        const auto mergedCode = reverseBits(
+            static_cast<uint16_t>(
+                ( /* 7-bit */ ( i % literals7BitsCount ) << 9U ) | /* 9-bit */ ( 0b1'1001'0000UL + i )
         ) );
 
         encoded.push_back( mergedCode & nLowestBitsSet<uint16_t, 8>() );

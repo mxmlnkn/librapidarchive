@@ -671,7 +671,9 @@ findDynamicFalsePositives( const size_t nBitsToTest )
     << "            Non-Optimal Distance Huffman Coding: " << stats.filteredByBloatingDistanceCoding.toString() << "\n"
     << "            +-> Remaining locations to test: " << stats.passedDistanceInitCheck.toString() << "\n"
     << "                Invalid Literal Huffman Coding    : " << stats.filteredByInvalidLiteralCoding.toString() << "\n"
-    << "                Non-Optimal Literal Huffman Coding: " << stats.filteredByBloatingLiteralCoding.toString() << "\n"
+    << "                Non-Optimal Literal Huffman Coding: " << stats.filteredByBloatingLiteralCoding.toString()
+
+    << "\n"
     << "                +-> Remaining locations to test: " << stats.passedReadHeader.toString() << "\n"
     << "                    Location candidates: " << stats.foundOffsets.formatAverageWithUncertainty( false, 2 )
     << "\n\n";

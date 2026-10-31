@@ -300,15 +300,15 @@ main( int    argc,
                               "Simple tool to count 0s and 1s in respect to the last n bits before it." );
 
     options.add_options()
-        ( "h,help", "Print this help message." )
-        ( "i,input", "Input file.",
-          cxxopts::value<std::string>() )
-        ( "n,pattern-bits",
-          "The returned table will contain 2^n entries holding the number of occurrences per pattern.",
-          cxxopts::value<unsigned int>()->default_value( "16" ) )
-        ( "p,parallelism",
-          "The number of parallel threads to use for processing the file.",
-          cxxopts::value<unsigned int>()->default_value( "1" )->implicit_value( "0" ) );
+    ( "h,help", "Print this help message." )
+    ( "i,input", "Input file.",
+      cxxopts::value<std::string>() )
+    ( "n,pattern-bits",
+      "The returned table will contain 2^n entries holding the number of occurrences per pattern.",
+      cxxopts::value<unsigned int>()->default_value( "16" ) )
+    ( "p,parallelism",
+      "The number of parallel threads to use for processing the file.",
+      cxxopts::value<unsigned int>()->default_value( "1" )->implicit_value( "0" ) );
 
     options.parse_positional( { "input" } );
 

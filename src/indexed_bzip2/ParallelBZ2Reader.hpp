@@ -221,9 +221,7 @@ public:
                                 BitReader nextBzip2StreamBitReader( m_bitReader );
                                 nextBzip2StreamBitReader.seekTo( nextStreamOffsetInBits );
                                 bzip2::readBzip2Header( nextBzip2StreamBitReader );
-                            }
-                            catch ( const std::exception& )
-                            {
+                            } catch ( const std::exception& ) {
                                 std::cerr << "[Warning] Trailing garbage after EOF ignored!\n";
                                 /**
                                  * Stop reading the file here! 'bzip2-tests' comes with a test in which there actually

@@ -253,10 +253,11 @@ public:
          * have to recheck m_sharedFile before after each relock. Note that there are two semantics here:
          * 1. Locking access to the underlying file
          * 2. Locking access to the shared_ptr member. */
-        const auto sharedFile = [this] () {
-            const auto lock = getLock();
-            return std::shared_ptr<FileReader>( m_sharedFile );
-        } ();
+        const auto sharedFile =
+            [this] () {
+                const auto lock = getLock();
+                return std::shared_ptr<FileReader>( m_sharedFile );
+            } ();
         if ( !sharedFile ) {
             throw std::invalid_argument( "Invalid SharedFileReader cannot be read from!" );
         }

@@ -103,7 +103,7 @@ protected:
 
         if constexpr ( CHECK_OPTIMALITY ) {
             if ( ( ( nonZeroCount == 1 ) && ( unusedSymbolCount != ( 1U << m_maxCodeLength ) ) ) ||
-                 ( ( nonZeroCount >  1 ) && ( unusedSymbolCount != 0 ) ) ) {
+                 ( ( nonZeroCount > 1 ) && ( unusedSymbolCount != 0 ) ) ) {
                 return Error::BLOATING_HUFFMAN_CODING;
             }
         }

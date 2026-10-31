@@ -37,7 +37,7 @@ fillWithRandomData( void* const  data,
             x = randomEngine();
         }
         const auto nBytesToWrite = std::min<uint64_t>( buffer.size() * sizeof( buffer[0] ), size - nBytesWritten );
-        std::memcpy( reinterpret_cast<char*>( data ) + nBytesWritten, buffer.data(), nBytesToWrite);
+        std::memcpy( reinterpret_cast<char*>( data ) + nBytesWritten, buffer.data(), nBytesToWrite );
         nBytesWritten += nBytesToWrite;
     }
 }

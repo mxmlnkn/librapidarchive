@@ -268,9 +268,9 @@ analyze( UniqueFileReader inputFile,
             break;
         }
 
-        #ifdef WITH_PYTHON_SUPPORT
+    #ifdef WITH_PYTHON_SUPPORT
         checkPythonSignalHandlers();
-        #endif
+    #endif
 
         switch ( fileType )
         {
@@ -309,8 +309,10 @@ analyze( UniqueFileReader inputFile,
                     std::cout << "    File Name           : " << *header.fileName << "\n";
                 }
                 std::cout << "    Modification Time   : " << header.modificationTime << "\n";
-                std::cout << "    OS                  : " << gzip::getOperatingSystemName( header.operatingSystem ) << "\n";
-                std::cout << "    Flags               : " << gzip::getExtraFlagsDescription( header.extraFlags ) << "\n";
+                std::cout << "    OS                  : " << gzip::getOperatingSystemName( header.operatingSystem )
+                          << "\n";
+                std::cout << "    Flags               : " << gzip::getExtraFlagsDescription( header.extraFlags )
+                          << "\n";
                 if ( header.comment ) {
                     std::cout << "    Comment             : " << *header.comment << "\n";
                 }
@@ -708,11 +710,11 @@ analyze( UniqueFileReader inputFile,
         << "readDynamicHuffmanCoding : " << printCategorizedDuration( block.durations.readDynamicHeader ) << "\n"
         << "readData                 : " << printCategorizedDuration( block.durations.readData ) << "\n"
         << "Dynamic Huffman Initialization in Detail:\n"
-        << "    Read precode       : " << printHeaderDuration( block.durations.readPrecode      ) << "\n"
-        << "    Create precode HC  : " << printHeaderDuration( block.durations.createPrecodeHC  ) << "\n"
-        << "    Apply precode HC   : " << printHeaderDuration( block.durations.applyPrecodeHC   ) << "\n"
+        << "    Read precode       : " << printHeaderDuration( block.durations.readPrecode ) << "\n"
+        << "    Create precode HC  : " << printHeaderDuration( block.durations.createPrecodeHC ) << "\n"
+        << "    Apply precode HC   : " << printHeaderDuration( block.durations.applyPrecodeHC ) << "\n"
         << "    Create distance HC : " << printHeaderDuration( block.durations.createDistanceHC ) << "\n"
-        << "    Create literal HC  : " << printHeaderDuration( block.durations.createLiteralHC  ) << "\n"
+        << "    Create literal HC  : " << printHeaderDuration( block.durations.createLiteralHC ) << "\n"
         << "\n"
         << "\n";
 

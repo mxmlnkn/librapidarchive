@@ -856,7 +856,7 @@ getSparseWindowByBruteForce( gzip::BitReader&              bitReader,
         const auto decoded = getDecompressed( sparseChunkData, 0 );
         if ( decoded.size() != expected.size() ) {
             throw std::logic_error(
-                "Inequal size when decoding with sparse window (" + std::to_string( expected.size() )
+                      "Inequal size when decoding with sparse window (" + std::to_string( expected.size() )
                 + ") vs. without (" + std::to_string( expected.size() ) + ")!" );
         }
 

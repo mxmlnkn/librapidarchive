@@ -113,8 +113,7 @@ findWithBlockFinder( const std::string_view path )
             }
             streamOffsets.push_back( offset );
         }
-    }
-    catch ( const std::invalid_argument& ) {
+    } catch ( const std::invalid_argument& ) {
         return {};
     }
 
@@ -686,7 +685,7 @@ checkDeflateBlock( const uint64_t   bitBufferForLUT,
 
     /* Check distance code lengths. */
     if ( LIKELY( !checkHuffmanCodeLengths<MAX_CODE_LENGTH>(
-        VectorView<uint8_t>( literalCL.data() + literalCodeCount, distanceCodeCount ) ) ) ) [[likely]] {
+                     VectorView<uint8_t>( literalCL.data() + literalCodeCount, distanceCodeCount ) ) ) ) [[likely]] {
         return Error::INVALID_CODE_LENGTHS;
     }
 
@@ -1140,8 +1139,8 @@ benchmarkGzip( const std::string& fileName )
     }
 
     {
-        const auto [blockCandidates, durations] =
-            benchmarkFunction<10>( [fileName] () {
+        const auto [blockCandidates, durations] = benchmarkFunction<10>(
+            [fileName] () {
                 return findWithBlockFinder<blockfinder::PigzStringView>( fileName );
             } );
         std::cout << "[findPigzFlushPoints] " << formatBandwidth( durations, fileSize( fileName ) ) << "\n";
@@ -1384,8 +1383,9 @@ printLUTSizes()
     std::cerr << "CRC32_SLICE_BY_N_LUT                   : " << sizeof( CRC32_SLICE_BY_N_LUT ) << "\n";  // 64 KiB
     std::cerr << "NEXT_DYNAMIC_DEFLATE_CANDIDATE_LUT<"
               << static_cast<int>( blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE ) << "> : "  // 16 KiB
-              << formatBytes( sizeof(
-                     blockfinder::NEXT_DYNAMIC_DEFLATE_CANDIDATE_LUT<blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE> ) )
+              << formatBytes(
+        sizeof(
+            blockfinder::NEXT_DYNAMIC_DEFLATE_CANDIDATE_LUT<blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE> ) )
               << "\n";
 }
 

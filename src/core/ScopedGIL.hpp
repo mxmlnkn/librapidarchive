@@ -13,13 +13,13 @@ namespace rapidgzip
 [[nodiscard]] bool
 pythonIsFinalizing()
 {
-    #if ( PY_MAJOR_VERSION != 3 ) || ( PY_MINOR_VERSION < 8 )
-        return false;
-    #elif PY_MINOR_VERSION < 13
-        return _Py_IsFinalizing();
-    #else
-        return Py_IsFinalizing();
-    #endif
+#if ( PY_MAJOR_VERSION != 3 ) || ( PY_MINOR_VERSION < 8 )
+    return false;
+#elif PY_MINOR_VERSION < 13
+    return _Py_IsFinalizing();
+#else
+    return Py_IsFinalizing();
+#endif
 }
 
 
@@ -119,11 +119,11 @@ private:
         /* PyPy did not have PyGILState_GetThisThreadState, so we have to use a workaround.
          * https://github.com/pypy/pypy/issues/5302 */
         PyThreadState* threadState{ nullptr };
-        #ifdef PYPY_VERSION_NUM
-            threadState = _PyThreadState_UncheckedGet();
-        #else
-            threadState = PyGILState_GetThisThreadState();
-        #endif
+    #ifdef PYPY_VERSION_NUM
+        threadState = _PyThreadState_UncheckedGet();
+    #else
+        threadState = PyGILState_GetThisThreadState();
+    #endif
 
         const auto gilExists = threadState != nullptr;
         if ( doLock ) {

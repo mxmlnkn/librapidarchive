@@ -445,18 +445,26 @@ benchmarkBitReaders( const std::vector<char>& data,
             std::cout << "Decoded with " << formatBandwidth( times ) << "\n";
         };
 
-    measureTimes( BenchmarkType::SIMPLE_LOOP, [&] () {
-                      return benchmarkBitReading<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
-                  } );
-    measureTimes( BenchmarkType::BIT_READER_READ, [&] () {
-                      return benchmarkBitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
-                  } );
-    measureTimes( BenchmarkType::BIT_READER_TEMPLATE_READ, [&] () {
-                      return benchmarkBitReaderTemplatedRead<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
-                  } );
-    measureTimes( BenchmarkType::BIT_READER_TEMPLATE_PEEK, [&] () {
-                      return benchmarkBitReaderTemplatedPeek<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
-                  } );
+    measureTimes(
+        BenchmarkType::SIMPLE_LOOP,
+        [&] () {
+            return benchmarkBitReading<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
+        } );
+    measureTimes(
+        BenchmarkType::BIT_READER_READ,
+        [&] () {
+            return benchmarkBitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
+        } );
+    measureTimes(
+        BenchmarkType::BIT_READER_TEMPLATE_READ,
+        [&] () {
+            return benchmarkBitReaderTemplatedRead<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
+        } );
+    measureTimes(
+        BenchmarkType::BIT_READER_TEMPLATE_PEEK,
+        [&] () {
+            return benchmarkBitReaderTemplatedPeek<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>( data, nBits );
+        } );
 
     return results;
 }

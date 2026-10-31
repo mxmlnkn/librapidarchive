@@ -296,7 +296,8 @@ private:
             std::stringstream message;
             message << "[GzipChunkFetcher] Did not expect to get results with markers because the offset already "
                     << "exists in the block map!\n"
-                    << "    Requested decompressed offset: " << formatBytes( offset ) << " found to belong to chunk at: "
+                    << "    Requested decompressed offset: " << formatBytes( offset )
+                    << " found to belong to chunk at: "
                     << formatBits( blockOffset ) << " with range ["
                     << formatBits( chunkData->encodedOffsetInBits ) << ", "
                     << formatBits( chunkData->encodedOffsetInBits + chunkData->encodedSizeInBits ) << "].\n"
@@ -652,9 +653,7 @@ private:
                 /* This call given the exact block offset must always yield the correct data and should be equivalent
                  * to directly call @ref decodeBlock with that offset. */
                 chunkData = BaseType::get( blockOffset, blockIndex, getPartitionOffsetFromOffset );
-            }
-            catch ( const gzip::BitReader::EndOfFileReached& exception )
-            {
+            } catch ( const gzip::BitReader::EndOfFileReached& exception ) {
                 std::cerr << "Unexpected end of file when getting block at " << formatBits( blockOffset )
                           << " (block index: " << blockIndex << ") on demand\n";
                 throw exception;

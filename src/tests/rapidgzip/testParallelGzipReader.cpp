@@ -744,16 +744,17 @@ testMultiThreadedUsage()
     reader->setCRC32Enabled( true );
 
     std::vector<char> result;
-    std::thread thread( [&result, gzipReader = std::move( reader )] () {
-        std::vector<char> buffer( 1024ULL );
-        while ( true ) {
-            const auto nBytesRead = gzipReader->read( buffer.data(), buffer.size() );
-            if ( nBytesRead == 0 ) {
-                break;
+    std::thread thread(
+        [&result, gzipReader = std::move( reader )] () {
+            std::vector<char> buffer( 1024ULL );
+            while ( true ) {
+                const auto nBytesRead = gzipReader->read( buffer.data(), buffer.size() );
+                if ( nBytesRead == 0 ) {
+                    break;
+                }
+                result.insert( result.end(), buffer.begin(), buffer.begin() + nBytesRead );
             }
-            result.insert( result.end(), buffer.begin(), buffer.begin() + nBytesRead );
-        }
-    } );
+        } );
 
     thread.join();
     REQUIRE_EQUAL( result.size(), DATA_SIZE );
@@ -995,9 +996,8 @@ testWindowPruning( const TemporaryDirectory&        tmpFolder,
                    const std::set<EncoderMetadata>& installedEncoders )
 {
     testWindowPruningSimpleBase64Compression( tmpFolder, "gzip" );
-    if ( std::any_of( installedEncoders.begin(), installedEncoders.end(), [] ( const auto& metadata ) {
-        return std::get<0>( metadata ) == "bgzip";
-    } ) ) {
+    if ( std::any_of( installedEncoders.begin(), installedEncoders.end(),
+                      [] ( const auto& metadata ) { return std::get<0>( metadata ) == "bgzip"; } ) ) {
         testWindowPruningSimpleBase64Compression( tmpFolder, "bgzip" );
     }
 

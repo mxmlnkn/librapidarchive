@@ -924,7 +924,7 @@ benchmarkApplyWindow( const std::vector<uint16_t>& data,
     const auto t0 = now();
     decoded.applyWindow( { window.data(), window.size() } );
     const auto [buffer, size] = *DecodedData::Iterator( decoded );
-    const auto checksum = reinterpret_cast<const uint8_t*>( buffer )[ size / 2];
+    const auto checksum = reinterpret_cast<const uint8_t*>( buffer )[size / 2];
 
     return { duration( t0 ), checksum };
 }

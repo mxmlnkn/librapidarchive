@@ -220,13 +220,13 @@ testChooseFrom()
     REQUIRE_EQUAL( ( chooseFrom( 0, 4 ) ), ( ChosenIndexes{} ) );
     REQUIRE_EQUAL( ( chooseFrom( 1, 4 ) ), ( ChosenIndexes{ { { { 0 } }, { { 1 } }, { { 2 } }, { { 3 } } } } ) );
     REQUIRE_EQUAL( ( chooseFrom( 2, 4 ) ), ( ChosenIndexes{ {
-        { { 0, 1 } }, { { 0, 2 } }, { { 0, 3 } },
-        { { 1, 2 } }, { { 1, 3 } },
-        { { 2, 3 } }
-    } } ) );
+                                                 { { 0, 1 } }, { { 0, 2 } }, { { 0, 3 } },
+                                                 { { 1, 2 } }, { { 1, 3 } },
+                                                 { { 2, 3 } }
+                                             } } ) );
     REQUIRE_EQUAL( ( chooseFrom( 3, 4 ) ), ( ChosenIndexes{ {
-        { { 0, 1, 2 } }, { { 0, 1, 3 } }, { { 0, 2, 3 } }, { { 1, 2, 3 } }
-    } } ) );
+                                                 { { 0, 1, 2 } }, { { 0, 1, 3 } }, { { 0, 2, 3 } }, { { 1, 2, 3 } }
+                                             } } ) );
     REQUIRE_EQUAL( ( chooseFrom( 4, 4 ) ), ( ChosenIndexes{ { { { 0, 1, 2, 3 } } } } ) );
 }
 
@@ -365,8 +365,9 @@ testCLI()
     combinableOptions = concatenateChoices( combinableOptions, { {}, { { "--import-index"s, indexFilePath } } } );
 #ifndef SHORT_TESTS
     combinableOptions = concatenateChoices( combinableOptions, { { { "--verify"s } }, { { "--no-verify"s } } } );
-    combinableOptions = concatenateChoices( combinableOptions, { { { "--io-read-method"s, "sequential"s } },
-                                                                 { { "--io-read-method"s, "pread"s } } } );
+    combinableOptions = concatenateChoices( combinableOptions, {
+        { { "--io-read-method"s, "sequential"s } },
+        { { "--io-read-method"s, "pread"s } } } );
 #endif
 
     ArgumentLists combinedArguments;

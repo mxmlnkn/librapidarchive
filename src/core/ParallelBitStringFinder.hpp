@@ -162,7 +162,7 @@ size_t
 ParallelBitStringFinder<bitStringSize>::find()
 {
 #ifdef WITH_PYTHON_SUPPORT
-        const ScopedGILUnlock unlockedGIL;
+    const ScopedGILUnlock unlockedGIL;
 #endif
 
     while ( !BaseType::eof() || !m_threadResults.empty() )
@@ -192,10 +192,12 @@ ParallelBitStringFinder<bitStringSize>::find()
                 /* Wait for thread to finish or push new results. Note that this may hang if the worker thread
                  * crashes because the predicate check is only done on condition variable notifies and on spurious
                  * wakeups but those are not guaranteed. */
-                result.changed.wait( lock, [&result] () {
-                                         return !result.foundOffsets.empty() ||
-                                                ( result.future.wait_for( 0s ) == std::future_status::ready );
-                                     } );
+                result.changed.wait(
+                    lock,
+                    [&result] () {
+                        return !result.foundOffsets.empty() ||
+                               ( result.future.wait_for( 0s ) == std::future_status::ready );
+                    } );
 
                 if ( result.future.wait_for( 0s ) == std::future_status::ready ) {
                     result.future.get();

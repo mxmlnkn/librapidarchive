@@ -247,9 +247,9 @@ seekToNonFinalDynamicDeflateBlock( gzip::BitReader& bitReader,
                     /* Check distance code lengths. */
                     if ( UNLIKELY( error == Error::NONE ) ) [[unlikely]] {
                         if ( !checkHuffmanCodeLengths<MAX_CODE_LENGTH>(
-                            VectorView<uint8_t>( literalCL.data() + literalCodeCount, distanceCodeCount ) )
-                            || !checkHuffmanCodeLengths<MAX_CODE_LENGTH>(
-                            VectorView<uint8_t>( literalCL.data(), literalCodeCount ) ) ) {
+                                 VectorView<uint8_t>( literalCL.data() + literalCodeCount, distanceCodeCount ) )
+                             || !checkHuffmanCodeLengths<MAX_CODE_LENGTH>(
+                                 VectorView<uint8_t>( literalCL.data(), literalCodeCount ) ) ) {
                             error = Error::INVALID_CODE_LENGTHS;
                         }
                     }

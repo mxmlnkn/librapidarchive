@@ -137,10 +137,8 @@ isPowerOf2( size_t value )
 
 
 template<typename T>
-using RequireInputIterator = typename std::enable_if<
-    std::is_convertible<typename std::iterator_traits<T>::iterator_category,
-                        std::input_iterator_tag>::value
->::type;
+using RequireInputIterator = typename std::enable_if_t<
+    std::is_convertible_v<typename std::iterator_traits<T>::iterator_category, std::input_iterator_tag> >;
 
 
 /**

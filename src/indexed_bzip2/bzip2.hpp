@@ -217,7 +217,7 @@ public:
      */
     using HuffmanCoding = rapidgzip::HuffmanCodingShortBitsCached<
         uint32_t, MAX_HUFCODE_BITS, uint16_t, MAX_SYMBOLS, /* LUT size */ 12,
-        /* REVERSE_BITS */ false,  /* CHECK_OPTIMALITY */ false
+        /* REVERSE_BITS */ false, /* CHECK_OPTIMALITY */ false
     >;
     /* Won't work. It will cause a stack overflow because it contains a std::array of size 2^MAX_HUFCODE_BITS = 1 MiB.
      * And the currently committed version also will not work because it reverses the bits as necessary for gzip.
@@ -599,24 +599,25 @@ Block::readSelectors()
     /* The "selectors", referring to the Huffman trees to decode a group of 50 symbols, can only range from 0-5,
      * because MAX_GROUPS = 6, and are encoded as zero-terminated 1-bits, where the number of 1-bits represents
      * the Huffman tree ID. */
-    static constexpr std::array<uint8_t, ( 1U << MAX_GROUPS )> BITS_TO_SELECTOR = [] () {
-        std::array<uint8_t, ( 1U << MAX_GROUPS )> result{};
-        uint8_t lowestBitsSet{ 0 };
-        for ( uint8_t selector = 0; selector < MAX_GROUPS; ++selector ) {
-            const auto paddingBitsCount = MAX_GROUPS - selector;
-            const auto maxPaddingBits = static_cast<uint8_t>( 1U << paddingBitsCount );
-            const auto highestBitsSet = static_cast<uint8_t>( lowestBitsSet << ( MAX_GROUPS - selector ) );
-            for ( uint8_t paddingBits = 0; paddingBits < maxPaddingBits; ++paddingBits ) {
-                result[highestBitsSet | paddingBits] = selector;
-            }
+    static constexpr std::array<uint8_t, ( 1U << MAX_GROUPS )> BITS_TO_SELECTOR =
+        [] () {
+            std::array<uint8_t, ( 1U << MAX_GROUPS )> result{};
+            uint8_t lowestBitsSet{ 0 };
+            for ( uint8_t selector = 0; selector < MAX_GROUPS; ++selector ) {
+                const auto paddingBitsCount = MAX_GROUPS - selector;
+                const auto maxPaddingBits = static_cast<uint8_t>( 1U << paddingBitsCount );
+                const auto highestBitsSet = static_cast<uint8_t>( lowestBitsSet << ( MAX_GROUPS - selector ) );
+                for ( uint8_t paddingBits = 0; paddingBits < maxPaddingBits; ++paddingBits ) {
+                    result[highestBitsSet | paddingBits] = selector;
+                }
 
-            lowestBitsSet <<= 1U;
-            lowestBitsSet |= 1U;
-        }
+                lowestBitsSet <<= 1U;
+                lowestBitsSet |= 1U;
+            }
         /* A full line of 1-bits is not allowed because it would indicate a selector index larger than MAX_GROUPS. */
-        result.back() = MAX_GROUPS;
-        return result;
-    } ();
+            result.back() = MAX_GROUPS;
+            return result;
+        } ();
 
     std::iota( mtfSymbol.begin(), mtfSymbol.begin() + groupCount, 0 );
     for ( size_t i = 0; i < selectorsCount; i++ ) {
@@ -677,7 +678,8 @@ Block::readTrees()
             lengths[symbol] = static_cast<uint8_t>( hh );
         }
 
-        const auto error = huffmanCodings[j].initializeFromLengths( rapidgzip::VectorView<uint8_t>( lengths.data(), symCount ) );
+        const auto error = huffmanCodings[j].initializeFromLengths(
+            rapidgzip::VectorView<uint8_t>( lengths.data(), symCount ) );
         if ( error != rapidgzip::Error::NONE ) {
             throw std::domain_error( toString( error ) );
         }
@@ -860,7 +862,7 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
     const auto writeRepeatedSymbols =
         [&, this] ()
         {
-            while( ( symbolRepeatCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
+            while ( ( symbolRepeatCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
                 --symbolRepeatCount;
                 outputBuffer[nBytesDecoded++] = static_cast<char>( symbolToRepeat );
                 dataCRC = updateCRC32( dataCRC, symbolToRepeat );

@@ -165,9 +165,9 @@ public:
     [[nodiscard]] static bool
     isBgzfHeader( const HeaderBytes& header )
     {
-        return    ( header[ 0] == 0x1F )
-               && ( header[ 1] == 0x8B )
-               && ( header[ 2] == 0x08 )
+        return ( header[0] == 0x1F )
+               && ( header[1] == 0x8B )
+               && ( header[2] == 0x08 )
                && ( ( header[3] & ( 1U << 2U ) ) != 0 )
                && ( header[10] == 0x06 )   // length of extra field is 6B
                && ( header[11] == 0x00 )

@@ -89,13 +89,16 @@ testIterator()
 
     testIterator( { 3, 7 }, 0, 0, {} );
     testIterator( { 3, 7 }, 0, 1, { { .chunk = 0, .offset = 0, .size = 1 } } );
-    testIterator( { 3, 7 }, 0, 10, { { .chunk = 0, .offset = 0, .size = 3 },
-                                     { .chunk = 1, .offset = 0, .size = 7 } } );
+    testIterator( { 3, 7 }, 0, 10, {
+        { .chunk = 0, .offset = 0, .size = 3 },
+        { .chunk = 1, .offset = 0, .size = 7 } } );
     testIterator( { 3, 7 }, 1, 1, { { .chunk = 0, .offset = 1, .size = 1 } } );
-    testIterator( { 3, 7 }, 1, 10, { { .chunk = 0, .offset = 1, .size = 2 },
-                                     { .chunk = 1, .offset = 0, .size = 7 } } );
-    testIterator( { 3, 7 }, 2, 10, { { .chunk = 0, .offset = 2, .size = 1 },
-                                     { .chunk = 1, .offset = 0, .size = 7 } } );
+    testIterator( { 3, 7 }, 1, 10, {
+        { .chunk = 0, .offset = 1, .size = 2 },
+        { .chunk = 1, .offset = 0, .size = 7 } } );
+    testIterator( { 3, 7 }, 2, 10, {
+        { .chunk = 0, .offset = 2, .size = 1 },
+        { .chunk = 1, .offset = 0, .size = 7 } } );
     testIterator( { 3, 7 }, 3, 10, { { .chunk = 1, .offset = 0, .size = 7 } } );
     testIterator( { 3, 7 }, 4, 10, { { .chunk = 1, .offset = 1, .size = 6 } } );
 }
@@ -305,8 +308,8 @@ testGetWindow()
             /* window.size() < MAX_WINDOW_SIZE - data.size() */
             {
                 const std::vector<uint8_t> window( 200, 1 );
-                const auto expected = createVector<uint8_t>( { { MAX_WINDOW_SIZE - 600, 0 },
-                                                               { 200, 1 }, { 300, 5 }, { 100, 3 } } );
+                const auto expected = createVector<uint8_t>( {
+                    { MAX_WINDOW_SIZE - 600, 0 }, { 200, 1 }, { 300, 5 }, { 100, 3 } } );
 
                 REQUIRE( decodedData.getLastWindow( window ) == expected );
                 REQUIRE( decodedData.getWindowAt( window, decodedData.size() ) == expected );

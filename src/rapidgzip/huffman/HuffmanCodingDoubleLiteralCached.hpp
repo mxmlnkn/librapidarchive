@@ -62,7 +62,7 @@ public:
 
         m_nextSymbol = NONE_SYMBOL;
 
-#if 1
+    #if 1
         /**
          * Size and decompressed base64 bandwidths:
          * @verbatim
@@ -182,7 +182,7 @@ public:
             }
         }
 
-#else
+    #else
 
         std::array<Symbol, 2> symbols = { NONE_SYMBOL, NONE_SYMBOL };
         size_t symbolSize = 0;
@@ -257,7 +257,7 @@ public:
 
         fillCache( 0, 0 );
 
-#endif
+    #endif
 
         //const auto t1 = now();
         //std::cerr << "Creating Huffman LUT took " << duration(t0,t1) << " s\n";

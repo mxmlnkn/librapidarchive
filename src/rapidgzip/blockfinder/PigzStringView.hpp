@@ -135,7 +135,7 @@ private:
     void
     findFirstBlock()
     {
-        #if 0
+    #if 0
         /**
          * @todo This requires the buffer to be larger than the first gzip header may be.
          * Theoretically, the user could store arbitrary amount of data in the zero-terminated file name
@@ -144,13 +144,13 @@ private:
          */
         gzip::BitReader bitReader( m_fileReader->clone() );
 
-        #else
+    #else
 
         BufferedFileReader::AlignedBuffer buffer( BUFFER_SIZE );
         buffer.resize( m_fileReader->read( buffer.data(), buffer.size() ) );
         gzip::BitReader bitReader( std::make_unique<BufferedFileReader>( std::move( buffer ) ) );
 
-        #endif
+    #endif
 
         if ( ( rapidgzip::gzip::checkHeader( bitReader ) == rapidgzip::Error::NONE )
              && ( bitReader.tell() % CHAR_BIT == 0 ) ) {

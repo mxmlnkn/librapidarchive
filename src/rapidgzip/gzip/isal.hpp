@@ -509,9 +509,8 @@ IsalInflateWrapper::readHeader()
 
     case FileType::ZLIB:
     {
-        const auto& [header, error] = zlib::readHeader( [this] () {
-            return static_cast<uint64_t>( readBytes<1U>().front() );
-        } );
+        const auto& [header, error] = zlib::readHeader(
+            [this] () { return static_cast<uint64_t>( readBytes<1U>().front() ); } );
         if ( error == Error::END_OF_FILE ) {
             return false;
         }

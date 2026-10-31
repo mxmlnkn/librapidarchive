@@ -779,8 +779,8 @@ public:
                 break;
             default:
                 throw std::runtime_error(
-                    "Cannot add line offsets to index when the gathered line offsets gathered are something "
-                    "other than newline or carriage return!" );
+                          "Cannot add line offsets to index when the gathered line offsets gathered are something "
+                          "other than newline or carriage return!" );
             }
         }
 
@@ -976,11 +976,11 @@ public:
             m_newlineOffsets.resize( index.checkpoints.size() );
             std::transform( index.checkpoints.begin(), index.checkpoints.end(), m_newlineOffsets.begin(),
                             [] ( const auto& checkpoint ) {
-                NewlineOffset newlineOffset;
-                newlineOffset.lineOffset = checkpoint.lineOffset;
-                newlineOffset.uncompressedOffsetInBytes = checkpoint.uncompressedOffsetInBytes;
-                return newlineOffset;
-            } );
+                                NewlineOffset newlineOffset;
+                                newlineOffset.lineOffset = checkpoint.lineOffset;
+                                newlineOffset.uncompressedOffsetInBytes = checkpoint.uncompressedOffsetInBytes;
+                                return newlineOffset;
+                            } );
 
             /* Checkpoints should already be sorted and therefore also the newline offsets. Check just to be sure.
              * We are not sorting here because it may be impossible to sort by line offsets and uncompressed offsets
@@ -1423,9 +1423,9 @@ private:
             }
 
             m_newlineOffsets.emplace_back( NewlineOffset{
-                lastLineCount.lineOffset + subchunk.newlineCount.value(),
-                blockInfo->decodedOffsetInBytes + subchunk.decodedSize
-            } );
+                    lastLineCount.lineOffset + subchunk.newlineCount.value(),
+                    blockInfo->decodedOffsetInBytes + subchunk.decodedSize
+                } );
         }
     }
 

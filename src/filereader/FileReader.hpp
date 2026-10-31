@@ -121,23 +121,24 @@ protected:
     effectiveOffset( long long int offset,
                      int           origin ) const
     {
-        offset = [&] () {
-            switch ( origin )
-            {
-            case SEEK_CUR:
-                return saturatingAddition( static_cast<long long int>( tell() ), offset );
-            case SEEK_SET:
-                return offset;
-            case SEEK_END:
-                if ( const auto fileSize = size(); fileSize.has_value() ) {
-                    return saturatingAddition( static_cast<long long int>( *fileSize ), offset );
+        offset =
+            [&] () {
+                switch ( origin )
+                {
+                case SEEK_CUR:
+                    return saturatingAddition( static_cast<long long int>( tell() ), offset );
+                case SEEK_SET:
+                    return offset;
+                case SEEK_END:
+                    if ( const auto fileSize = size(); fileSize.has_value() ) {
+                        return saturatingAddition( static_cast<long long int>( *fileSize ), offset );
+                    }
+                    throw std::logic_error( "File size is not available to seek from end!" );
+                default:
+                    break;
                 }
-                throw std::logic_error( "File size is not available to seek from end!" );
-            default:
-                break;
-            }
-            throw std::invalid_argument( "Invalid seek origin supplied: " + std::to_string( origin ) );
-        } ();
+                throw std::invalid_argument( "Invalid seek origin supplied: " + std::to_string( origin ) );
+            } ();
 
         const auto positiveOffset = static_cast<size_t>( std::max( offset, 0LL ) );
         /* Streaming file readers may return nullopt until EOF has been reached. */

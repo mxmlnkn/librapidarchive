@@ -48,12 +48,13 @@ public:
     explicit
     GzipReader( UniqueFileReader fileReader ) :
         m_fileReader( ensureSharedFileReader( std::move( fileReader ) ) ),
-        m_fileType( [this] () {
-            const auto result = determineFileTypeAndOffset( m_fileReader->clone() );
-            /* Simply assume GZIP if it cannot be determined to show a more useful error message
-             * when trying to read the header. */
-            return result.has_value() ? result->first : FileType::GZIP;
-        } () ),
+        m_fileType(
+            [this] () {
+                const auto result = determineFileTypeAndOffset( m_fileReader->clone() );
+                /* Simply assume GZIP if it cannot be determined to show a more useful error message
+                 * when trying to read the header. */
+                return result.has_value() ? result->first : FileType::GZIP;
+            } () ),
         m_bitReader( m_fileReader->clone() )
     {}
 

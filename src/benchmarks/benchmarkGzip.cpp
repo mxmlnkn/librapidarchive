@@ -530,7 +530,8 @@ benchmarkDecompression( const std::string& fileName )
     for ( const auto parallelization : parallelizations ) {
         const auto [sizeRapidgzipParallel, durationsRapidgzipParallel] = benchmarkFunction<3>(
             [&fileName, parallelization = parallelization] () {
-                return decompressWithParallelGzipReader( fileName, parallelization ); } );
+                return decompressWithParallelGzipReader( fileName, parallelization );
+            } );
         if ( sizeRapidgzipParallel == expectedSize ) {
             std::cout << "Decompressed " << fileContents.size() << " B to " << sizeRapidgzipParallel << " B "
                       << "with rapidgzip (parallel: " << parallelization << " cores):\n";

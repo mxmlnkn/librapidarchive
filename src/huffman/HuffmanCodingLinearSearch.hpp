@@ -161,7 +161,7 @@ public:
 
         m_codes = std::move( huffmanCodes );
 
-        #if 1
+    #if 1
         if ( m_codeLengths.size() > std::numeric_limits<Symbol>::max() ) {
             throw std::invalid_argument( "The range of the symbol type cannot represent the implied alphabet!" );
         }
@@ -175,7 +175,7 @@ public:
                 throw std::invalid_argument( std::move( message ).str() );
             }
         }
-        #endif
+    #endif
 
         return Error::NONE;
     }

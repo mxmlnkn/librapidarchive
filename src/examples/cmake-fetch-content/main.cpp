@@ -23,7 +23,7 @@ main( int    argc,
 
     std::vector<char> buffer( 4_Mi );
     while ( true ) {
-        size_t bytesRead = reader.read(buffer.data(), buffer.size());
+        size_t bytesRead = reader.read( buffer.data(), buffer.size() );
         if ( bytesRead == 0 ) {
             break;
         }

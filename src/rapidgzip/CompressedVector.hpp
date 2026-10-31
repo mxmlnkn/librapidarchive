@@ -174,11 +174,11 @@ public:
             return std::make_shared<Container>();
         }
 
-        #ifdef LIBRAPIDARCHIVE_WITH_ISAL
-            using InflateWrapper = rapidgzip::IsalInflateWrapper;
-        #else
-            using InflateWrapper = rapidgzip::ZlibInflateWrapper;
-        #endif
+    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
+        using InflateWrapper = rapidgzip::IsalInflateWrapper;
+    #else
+        using InflateWrapper = rapidgzip::ZlibInflateWrapper;
+    #endif
 
         const auto decompressWithWrapper =
             [this] ( FileType fileType ) {

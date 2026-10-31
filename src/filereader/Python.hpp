@@ -134,14 +134,12 @@ public:
     explicit
     PythonFileReader( PyObject* pythonObject ) :
         m_pythonObject( checkNullptr( pythonObject ) ),
-
         mpo_tell( getAttribute( m_pythonObject, "tell" ) ),
         mpo_seek( getAttribute( m_pythonObject, "seek" ) ),
         mpo_read( getAttribute( m_pythonObject, "read" ) ),
         mpo_write( getAttribute( m_pythonObject, "write" ) ),
         mpo_seekable( getAttribute( m_pythonObject, "seekable" ) ),
         mpo_close( getAttribute( m_pythonObject, "close" ) ),
-
         m_initialPosition( callPyObject<long long int>( mpo_tell ) ),
         m_seekable( callPyObject<bool>( mpo_seekable ) )
     {

@@ -250,11 +250,11 @@ namespace bgzip
 countDecompressedBytes( gzip::BitReader&&              bitReader,
                         VectorView<std::uint8_t> const initialWindow )
 {
-    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
-        using InflateWrapper = rapidgzip::IsalInflateWrapper;
-    #else
-        using InflateWrapper = rapidgzip::ZlibInflateWrapper;
-    #endif
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+    using InflateWrapper = rapidgzip::IsalInflateWrapper;
+#else
+    using InflateWrapper = rapidgzip::ZlibInflateWrapper;
+#endif
 
     InflateWrapper inflateWrapper( std::move( bitReader ), std::numeric_limits<size_t>::max() );
     inflateWrapper.setWindow( initialWindow );
@@ -614,11 +614,14 @@ readGzipIndex( UniqueFileReader            indexFile,
         }
 
         /* Only bother with overhead-introducing compression for large chunk compression ratios. */
-        if ( compressionRatio > 2  ) {
-            futures.emplace_back( threadPool.submit( [toCompress = std::move( window ), offset2 = offset] () mutable {
-                return std::make_pair(
-                    offset2, std::make_shared<WindowMap::Window>( std::move( *toCompress ), CompressionType::ZLIB ) );
-            } ) );
+        if ( compressionRatio > 2 ) {
+            futures.emplace_back(
+                threadPool.submit(
+                    [toCompress = std::move( window ), offset2 = offset] () mutable {
+                        return std::make_pair(
+                            offset2,
+                            std::make_shared<WindowMap::Window>( std::move( *toCompress ), CompressionType::ZLIB ) );
+                    } ) );
             if ( futures.size() >= 2 * backgroundThreadCount ) {
                 processFuture();
             }
@@ -991,18 +994,19 @@ inline void
 writeGzipIndex( const GzipIndex&                                              index,
                 const std::function<void( const void* buffer, size_t size )>& checkedWrite )
 {
-    const auto writeValue = [&checkedWrite] ( auto value ) {
-        if ( ENDIAN == Endian::BIG ) {
-            checkedWrite( &value, sizeof( value ) );
-        } else {
-            std::array<char, sizeof( value )> buffer{};
-            auto* const src = reinterpret_cast<char*>( &value );
-            for ( size_t i = 0; i < sizeof( value ); ++i ) {
-                buffer[buffer.size() - 1 - i] = src[i];
+    const auto writeValue =
+        [&checkedWrite] ( auto value ) {
+            if ( ENDIAN == Endian::BIG ) {
+                checkedWrite( &value, sizeof( value ) );
+            } else {
+                std::array<char, sizeof( value )> buffer{};
+                auto* const src = reinterpret_cast<char*>( &value );
+                for ( size_t i = 0; i < sizeof( value ); ++i ) {
+                    buffer[buffer.size() - 1 - i] = src[i];
+                }
+                checkedWrite( buffer.data(), buffer.size() );
             }
-            checkedWrite( buffer.data(), buffer.size() );
-        }
-    };
+        };
 
     const auto& checkpoints = index.checkpoints;
     const auto windowSizeInBytes = static_cast<uint32_t>( 32_Ki );
