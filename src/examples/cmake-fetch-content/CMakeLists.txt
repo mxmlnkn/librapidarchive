@@ -10,7 +10,7 @@ include(FetchContent)
 FetchContent_Declare(
     librapidarchive
     # Either use the git repository or a local path, which could be a git submodule.
-    # GIT_REPOSITORY "https://github.com/mxmlnkn/indexed_bzip2"
+    # GIT_REPOSITORY "https://github.com/mxmlnkn/librapidarchive"
     # GIT_TAG        "master"
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.."
 )

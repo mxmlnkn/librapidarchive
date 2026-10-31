@@ -1,12 +1,12 @@
 <div align="center">
 
-![](https://raw.githubusercontent.com/mxmlnkn/indexed_bzip2/master/results/librapidarchive.svg)
+![](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/librapidarchive.svg)
 
 # Parallel Random Access to bzip2, gzip (and hopefully more in the future)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](http://opensource.org/licenses/MIT)
-[![C++ Code Checks](https://github.com/mxmlnkn/indexed_bzip2/actions/workflows/test-cpp.yml/badge.svg)](https://github.com/mxmlnkn/indexed_bzip2/actions/workflows/test-cpp.yml)
-[![codecov](https://codecov.io/gh/mxmlnkn/indexed_bzip2/branch/master/graph/badge.svg?token=94ZD4UTZQW)](https://codecov.io/gh/mxmlnkn/indexed_bzip2)
+[![C++ Code Checks](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml/badge.svg)](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml)
+[![codecov](https://codecov.io/gh/mxmlnkn/librapidarchive/branch/master/graph/badge.svg?token=94ZD4UTZQW)](https://codecov.io/gh/mxmlnkn/librapidarchive)
 ![C++17](https://img.shields.io/badge/C++-17-blue.svg)
 [![Discord](https://img.shields.io/discord/783411320354766878?label=discord)](https://discord.gg/Wra6t6akh2)
 [![Telegram](https://img.shields.io/badge/Chat-Telegram-%2330A3E6)](https://t.me/joinchat/FUdXxkXIv6c4Ib8bgaSxNg)
@@ -26,7 +26,7 @@ Both are built upon the same basic architecture to enable block-parallel decodin
 [![PyPI Platforms](https://img.shields.io/badge/pypi-linux%20%7C%20macOS%20%7C%20Windows-brightgreen)](https://pypi.org/project/rapidgzip/)
 [![Downloads](https://static.pepy.tech/badge/rapidgzip/month)](https://pepy.tech/project/rapidgzip)
 
-![](https://raw.githubusercontent.com/mxmlnkn/indexed_bzip2/master/results/asciinema/rapidgzip-comparison.gif)
+![](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/asciinema/rapidgzip-comparison.gif)
 
 </div>
 
@@ -55,7 +55,7 @@ The author's version can be found [here](<results/paper/Knespel, Brunst - 2023 -
 
 # indexed_bzip2
 
-[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/indexed_bzip2/blob/master/python/indexed_bzip2/CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/master/python/indexed_bzip2/CHANGELOG.md)
 [![PyPI version](https://badge.fury.io/py/indexed-bzip2.svg)](https://badge.fury.io/py/indexed-bzip2)
 [![Python Version](https://img.shields.io/pypi/pyversions/indexed_bzip2)](https://pypi.org/project/indexed-bzip2/)
 [![PyPI Platforms](https://img.shields.io/badge/pypi-linux%20%7C%20macOS%20%7C%20Windows-brightgreen)](https://pypi.org/project/indexed-bzip2/)
@@ -86,12 +86,12 @@ The parallel decompression capabilities are similar to [lbzip2](https://lbzip2.o
 # Naming
 
 The CMake options have been prefixed with `librapidarchive`.
-This [difficult decision](https://github.com/mxmlnkn/indexed_bzip2/pull/22#discussion_r2249989703) came about because neither `RAPIDGZIP_` nor `IBZIP2_` would have made sense.
+This [difficult decision](https://github.com/mxmlnkn/librapidarchive/pull/22#discussion_r2249989703) came about because neither `RAPIDGZIP_` nor `IBZIP2_` would have made sense.
 I needed an umbrella name for both, and possibly further compression formats such as LZ4 and ZIP in the future.
 I aim for something akin to [libarchive](https://github.com/libarchive/libarchive), but with support for parallelized decompression and constant-time seeking instead of streaming extraction because it is to be used as a backend for [ratarmount](https://github.com/mxmlnkn/ratarmount).
 
 The project started inside the [ratarmount](https://github.com/mxmlnkn/ratarmount) as a random-seekable bzip2 backend.
-After troubles with compiling a Python C-extension and after noticing that this backend might also find usage on its own, I created the [`indexed_bzip2`](https://github.com/mxmlnkn/indexed_bzip2) repository, following the naming scheme of [`indexed_gzip`](https://github.com/pauldmccarthy/indexed_gzip) to make it easily discoverable, e.g., in the PyPI search.
+After troubles with compiling a Python C-extension and after noticing that this backend might also find usage on its own, I created the [`indexed_bzip2`](https://github.com/mxmlnkn/librapidarchive) repository, following the naming scheme of [`indexed_gzip`](https://github.com/pauldmccarthy/indexed_gzip) to make it easily discoverable, e.g., in the PyPI search.
 After adding novel parallelized and seekable gzip decompression support and shortly before publishing the [paper](https://doi.org/10.1145/3588195.3592992), I split off yet another repository and project called [rapidgzip](https://github.com/mxmlnkn/rapidgzip), which became more well-known than `indexed_bzip2`.
 
 Reasons for not including `rapidgzip` in `indexed_bzip2`:

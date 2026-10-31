@@ -19,7 +19,7 @@ if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
 endif()
 
 # There are too many bugs on macOS and I don't have a local test system.
-# See https://github.com/mxmlnkn/indexed_bzip2/pull/22#issuecomment-3156326658
+# See https://github.com/mxmlnkn/librapidarchive/pull/22#issuecomment-3156326658
 # Help from macOS users in the form of a PR fixing the linked issue would be very welcome!
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set(WITH_ISAL OFF)

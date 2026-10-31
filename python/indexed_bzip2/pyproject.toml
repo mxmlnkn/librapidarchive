@@ -52,7 +52,7 @@ classifiers = [
     "Topic :: System :: Archiving",
     "Topic :: System :: Archiving :: Compression",
 ]
-urls = {Homepage = "https://github.com/mxmlnkn/indexed_bzip2"}
+urls = {Homepage = "https://github.com/mxmlnkn/librapidarchive"}
 requires-python = ">= 3.9"
 
 [project.readme]

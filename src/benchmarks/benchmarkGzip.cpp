@@ -1404,7 +1404,7 @@ python3 -c 'import indexed_gzip as igz; import time; t0 = time.time(); igz.open(
 
 
 /*
-git clone https://github.com/mxmlnkn/indexed_bzip2
+git clone https://github.com/mxmlnkn/librapidarchive
 cd indexed_bzip2 && mkdir build && cd build && cmake ..
 sudo apt install pigz isal tabix
 

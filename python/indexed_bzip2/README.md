@@ -7,10 +7,10 @@
 [![PyPI Platforms](https://img.shields.io/badge/pypi-linux%20%7C%20macOS%20%7C%20Windows-brightgreen)](https://pypi.org/project/indexed-bzip2/)
 [![Downloads](https://static.pepy.tech/badge/indexed-bzip2/month)](https://pepy.tech/project/indexed-bzip2)
 <br>
-[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/indexed_bzip2/blob/master/python/indexed_bzip2/CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/master/python/indexed_bzip2/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](http://opensource.org/licenses/MIT)
-[![C++ Code Checks](https://github.com/mxmlnkn/indexed_bzip2/actions/workflows/test-cpp.yml/badge.svg)](https://github.com/mxmlnkn/indexed_bzip2/actions/workflows/test-cpp.yml)
-[![codecov](https://codecov.io/gh/mxmlnkn/indexed_bzip2/branch/master/graph/badge.svg?token=94ZD4UTZQW)](https://codecov.io/gh/mxmlnkn/indexed_bzip2)
+[![C++ Code Checks](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml/badge.svg)](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml)
+[![codecov](https://codecov.io/gh/mxmlnkn/librapidarchive/branch/master/graph/badge.svg?token=94ZD4UTZQW)](https://codecov.io/gh/mxmlnkn/librapidarchive)
 ![C++17](https://img.shields.io/badge/C++-17-blue.svg)
 [![Discord](https://img.shields.io/discord/783411320354766878?label=discord)](https://discord.gg/Wra6t6akh2)
 [![Telegram](https://img.shields.io/badge/Chat-Telegram-%2330A3E6)](https://t.me/joinchat/FUdXxkXIv6c4Ib8bgaSxNg)
@@ -127,7 +127,7 @@ conda install -c conda-forge indexed_bzip2
 The latest unreleased development version can be tested out with:
 
 ```bash
-python3 -m pip install --force-reinstall 'git+https://github.com/mxmlnkn/indexed_bzip2.git@master#egginfo=indexed_bzip2&subdirectory=python/indexed_bzip2'
+python3 -m pip install --force-reinstall 'git+https://github.com/mxmlnkn/librapidarchive.git@master#egginfo=indexed_bzip2&subdirectory=python/indexed_bzip2'
 ```
 
 And to build locally, you can use `build` and install the wheel:
@@ -247,7 +247,7 @@ time dd if=mounted/sample bs=$(( 1024 * 1024 )) \
 A rudimentary command line tool exists but is not yet shipped with the Python module and instead has to be built from source.
 
 ```c++
-git clone https://github.com/mxmlnkn/indexed_bzip2.git
+git clone https://github.com/mxmlnkn/librapidarchive.git
 cd indexed_bzip2
 mkdir build
 cd build
@@ -286,9 +286,9 @@ The parallelization of the bzip2 decoder and adding support to read from Python 
 An earlier architecture was discarded because it became to monolithic.
 That discarded one was able to even work with piped non-seekable input, with which the current parallel architecture does not work with yet.
 The serial `BZ2Reader` still exists but is not shown in the class diagram because it is deprecated and will be removed some time in the future after the `ParallelBZ2Reader` has proven itself.
-Click [here](https://raw.githubusercontent.com/mxmlnkn/indexed_bzip2/master/results/design/ParallelBZ2Reader.png) or the image to get a larger image and [here](https://raw.githubusercontent.com/mxmlnkn/indexed_bzip2/master/results/design/ParallelBZ2Reader.svg) to see an SVG version.
+Click [here](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.png) or the image to get a larger image and [here](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.svg) to see an SVG version.
 
-[![Class Diagram for ParallelBZ2Reader](https://raw.githubusercontent.com/mxmlnkn/indexed_bzip2/master/results/design/ParallelBZ2Reader.png)](https://raw.githubusercontent.com/mxmlnkn/indexed_bzip2/master/results/design/ParallelBZ2Reader.png)
+[![Class Diagram for ParallelBZ2Reader](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.png)](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.png)
 
 # Tracing the Decoder
 
