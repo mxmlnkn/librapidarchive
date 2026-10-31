@@ -26,7 +26,7 @@ jobs:
 
   Code-Coverage:
     name: Code Coverage
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Suddenly, the upload to codecov does not work anymore and times out after 6 hours -.-.
     # It's not like I used it much anyway, except to have a badge.
     if: false
@@ -79,7 +79,7 @@ jobs:
 
   Clang-Tidy:
     name: Clang-Tidy
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
     - uses: actions/checkout@v7
       with:
@@ -102,7 +102,7 @@ jobs:
     strategy:
       matrix:
         # ISA-L currently not supported on macOS. macos-xx would simply build without ISA-L and waste precious CI time.
-        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        os: [ubuntu-26.04, ubuntu-26.04-arm]
         use_system_zlib: ['ON', 'OFF']
 
     steps:
@@ -181,11 +181,10 @@ jobs:
     strategy:
       matrix:
         os:
-        - ubuntu-24.04
-        - ubuntu-24.04-arm
-        - macos-14
-        - macos-15
-        - macos-15-intel
+        - ubuntu-26.04
+        - ubuntu-26.04-arm
+        - macos-26
+        - macos-26-intel
         - windows-latest
 
     env:
@@ -274,7 +273,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15, macos-15-intel]
+        os:
+        - ubuntu-26.04
+        - ubuntu-26.04-arm
+        - macos-26
+        - macos-26-intel
 
     steps:
     - uses: actions/checkout@v7
@@ -333,7 +336,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15, macos-15-intel]
+        os:
+        - ubuntu-26.04
+        - ubuntu-26.04-arm
+        - macos-26
+        - macos-26-intel
 
     steps:
     - uses: actions/checkout@v7
@@ -388,7 +395,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15, macos-15-intel]
+        os:
+        - ubuntu-26.04
+        - ubuntu-26.04-arm
+        - macos-26
+        - macos-26-intel
 
     steps:
     - uses: actions/checkout@v7
@@ -441,7 +452,7 @@ jobs:
     name: TSan
     env:
       TSAN_OPTIONS: halt_on_error=1
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
     - uses: actions/checkout@v7
       with:
@@ -520,7 +531,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, macos-15, macos-15-intel, windows-latest]
+        os:
+        - ubuntu-26.04
+        - ubuntu-26.04-arm
+        - macos-26
+        - macos-26-intel
+        - windows-latest
 
     steps:
     - uses: actions/checkout@v7
