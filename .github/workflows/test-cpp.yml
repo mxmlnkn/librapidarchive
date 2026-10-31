@@ -92,7 +92,7 @@ jobs:
 
     - name: Run clang-tidy
       run: |
-        CC=clang CXX=clang++ cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=ON -DRUN_CLANG_TIDY=ON .
+        CC=clang CXX=clang++ cmake -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DLIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=ON -DLIBRAPIDARCHIVE_RUN_CLANG_TIDY=ON .
         cmake --build build
 
   Check:
