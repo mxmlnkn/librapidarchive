@@ -41,9 +41,11 @@ public:
 
 public:
     explicit
-    PigzStringView( UniqueFileReader fileReader ) :
+    PigzStringView( UniqueFileReader fileReader,
+                    const size_t     readSize = BUFFER_SIZE ) :
         m_fileReader( std::move( fileReader ) ),
-        m_fileSize( m_fileReader->size() )
+        m_fileSize( m_fileReader->size() ),
+        m_readSize( std::clamp( readSize, size_t( 1 ), BUFFER_SIZE ) )
     {}
 
     /**
@@ -112,7 +114,7 @@ private:
         /* Always read chunks of BUFFER_SIZE in order to have aligned I/O and memory accesses. */
         const auto bufferOffset = m_fileReader->tell();
         const auto boundaryBufferOffset = bufferOffset - boundaryBufferSize;
-        m_bufferSize = m_fileReader->read( m_buffer.data(), BUFFER_SIZE );
+        m_bufferSize = m_fileReader->read( m_buffer.data(), m_readSize );
 
         if ( checkBoundary ) {
             boundaryBufferSize += std::min( nBytesToRetain, m_bufferSize );
@@ -167,6 +169,7 @@ private:
 
     alignas( 64 ) std::array<char, BUFFER_SIZE> m_buffer{};
     size_t m_bufferSize{ 0 };
+    const size_t m_readSize;
 
     bool foundFirstBlock{ false };
     std::vector<std::size_t> m_blockOffsets;
