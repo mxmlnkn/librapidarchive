@@ -286,36 +286,94 @@ main()
 
 
 /*
-cmake --build . -- benchmarkInflate && src/benchmarks/benchmarkInflate
+cmake -DLIBRAPIDARCHIVE_BUILD_BENCHMARKS=ON -DLIBRAPIDARCHIVE_WITH_ISAL=OFF ..
+cmake --build . -- benchmarkInflate && taskset 0x01 src/benchmarks/benchmarkInflate
 
-Compressed 128 MiB zeros to 127 KiB 430 B, compression ratio: 1028.66,
-  compression strategy: Default, compression bandwidth: 277.491 MB/s
-    Runtime / s: 0.06918 <= 0.06929 +- 0.00021 <= 0.06953
-    Bandwidth on Decoded Data / (MB/s): 1930 <= 1937 +- 6 <= 1940
+# LIBRAPIDARCHIVE_WITH_ISAL=OFF
 
-Created 128 MiB random data in 0.220642 s
-Compressed 128 MiB random data to 128 MiB 40 KiB 23 B, compression ratio: 0.999695,
-  compression strategy: Huffman Only, compression bandwidth: 89.9106 MB/s
-    Runtime / s: 0.0792 <= 0.0801 +- 0.0012 <= 0.0814
-    Bandwidth on Decoded Data / (MB/s): 1648 <= 1677 +- 25 <= 1694
+Compressed 128 MiB Zeros to 127 KiB 430 B, compression ratio: 1028.66,
+  compression strategy: Default, compression bandwidth: 2294.42 MB/s
+    Runtime / s: 0.0742 <= 0.0749 +- 0.0008 <= 0.0757
+    Bandwidth on Decoded Data / (MB/s): 1773 <= 1791 +- 18 <= 1810
 
-Created 128 MiB random base64 data in 1.45205 s
-Compressed 128 MiB random base64 data to 96 MiB 850 KiB 494 B, compression ratio: 1.3219,
-  compression strategy: Huffman Only, compression bandwidth: 86.7805 MB/s
-    Runtime / s: 0.6330 <= 0.6348 +- 0.0019 <= 0.6368
-    Bandwidth on Decoded Data / (MB/s): 210.8 <= 211.4 +- 0.6 <= 212.0
+Created 128 MiB random data in 0.412546 s
+Compressed 128 MiB Random to 128 MiB 40 KiB 23 B, compression ratio: 0.999695,
+  compression strategy: Huffman Only, compression bandwidth: 306.929 MB/s
+    Runtime / s: 0.08175 <= 0.08208 +- 0.00029 <= 0.08228
+    Bandwidth on Decoded Data / (MB/s): 1631 <= 1635 +- 6 <= 1642
 
-Created 128 MiB random base64 data in 1.44896 s
-Compressed 128 MiB random base64 data to 127 MiB 119 KiB 122 B, compression ratio: 1.00695,
-  compression strategy: Fixed Huffman, compression bandwidth: 30.0892 MB/s
-    Runtime / s: 0.7622 <= 0.7634 +- 0.0018 <= 0.7654
-    Bandwidth on Decoded Data / (MB/s): 175.4 <= 175.8 +- 0.4 <= 176.1
+Created 128 MiB random base64 data in 0.428251 s
+Compressed 128 MiB Random Base64 to 96 MiB 400 KiB 19 B, compression ratio: 1.32793,
+  compression strategy: Huffman Only, compression bandwidth: 295.008 MB/s
+    Runtime / s: 0.5024 <= 0.5040 +- 0.0020 <= 0.5063
+    Bandwidth on Decoded Data / (MB/s): 265.1 <= 266.3 +- 1.1 <= 267.2
 
-Created 128 MiB data with random backreferences in 0.0487171 s
-Compressed 128 MiB data with random backreferences to 5 MiB 736 KiB 719 B, compression ratio: 22.3798,
-  compression strategy: Default, compression bandwidth: 82.8308 MB/s
-    Runtime / s: 0.1458 <= 0.1466 +- 0.0006 <= 0.1470
-    Bandwidth on Decoded Data / (MB/s): 913 <= 916 +- 4 <= 920
+Created 128 MiB random base64 data in 0.432856 s
+Compressed 128 MiB Random Base64 (Fixed Huffman) to 127 MiB 782 KiB 93 B, compression ratio: 1.00185,
+  compression strategy: Fixed Huffman, compression bandwidth: 70.5349 MB/s
+    Runtime / s: 0.496 <= 0.513 +- 0.029 <= 0.547
+    Bandwidth on Decoded Data / (MB/s): 245 <= 262 +- 14 <= 270
+
+Created 128 MiB data with random backreferences in 0.0719573 s
+Compressed 128 MiB Random Backreferences to 3 MiB 676 KiB 270 B, compression ratio: 34.9687,
+  compression strategy: Default, compression bandwidth: 280.434 MB/s
+    Runtime / s: 0.0957 <= 0.0962 +- 0.0005 <= 0.0966
+    Bandwidth on Decoded Data / (MB/s): 1390 <= 1395 +- 7 <= 1402
+
+Created 128 MiB data with overlapping backreferences in 0.0712416 s
+Compressed 128 MiB Random Overlapping Backreferences to 159 KiB 413 B, compression ratio: 822.266,
+  compression strategy: Default, compression bandwidth: 2311.78 MB/s
+    Runtime / s: 0.07532 <= 0.07542 +- 0.00011 <= 0.07553
+    Bandwidth on Decoded Data / (MB/s): 1777.0 <= 1779.6 +- 2.5 <= 1781.9
+
+
+# LIBRAPIDARCHIVE_WITH_ISAL=ON
+
+Compressed 128 MiB Zeros to 127 KiB 430 B, compression ratio: 1028.66,
+  compression strategy: Default, compression bandwidth: 2333.83 MB/s
+    Runtime / s: 0.0493 <= 0.0497 +- 0.0006 <= 0.0504
+    Bandwidth on Decoded Data / (MB/s): 2660 <= 2700 +- 30 <= 2730
+
+Created 128 MiB random data in 0.415043 s
+Compressed 128 MiB Random to 128 MiB 40 KiB 23 B, compression ratio: 0.999695,
+  compression strategy: Huffman Only, compression bandwidth: 298.75 MB/s
+    Runtime / s: 0.05404 <= 0.05411 +- 0.00007 <= 0.05418
+    Bandwidth on Decoded Data / (MB/s): 2477 <= 2481 +- 3 <= 2484
+
+Created 128 MiB random base64 data in 0.429297 s
+Compressed 128 MiB Random Base64 to 96 MiB 400 KiB 19 B, compression ratio: 1.32793,
+  compression strategy: Huffman Only, compression bandwidth: 283.886 MB/s
+    Runtime / s: 0.463 <= 0.469 +- 0.007 <= 0.477
+    Bandwidth on Decoded Data / (MB/s): 281 <= 286 +- 4 <= 290
+
+Created 128 MiB random base64 data in 0.429803 s
+Compressed 128 MiB Random Base64 (Fixed Huffman) to 127 MiB 782 KiB 93 B, compression ratio: 1.00185,
+  compression strategy: Fixed Huffman, compression bandwidth: 69.1795 MB/s
+    Runtime / s: 0.4780 <= 0.4800 +- 0.0023 <= 0.4825
+    Bandwidth on Decoded Data / (MB/s): 278.2 <= 279.6 +- 1.3 <= 280.8
+
+Created 128 MiB data with random backreferences in 0.0717709 s
+Compressed 128 MiB Random Backreferences to 3 MiB 676 KiB 270 B, compression ratio: 34.9687,
+  compression strategy: Default, compression bandwidth: 281.146 MB/s
+    Runtime / s: 0.0681 <= 0.0685 +- 0.0006 <= 0.0691
+    Bandwidth on Decoded Data / (MB/s): 1941 <= 1960 +- 17 <= 1970
+
+Created 128 MiB data with overlapping backreferences in 0.0728748 s
+Compressed 128 MiB Random Overlapping Backreferences to 159 KiB 413 B, compression ratio: 822.266,
+  compression strategy: Default, compression bandwidth: 2312.87 MB/s
+    Runtime / s: 0.04986 <= 0.05000 +- 0.00013 <= 0.05013
+    Bandwidth on Decoded Data / (MB/s): 2678 <= 2684 +- 7 <= 2692
+
+
+| Data Type                         | Bandwidth (MB/s) WITH_ISAL=OFF  | Bandwidth (MB/s) WITH_ISAL=ON   |
+|-----------------------------------|---------------------------------|---------------------------------|
+| Zeros                             | 1791 +- 18                      | 2700 +- 30                      |
+| Random                            | 1635 +- 6                       | 2481 +- 3                       |
+| Random Base64                     | 266.3 +- 1.1                    | 286 +- 4                        |
+| Random Base64 (Fixed Huffman)     | 262 +- 14                       | 279.6 +- 1.3                    |
+| Random Backreferences             | 1395 +- 7                       | 1960 +- 17                      |
+| Random Overlapping Backreferences | 1779.6 +- 2.5                   | 2684 +- 7                       |
+
 
 
 uname -a
