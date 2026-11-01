@@ -99,7 +99,9 @@ public:
         }
 
         const auto nBytesToReadFromBuffer = std::min( m_size - m_bufferPosition, nMaxBytesToRead );
-        std::memcpy( buffer, m_buffer + m_bufferPosition, nBytesToReadFromBuffer );
+        if ( buffer != nullptr ) {
+            std::memcpy( buffer, m_buffer + m_bufferPosition, nBytesToReadFromBuffer );
+        }
         m_bufferPosition += nBytesToReadFromBuffer;
         return nBytesToReadFromBuffer;
     }

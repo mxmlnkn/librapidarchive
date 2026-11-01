@@ -8,6 +8,7 @@
 #include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/Buffered.hpp>
+#include <filereader/BufferView.hpp>
 #include <filereader/FileReader.hpp>
 #include <filereader/Standard.hpp>
 
@@ -191,6 +192,33 @@ testBufferedFileReaderSeek( const std::string& tmpFileName )
 
 
 void
+testBufferViewFileReaderNullBuffer()
+{
+    std::vector<char> fileContents( 512_Ki );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( i % 251 );
+    }
+
+    BufferViewFileReader fileReader( fileContents );
+
+    std::vector<char> firstBytes( 1000 );
+    REQUIRE_EQUAL( fileReader.read( firstBytes.data(), firstBytes.size() ), firstBytes.size() );
+    REQUIRE( std::equal( firstBytes.begin(), firstBytes.end(), fileContents.begin() ) );
+
+    /* A null destination means skipping bytes and must not be passed to memcpy. */
+    const size_t skipSize = 5000;
+    REQUIRE_EQUAL( fileReader.read( nullptr, skipSize ), skipSize );
+    REQUIRE_EQUAL( fileReader.tell(), firstBytes.size() + skipSize );
+
+    const auto position = fileReader.tell();
+    std::vector<char> readData( 100 );
+    REQUIRE_EQUAL( fileReader.read( readData.data(), readData.size() ), readData.size() );
+    REQUIRE( std::equal( readData.begin(), readData.end(),
+                         fileContents.begin() + static_cast<std::ptrdiff_t>( position ) ) );
+}
+
+
+void
 testBufferedFileReaderNullBuffer( const std::string& tmpFileName )
 {
     constexpr size_t FILE_SIZE = 512_Ki;
@@ -256,6 +284,8 @@ main()
     const auto bufferedSeekFileName = std::string( tmpFileName ) + "-buffered-seek.tmp";
     testBufferedFileReaderSeek( bufferedSeekFileName );
     std::remove( bufferedSeekFileName.c_str() );
+
+    testBufferViewFileReaderNullBuffer();
 
     const auto bufferedNullFileName = std::string( tmpFileName ) + "-buffered-null.tmp";
     testBufferedFileReaderNullBuffer( bufferedNullFileName );
