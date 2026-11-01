@@ -787,7 +787,9 @@ writeAllToFdVector( const int                   outputFileDescriptor,
         if ( ( i < dataToWrite.size() ) && ( nBytesWritten > 0 ) ) {
             const auto& iovBuffer = dataToWrite[i];
 
-            assert( iovBuffer.iov_len < static_cast<size_t>( nBytesWritten ) );
+            /* The loop above stops at the first buffer that was not fully written, so more bytes are
+             * remaining in it than writev reported. */
+            assert( iovBuffer.iov_len > static_cast<size_t>( nBytesWritten ) );
             const auto remainingSize = iovBuffer.iov_len - nBytesWritten;
             auto* const remainingData = reinterpret_cast<char*>( iovBuffer.iov_base ) + nBytesWritten;
             const auto errorCode = writeAllToFd( outputFileDescriptor, remainingData, remainingSize );
