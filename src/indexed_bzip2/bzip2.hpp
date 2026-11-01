@@ -623,12 +623,13 @@ Block::readSelectors()
     std::iota( mtfSymbol.begin(), mtfSymbol.begin() + groupCount, 0 );
     for ( size_t i = 0; i < selectorsCount; i++ ) {
         const auto j = BITS_TO_SELECTOR.at( m_bitReader->peek<MAX_GROUPS>() );
-        m_bitReader->seekAfterPeek( j + 1 );
         if ( j >= groupCount ) {
             std::stringstream msg;
             msg << "[BZip2 block header] Could not find zero termination after " << groupCount << " bits";
             throw std::domain_error( std::move( msg ).str() );
         }
+        /* Validate before consuming because a full line of MAX_GROUPS 1-bits has no zero terminator to seek past. */
+        m_bitReader->seekAfterPeek( j + 1 );
 
         // Decode MTF to get the next selector, and move it to the front.
         const auto uc = mtfSymbol[j];
