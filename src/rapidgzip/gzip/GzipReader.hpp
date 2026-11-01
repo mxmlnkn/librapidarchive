@@ -74,7 +74,12 @@ public:
         m_blockMap( other.m_blockMap ),
         m_windowMap( other.m_windowMap ),
         m_didReadHeader( other.m_didReadHeader )
-    {}
+    {
+        /* The copied views point into the window of the original block. Reconstruct them from our own copy. */
+        if ( m_currentDeflateBlock && m_offsetInLastBuffers && ( m_lastBlockData.size() > 0 ) ) {
+            m_lastBlockData = m_currentDeflateBlock->lastDecodedData( m_lastBlockData.size() );
+        }
+    }
 
 #ifdef WITH_PYTHON_SUPPORT
     explicit

@@ -569,6 +569,18 @@ public:
     read( gzip::BitReader& bitReader,
           size_t           nMaxToDecode = std::numeric_limits<size_t>::max() );
 
+    [[nodiscard]] DecodedDataView
+    lastDecodedData( size_t size )
+    {
+        DecodedDataView result;
+        if ( m_containsMarkerBytes ) {
+            result.dataWithMarkers = lastBuffers( m_window16, m_windowPosition, size );
+        } else {
+            result.data = lastBuffers( getWindow(), m_windowPosition, size );
+        }
+        return result;
+    }
+
     /**
      * @tparam treatLastBlockAsError This parameter is intended when using readHeader for finding valid headers.
      *         Ignoring last headers, filters candidates by 25% and filtering them sooner avoids reading the
@@ -1204,7 +1216,6 @@ Block<ENABLE_STATISTICS>::read( gzip::BitReader& bitReader,
         times.readDataStart = now();
     }
 
-    DecodedDataView result;
     const auto window = getWindow();
 
     if ( m_compressionType == CompressionType::UNCOMPRESSED ) {
@@ -1258,13 +1269,12 @@ Block<ENABLE_STATISTICS>::read( gzip::BitReader& bitReader,
             m_atEndOfBlock = true;
             m_decodedBytes += *nBytesRead;
 
-            result.data = lastBuffers( window, m_windowPosition, *nBytesRead );
-
             if constexpr ( ENABLE_STATISTICS ) {
                 durations.readData += duration( times.readDataStart );
             }
 
-            return { result, *nBytesRead == m_uncompressedSize ? Error::NONE : Error::EOF_UNCOMPRESSED };
+            return { lastDecodedData( *nBytesRead ),
+                     *nBytesRead == m_uncompressedSize ? Error::NONE : Error::EOF_UNCOMPRESSED };
         }
     }
 
@@ -1281,20 +1291,16 @@ Block<ENABLE_STATISTICS>::read( gzip::BitReader& bitReader,
              || ( ( m_distanceToLastMarkerByte >= MAX_WINDOW_SIZE )
                   && ( m_distanceToLastMarkerByte == m_decodedBytes ) ) ) {
             setInitialWindow();
-            result.data = lastBuffers( window, m_windowPosition, nBytesRead );
-        } else {
-            result.dataWithMarkers = lastBuffers( m_window16, m_windowPosition, nBytesRead );
         }
     } else {
         std::tie( nBytesRead, error ) = readInternal( bitReader, nMaxToDecode, window );
-        result.data = lastBuffers( window, m_windowPosition, nBytesRead );
     }
 
     if constexpr ( ENABLE_STATISTICS ) {
         durations.readData += duration( times.readDataStart );
     }
 
-    return { result, error };
+    return { lastDecodedData( nBytesRead ), error };
 }
 
 
