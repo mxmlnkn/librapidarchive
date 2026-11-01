@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import array
 import bz2
 import collections
 import concurrent.futures
@@ -275,6 +276,21 @@ def testPythonInterface(openIndexedFileFromName, compressionLevel, encoder, clos
     b = bytearray(5)
     file.readinto(b)
     assert b == contents[: len(b)]
+
+    # len(array) is the number of elements, not bytes. The buffer protocol guarantees that
+    # Py_buffer.len is the byte length: https://docs.python.org/3/c-api/buffer.html#c.Py_buffer.len
+    array_buffer = array.array('I', [0] * 4)
+    assert file.seek(0) == 0
+    n = file.readinto(array_buffer)
+    assert n == min(len(array_buffer) * array_buffer.itemsize, len(contents))
+    assert bytes(array_buffer)[:n] == contents[:n]
+
+    # readinto writes bytes, so the buffer must be writable.
+    try:
+        file.readinto(b"read only")
+        assert False, "readinto accepted a read-only buffer"
+    except (TypeError, BufferError):
+        pass
 
     assert file.seek(1) == 1
     assert file.readline() == b"ello\n"

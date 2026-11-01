@@ -9,7 +9,7 @@ from libcpp.map cimport map
 from libcpp.optional cimport optional
 from libcpp.vector cimport vector
 from libcpp cimport bool
-from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, PyBUF_ANY_CONTIGUOUS, PyBUF_SIMPLE
+from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, PyBUF_ANY_CONTIGUOUS, PyBUF_SIMPLE, PyBUF_WRITABLE, PyBUF_C_CONTIGUOUS
 from cpython.ref cimport PyObject
 
 import io
@@ -132,9 +132,9 @@ cdef class _IndexedBzip2File():
         bytes_count = 0
 
         cdef Py_buffer buffer
-        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS)
+        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS)
         try:
-            bytes_count = self.bz2reader.read(-1, <char*>buffer.buf, len(bytes_like))
+            bytes_count = self.bz2reader.read(-1, <char*>buffer.buf, <size_t>buffer.len)
         finally:
             PyBuffer_Release(&buffer)
 
@@ -234,9 +234,9 @@ cdef class _IndexedBzip2FileParallel():
         bytes_count = 0
 
         cdef Py_buffer buffer
-        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS)
+        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS)
         try:
-            bytes_count = self.bz2reader.read(-1, <char*>buffer.buf, len(bytes_like))
+            bytes_count = self.bz2reader.read(-1, <char*>buffer.buf, <size_t>buffer.len)
         finally:
             PyBuffer_Release(&buffer)
 
