@@ -188,8 +188,11 @@ public:
     void
     setBlockOffsets( const std::vector<size_t>& blockOffsets )
     {
+        /* Replace all state under the same lock that get(), find(), and size() use. Calling finalize() here
+         * would take the non-recursive mutex a second time. */
+        const std::scoped_lock lock( m_mutex );
         m_blockOffsets.assign( blockOffsets.begin(), blockOffsets.end() );
-        finalize();
+        m_finalized = true;
     }
 
     [[nodiscard]] size_t
