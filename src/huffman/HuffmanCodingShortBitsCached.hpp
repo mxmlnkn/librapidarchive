@@ -100,6 +100,12 @@ public:
     [[nodiscard]] forceinline std::optional<Symbol>
     decode( BitReader& bitReader ) const
     {
+        /* An all-zero alphabet has no symbols and m_lutBitsCount is zero in that case. Peeking zero bits would
+         * assert in the BitReader. */
+        if ( UNLIKELY( m_lutBitsCount == 0 ) ) [[unlikely]] {
+            return std::nullopt;
+        }
+
         try {
             const auto [length, symbol] = m_codeCache[bitReader.peek( m_lutBitsCount )];
             if ( length == 0 ) {

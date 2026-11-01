@@ -134,6 +134,12 @@ public:
     [[nodiscard]] forceinline Symbols
     decode( BitReader& bitReader ) const
     {
+        /* An all-zero alphabet has no symbols and m_lutBitsCount is zero in that case. Peeking zero bits would
+         * assert in the BitReader. */
+        if ( UNLIKELY( this->m_maxCodeLength == 0 ) ) [[unlikely]] {
+            return { 0, 0 };
+        }
+
         try {
             const auto& cacheEntry = m_codeCache[bitReader.peek( m_lutBitsCount )];
             if ( cacheEntry.bitsToSkip == 0 ) {

@@ -123,6 +123,12 @@ public:
     decode( BitReader&                   bitReader,
             const DistanceHuffmanCoding& distanceHC ) const
     {
+        /* An all-zero alphabet has no symbols. The fixed-size LUT peek is safe, but the EOF fallback would
+         * dereference an empty optional. */
+        if ( UNLIKELY( this->m_maxCodeLength == 0 ) ) [[unlikely]] {
+            throw Error::INVALID_HUFFMAN_CODE;
+        }
+
         try {
             const auto cacheEntry = m_codeCache[bitReader.peek( m_lutBitsCount )];
             if ( cacheEntry.bitsToSkip == 0 ) {
@@ -136,7 +142,11 @@ public:
         } catch ( const EndOfFileReached& ) {
             /* Should only happen at the end of the file and probably not even there
              * because the bzip2 footer (EOS block) should be longer than the peek length. */
-            return interpretSymbol( bitReader, distanceHC, BaseType::decode( bitReader ).value() );
+            const auto decoded = BaseType::decode( bitReader );
+            if ( UNLIKELY( !decoded ) ) [[unlikely]] {
+                throw Error::INVALID_HUFFMAN_CODE;
+            }
+            return interpretSymbol( bitReader, distanceHC, *decoded );
         }
     }
 
