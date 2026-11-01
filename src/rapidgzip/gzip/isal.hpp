@@ -168,7 +168,9 @@ private:
     {
         /* Effectively skip over some bits to align to the next byte. */
         readBytes<0>();
-        return Footer{};
+        Footer footer;
+        footer.blockBoundary.encodedOffset = tellCompressed();
+        return footer;
     }
 
     Footer

@@ -1297,6 +1297,298 @@ testGzipISIZE( const std::filesystem::path& rootFolder )
 
 
 void
+testCRC32VerificationAfterSeek( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
+    const auto expectedMember = readFile<std::vector<char> >( rootFolder / "base64-256KiB" );
+
+    auto corruptedMember = member;
+    /* Corrupt the CRC32 of the member. */
+    corruptedMember[corruptedMember.size() - 8] ^= 0xFF;
+
+    const auto memberIndex = createGzipIndex( member, 16_Ki );
+
+    /* Repeated read() calls for the same chunk must not reset the running CRC32. */
+    requireReadError( corruptedMember, 16_Ki, 4_Ki, nullptr, 0, std::nullopt,
+                      "Mismatching CRC32", /* verifyChecksums */ true );
+    /* Reading from offset 0 after importing an index must verify the first stream. */
+    requireReadError( corruptedMember, 16_Ki, 4_Ki, &memberIndex, 0, std::nullopt,
+                      "Mismatching CRC32", /* verifyChecksums */ true );
+    /* Seeking back to 0 after a partial read must reset and reprocess the checksum state. */
+    requireReadError( corruptedMember, 16_Ki, 4_Ki, nullptr, 32_Ki, size_t( 0 ),
+                      "Mismatching CRC32", /* verifyChecksums */ true );
+
+    auto concatenated = member;
+    concatenated.insert( concatenated.end(), member.begin(), member.end() );
+
+    auto corruptedSecondMember = concatenated;
+    corruptedSecondMember[corruptedSecondMember.size() - 8] ^= 0xFF;
+
+    const auto concatenatedIndex = createGzipIndex( concatenated, 1_Mi );
+    requireReadError( corruptedSecondMember, 1_Mi, 4_Ki, &concatenatedIndex,
+                      /* preReadBytes */ 0, expectedMember.size(),
+                      "Mismatching CRC32", /* verifyChecksums */ true );
+
+    /* Also make sure the normal sequential path remains detected without an index. */
+    requireReadError( corruptedSecondMember, 16_Ki, 4_Ki, nullptr, 0, std::nullopt,
+                      "Mismatching CRC32", /* verifyChecksums */ true );
+}
+
+
+void
+testChecksumStateAfterFailedSeek( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
+
+    auto corruptedMember = member;
+    corruptedMember[corruptedMember.size() - 8] ^= 0xFF;
+
+    rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( corruptedMember ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+    reader.setCRC32Enabled( true );
+
+    std::vector<char> buffer( 64_Ki );
+    REQUIRE( reader.read( buffer.data(), buffer.size() ) > 0 );
+
+    /* A failed backward seek must not discard the running checksum state. */
+    reader.setKeepIndex( false );
+    bool seekThrew{ false };
+    try {
+        reader.seek( 0 );
+    } catch ( const std::invalid_argument& ) {
+        seekThrew = true;
+    }
+    REQUIRE( seekThrew );
+
+    bool checksumThrew{ false };
+    std::string what;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        what = exception.what();
+        checksumThrew = what.find( "Mismatching CRC32" ) != std::string::npos;
+    }
+    if ( !checksumThrew ) {
+        std::cerr << "Failed seek discarded the checksum state: " << ( what.empty() ? "no exception" : what ) << "\n";
+    }
+    REQUIRE( checksumThrew );
+}
+
+
+void
+testChecksumErrorIsRepeatable( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
+
+    auto corruptedMember = member;
+    corruptedMember[corruptedMember.size() - 8] ^= 0xFF;
+
+    rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( corruptedMember ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+    reader.setCRC32Enabled( true );
+
+    std::array<char, 4_Ki> buffer{};
+    const auto requireChecksumError =
+        [&] ()
+        {
+            bool threw{ false };
+            std::string what;
+            try {
+                while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+            } catch ( const std::exception& exception ) {
+                what = exception.what();
+                threw = what.find( "Mismatching CRC32" ) != std::string::npos;
+            }
+            if ( !threw ) {
+                std::cerr << "Retry after checksum error did not fail again: "
+                          << ( what.empty() ? "no exception" : what ) << "\n";
+            }
+            REQUIRE( threw );
+        };
+
+    requireChecksumError();
+    requireChecksumError();
+}
+
+
+void
+testExternalCRC32( const std::filesystem::path& rootFolder )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-32KiB" );
+
+    rapidgzip::CRC32Calculator crc32;
+    crc32.setEnabled( true );
+    crc32.update( expected.data(), expected.size() );
+    const auto expectedCRC32 = crc32.crc32();
+
+    const auto decode =
+        [&] ( const std::vector<uint8_t>& data,
+              const bool                  useExternalCRC,
+              const uint32_t              externalCRC )
+        {
+            rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+                std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+            reader.setCRC32Enabled( true );
+            if ( useExternalCRC ) {
+                reader.setDeflateStreamCRC32s( { { data.size(), externalCRC } } );
+            }
+
+            std::vector<char> result;
+            std::array<char, 4_Ki> buffer{};
+            while ( true ) {
+                const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+                if ( nBytesRead == 0 ) {
+                    break;
+                }
+                result.insert( result.end(), buffer.data(), buffer.data() + nBytesRead );
+            }
+            return result;
+        };
+
+    const auto requireToThrow =
+        [&] ( const std::vector<uint8_t>& data,
+              const uint32_t              externalCRC )
+        {
+            bool threw{ false };
+            try {
+                (void)decode( data, /* useExternalCRC */ true, externalCRC );
+            } catch ( const std::exception& ) {
+                threw = true;
+            }
+            REQUIRE( threw );
+        };
+
+    /* A wrong externally supplied CRC must be rejected. This used to compare the computed CRC to itself. */
+    requireToThrow( compressed, expectedCRC32 ^ 0x12345678U );
+
+    /* A correct externally supplied CRC must still succeed. */
+    const auto decoded = decode( compressed, /* useExternalCRC */ true, expectedCRC32 );
+    REQUIRE_EQUAL( decoded.size(), expected.size() );
+    REQUIRE( ( decoded.size() == expected.size() )
+             && std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+
+    /* An external CRC must not bypass the gzip footer CRC. */
+    auto corruptedFooter = compressed;
+    corruptedFooter[corruptedFooter.size() - 8] ^= 0xFF;
+    requireToThrow( corruptedFooter, expectedCRC32 );
+}
+
+
+void
+testRawDeflateExternalCRC( const std::filesystem::path& rootFolder )
+{
+    const auto first = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.deflate" );
+    const auto second = readFile<std::vector<uint8_t> >( rootFolder / "1B.deflate" );
+    const auto firstDecoded = readFile<std::vector<char> >( rootFolder / "base64-32KiB" );
+    const auto secondDecoded = readFile<std::vector<char> >( rootFolder / "1B" );
+
+    auto concatenated = first;
+    concatenated.insert( concatenated.end(), second.begin(), second.end() );
+
+    std::vector<char> expected = firstDecoded;
+    expected.insert( expected.end(), secondDecoded.begin(), secondDecoded.end() );
+
+    CRC32Calculator firstCRC;
+    firstCRC.setEnabled( true );
+    firstCRC.update( firstDecoded.data(), firstDecoded.size() );
+    CRC32Calculator secondCRC;
+    secondCRC.setEnabled( true );
+    secondCRC.update( secondDecoded.data(), secondDecoded.size() );
+
+    const auto readAll =
+        [&] ( const std::unordered_map<size_t, uint32_t>& crc32s )
+        {
+            rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+                std::make_unique<BufferViewFileReader>( concatenated ), /* parallelization */ 2,
+                                                                                             /* chunk size */ 16_Ki );
+            reader.setCRC32Enabled( true );
+            reader.setDeflateStreamCRC32s( crc32s );
+            std::vector<char> result;
+            std::array<char, 4_Ki> buffer{};
+            while ( true ) {
+                const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+                if ( nBytesRead == 0 ) {
+                    break;
+                }
+                result.insert( result.end(), buffer.data(), buffer.data() + nBytesRead );
+            }
+            return result;
+        };
+
+    const std::unordered_map<size_t, uint32_t> correct{
+        { first.size(), firstCRC.crc32() },
+        { first.size() + second.size(), secondCRC.crc32() },
+    };
+    const auto decoded = readAll( correct );
+    REQUIRE_EQUAL( decoded.size(), expected.size() );
+    REQUIRE( std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+
+    auto wrong = correct;
+    wrong[first.size() + second.size()] ^= 0x12345678U;
+    bool threw{ false };
+    std::string what;
+    try {
+        (void)readAll( wrong );
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        what = exception.what();
+    }
+    REQUIRE( threw );
+    REQUIRE( what.find( "Mismatching CRC32" ) != std::string::npos );
+}
+
+void
+testChecksumEnableAfterReading( const std::filesystem::path& rootFolder )
+{
+    const auto data = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-32KiB" );
+
+    {
+        rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+            std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+        reader.setCRC32Enabled( false );
+        std::array<char, 1_Ki> buffer{};
+        REQUIRE( reader.read( buffer.data(), buffer.size() ) > 0 );
+        bool threw{ false };
+        try {
+            reader.setCRC32Enabled( true );
+        } catch ( const std::invalid_argument& ) {
+            threw = true;
+        }
+        REQUIRE( threw );
+    }
+
+    const auto readAll =
+        [&] ( rapidgzip::ParallelGzipReader<rapidgzip::ChunkData>& reader )
+        {
+            std::vector<char> result;
+            std::array<char, 4_Ki> buffer{};
+            while ( true ) {
+                const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+                if ( nBytesRead == 0 ) {
+                    break;
+                }
+                result.insert( result.end(), buffer.data(), buffer.data() + nBytesRead );
+            }
+            return result;
+        };
+
+    {
+        rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+            std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+        reader.setCRC32Enabled( false );
+        std::array<char, 1_Ki> buffer{};
+        REQUIRE( reader.read( buffer.data(), buffer.size() ) > 0 );
+        reader.seek( 0 );
+        reader.setCRC32Enabled( true );
+        const auto decoded = readAll( reader );
+        REQUIRE_EQUAL( decoded.size(), expected.size() );
+        REQUIRE( std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+    }
+}
+
+void
 testChunkDataCounter( const std::filesystem::path& rootFolder )
 {
     auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "random-512kiB.gz" );
@@ -1318,6 +1610,66 @@ testChunkDataCounter( const std::filesystem::path& rootFolder )
     requireCount( compressed, "unpadded" );
 }
 
+
+void
+testChecksumEnableAfterReadingWithPrefetch( const std::filesystem::path& rootFolder )
+{
+    auto data = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
+    data[data.size() - 8] ^= 0xFF;
+
+    rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+    reader.setCRC32Enabled( false );
+
+    std::array<char, 1_Ki> buffer{};
+    REQUIRE( reader.read( buffer.data(), buffer.size() ) > 0 );
+    reader.seek( 0 );
+    reader.setCRC32Enabled( true );
+
+    bool threw{ false };
+    std::string what;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        what = exception.what();
+    }
+
+    if ( !threw || ( what.find( "Mismatching CRC32" ) == std::string::npos ) ) {
+        std::cerr << "Enabling checksums after reading did not invalidate prefetched chunks: "
+                  << ( threw ? what : "no exception" ) << "\n";
+    }
+    REQUIRE( threw );
+    REQUIRE( what.find( "Mismatching CRC32" ) != std::string::npos );
+}
+
+
+void
+testBgzfSeekWithImportedMidMemberIndex( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.bgz" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-256KiB" );
+    const auto index = createGzipIndex( member, 64_Ki );
+
+    rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( member ), /* parallelization */ 2, /* chunk size */ 64_Ki );
+    reader.setCRC32Enabled( true );
+    reader.importIndex( std::make_unique<BufferViewFileReader>( index ) );
+    reader.seek( 100000 );
+
+    std::vector<char> decoded;
+    std::array<char, 4_Ki> buffer{};
+    while ( true ) {
+        const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+        if ( nBytesRead == 0 ) {
+            break;
+        }
+        decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+    }
+
+    REQUIRE_EQUAL( decoded.size(), expected.size() - 100000 );
+    REQUIRE( std::equal( decoded.begin(), decoded.end(), expected.begin() + 100000 ) );
+}
 
 int
 main( int    argc,
@@ -1344,7 +1696,15 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testChunkRemerging();
+    testExternalCRC32( rootFolder );
+    testRawDeflateExternalCRC( rootFolder );
+    testChecksumEnableAfterReading( rootFolder );
+    testChecksumEnableAfterReadingWithPrefetch( rootFolder );
     testChunkDataCounter( rootFolder );
+    testBgzfSeekWithImportedMidMemberIndex( rootFolder );
+    testCRC32VerificationAfterSeek( rootFolder );
+    testChecksumStateAfterFailedSeek( rootFolder );
+    testChecksumErrorIsRepeatable( rootFolder );
     testGzipISIZE( rootFolder );
     testMultiThreadedUsage();
     testCRC32AndCleanUnmarkedData();
