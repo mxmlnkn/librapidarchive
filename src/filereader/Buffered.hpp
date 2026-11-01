@@ -139,7 +139,10 @@ public:
         }
 
         refillBuffer();
-        return nBytesRead + readFromBuffer( buffer + nBytesRead, nMaxBytesToRead - nBytesRead );
+        /* Passing a null buffer means skipping bytes. Do not derive a destination pointer from it, otherwise
+         * the copy performed by readFromBuffer writes to a small invalid address. */
+        return nBytesRead + readFromBuffer( buffer == nullptr ? buffer : buffer + nBytesRead,
+                                            nMaxBytesToRead - nBytesRead );
     }
 
     size_t
