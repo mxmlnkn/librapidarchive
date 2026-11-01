@@ -192,6 +192,31 @@ testBufferedFileReaderSeek( const std::string& tmpFileName )
 
 
 void
+testNullBufferSkipAtEnd( FileReader&                fileReader,
+                         const std::vector<char>&   fileContents )
+{
+    REQUIRE_EQUAL( fileReader.tell(), size_t( 0 ) );
+
+    std::vector<char> firstBytes( 100 );
+    REQUIRE_EQUAL( fileReader.read( firstBytes.data(), firstBytes.size() ), firstBytes.size() );
+    REQUIRE( std::equal( firstBytes.begin(), firstBytes.end(), fileContents.begin() ) );
+
+    /* A zero-length null read must not change the position. */
+    REQUIRE_EQUAL( fileReader.read( nullptr, 0 ), size_t( 0 ) );
+    REQUIRE_EQUAL( fileReader.tell(), firstBytes.size() );
+
+    /* Skipping past the end returns only the bytes that are still available. */
+    REQUIRE_EQUAL( fileReader.read( nullptr, fileContents.size() ), fileContents.size() - firstBytes.size() );
+    REQUIRE_EQUAL( fileReader.tell(), fileContents.size() );
+    REQUIRE( fileReader.eof() );
+
+    REQUIRE_EQUAL( fileReader.read( nullptr, 0 ), size_t( 0 ) );
+    REQUIRE_EQUAL( fileReader.read( nullptr, 100 ), size_t( 0 ) );
+    REQUIRE_EQUAL( fileReader.tell(), fileContents.size() );
+}
+
+
+void
 testBufferViewFileReaderNullBuffer()
 {
     std::vector<char> fileContents( 512_Ki );
@@ -284,6 +309,21 @@ main()
     const auto bufferedSeekFileName = std::string( tmpFileName ) + "-buffered-seek.tmp";
     testBufferedFileReaderSeek( bufferedSeekFileName );
     std::remove( bufferedSeekFileName.c_str() );
+
+    /* All readers must agree on the skip semantics, including zero-length and past-the-end skips. */
+    const std::vector<char> contents( tmpFileContents.begin(), tmpFileContents.end() );
+    {
+        StandardFileReader standardReader( tmpFileName );
+        testNullBufferSkipAtEnd( standardReader, contents );
+    }
+    {
+        BufferedFileReader bufferedReader( std::make_unique<StandardFileReader>( tmpFileName ) );
+        testNullBufferSkipAtEnd( bufferedReader, contents );
+    }
+    {
+        BufferViewFileReader bufferViewReader( contents );
+        testNullBufferSkipAtEnd( bufferViewReader, contents );
+    }
 
     testBufferViewFileReaderNullBuffer();
 
