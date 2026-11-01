@@ -130,9 +130,8 @@ private:
         result.encodedSizeInBits = block.encodedSizeInBits;
         result.calculatedCRC = block.dataCRC();
 
-        /* The next block offset might be a farther out in case this is the last valid block in the stream! */
-        assert( ( nextBlockOffset == std::numeric_limits<size_t>::max() )
-                || ( blockOffset + result.encodedSizeInBits <= nextBlockOffset ) );
+        /* nextBlockOffset only is a candidate found by the block finder. It may be a false positive inside this
+         * block, so the decoded encoded size is authoritative and the block does not have to end before it. */
 
         return result;
     }

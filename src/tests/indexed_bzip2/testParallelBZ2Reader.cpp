@@ -296,6 +296,7 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testMalformedBzip2( dataFolder, "bzip2-read-selectors-overread.bz2" );
+    testMalformedBzip2( dataFolder, "bzip2-block-finder-false-positive.bz2" );
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testParallelBZ2Reader" );
 
