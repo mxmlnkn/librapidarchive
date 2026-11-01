@@ -154,7 +154,11 @@ public:
         size_t nBytesRead = 0;
         if ( buffer == nullptr ) {
             if ( seekable() ) {
-                nBytesRead = std::min( nMaxBytesToRead, m_fileSizeBytes - m_currentPosition );
+                /* Seeking beyond EOF is allowed, so the remaining byte count must not underflow. */
+                nBytesRead = std::min( nMaxBytesToRead,
+                                       m_currentPosition < m_fileSizeBytes
+                                       ? m_fileSizeBytes - m_currentPosition
+                                       : 0 );
                 fileSeek( m_file.get(), static_cast<long long int>( nBytesRead ), SEEK_CUR );
             } else {
                 std::array<char, 16_Ki> tmpBuffer{};
