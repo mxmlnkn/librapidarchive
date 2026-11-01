@@ -527,8 +527,11 @@ private:
 
             auto& future = it->second;
             if ( !future.valid() || ( future.wait_for( 0s ) == std::future_status::ready ) ) {
-                future.get();
+                /* Erase before get() so that a stored exception does not leave an invalid future in the map.
+                 * A later call would then call get() on it again and mask the original exception. */
+                auto futureToGet = std::move( future );
                 it = m_markersBeingReplaced.erase( it );
+                futureToGet.get();
             } else {
                 ++it;
             }
@@ -537,8 +540,9 @@ private:
         queuePrefetchedChunkPostProcessing();
         m_statistics.queuePostProcessingDuration += duration( t0 );
 
-        markerReplaceFuture->second.get();
+        auto futureToGet = std::move( markerReplaceFuture->second );
         m_markersBeingReplaced.erase( markerReplaceFuture );
+        futureToGet.get();
     }
 
     void
