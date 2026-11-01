@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import platform
 import sys
 import tempfile
@@ -18,6 +19,12 @@ except ImportError:
     cythonize = None
 
 
+# Opt-in build against the Python 3.14 stable ABI. The normal build remains per-version. Invoke
+# explicitly, e.g. CIBW_BUILD="cp314-*" INDEXED_BZIP2_ABI3=enable python -m cibuildwheel python/indexed_bzip2
+withAbi3 = os.environ.get('INDEXED_BZIP2_ABI3', 'disable').lower() not in ('', '0', 'disable', 'off', 'false')
+abi3Version = '0x030E0000'
+abi3WheelTag = 'cp314'
+
 extensions = [
     Extension(
         # fmt: off
@@ -25,6 +32,8 @@ extensions = [
         sources      = ['indexed_bzip2.pyx'],
         include_dirs = ['src', 'src/external/cxxopts/include'],
         language     = 'c++',
+        define_macros = [('Py_LIMITED_API', abi3Version)] if withAbi3 else [],
+        py_limited_api = withAbi3,
         # fmt: on
     ),
 ]
@@ -118,5 +127,6 @@ setup(
     py_modules  = ['indexed_bzip2'],
     ext_modules = extensions,
     cmdclass    = {'build_ext': Build},
+    options     = {'bdist_wheel': {'py_limited_api': abi3WheelTag}} if withAbi3 else {},
     # fmt: on
 )

@@ -117,9 +117,11 @@ callPyObject( PyObject* pythonObject,
             std::stringstream message;
             message << "Cannot convert nullptr Python object to the requested result type ("
                     << typeid( Result ).name() << ")!";
+        #if !defined( Py_LIMITED_API )
             if ( ( pythonObject != nullptr ) && ( pythonObject->ob_type != nullptr ) ) {
                 message << " Got no result when calling: " << pythonObject->ob_type->tp_name;
             }
+        #endif
             throw std::invalid_argument( std::move( message ).str() );
         }
         return fromPyObject<Result>( result );
