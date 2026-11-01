@@ -257,9 +257,46 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
 }
 
 
-int
-main()
+void
+testMalformedBzip2( const std::filesystem::path& dataFolder,
+                    const std::string&           fileName )
 {
+    /* The input is malformed and used to trip a Debug assertion. It must be rejected with an exception instead. */
+    ParallelBZ2Reader reader(
+        std::make_unique<StandardFileReader>( ( dataFolder / fileName ).string() ),
+        /* parallelization */ 2 );
+    std::vector<char> buffer( 4_Ki );
+    bool threw{ false };
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& ) {
+        threw = true;
+    }
+    REQUIRE( threw );
+}
+
+
+int
+main( int    argc,
+      char** argv )
+{
+    if ( argc == 0 ) {
+        std::cerr << "Expected at least the launch command as the first argument!\n";
+        return 1;
+    }
+
+    const std::string binaryFilePath( argv[0] );
+    std::string binaryFolder = ".";
+    if ( const auto lastSlash = binaryFilePath.find_last_of( '/' ); lastSlash != std::string::npos ) {
+        binaryFolder = binaryFilePath.substr( 0, lastSlash );
+    }
+    const auto dataFolder =
+        std::filesystem::path(
+            findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bgz" )
+        ) / "src" / "tests" / "data";
+
+    testMalformedBzip2( dataFolder, "bzip2-read-selectors-overread.bz2" );
+
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testParallelBZ2Reader" );
 
     const auto decodedTestFilePath = tmpFolder.path() / "decoded";
