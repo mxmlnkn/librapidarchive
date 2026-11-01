@@ -240,17 +240,12 @@ public:
             throw std::runtime_error( "Expected a bytes object to be returned by read!" );
         }
 
-        const auto nBytesRead = PyBytes_Size( bytes );
-        if ( buffer != nullptr ) {
-            std::memset( buffer, '\0', nBytesRead );
-            std::memcpy( buffer, PyBytes_AsString( bytes ), nBytesRead );
-        }
-        Py_XDECREF( bytes );
-
-        if ( nBytesRead < 0 ) {
+        const auto nBytesAvailable = PyBytes_Size( bytes );
+        if ( nBytesAvailable < 0 ) {
+            Py_XDECREF( bytes );
             std::stringstream message;
             message
-                << "[PythonFileReader] Read call failed (" << nBytesRead << " B read)!\n"
+                << "[PythonFileReader] Read call failed (" << nBytesAvailable << " B read)!\n"
                 << "  Buffer: " << (void*)buffer << "\n"
                 << "  nMaxBytesToRead: " << nMaxBytesToRead << " B\n"
                 << "  File size: " << m_fileSizeBytes << " B\n"
@@ -261,8 +256,24 @@ public:
             throw std::domain_error( std::move( message ).str() );
         }
 
+        /* Python's read(size) contract requires at most size bytes, but a file-like object may violate it.
+         * Copying the returned length unconditionally would write past the caller's buffer. */
+        if ( static_cast<size_t>( nBytesAvailable ) > nMaxBytesToRead ) {
+            Py_XDECREF( bytes );
+            std::stringstream message;
+            message << "[PythonFileReader] The file-like object returned " << nBytesAvailable
+                    << " B but only " << nMaxBytesToRead << " B were requested!";
+            throw std::runtime_error( std::move( message ).str() );
+        }
+
+        const auto nBytesRead = static_cast<size_t>( nBytesAvailable );
+        if ( buffer != nullptr ) {
+            std::memcpy( buffer, PyBytes_AsString( bytes ), nBytesRead );
+        }
+        Py_XDECREF( bytes );
+
         m_currentPosition += nBytesRead;
-        m_lastReadSuccessful = static_cast<size_t>( nBytesRead ) == nMaxBytesToRead;
+        m_lastReadSuccessful = nBytesRead == nMaxBytesToRead;
 
         return nBytesRead;
     }

@@ -367,6 +367,62 @@ class FileWrapper:
         self.fd.close()
 
 
+class OversizedReadFile:
+    """File-like object violating the read(size) contract by returning more data than requested."""
+
+    def __init__(self, data, oversizedReadSize=4 * 1024 * 1024):
+        self.data = data
+        self.oversizedReadSize = oversizedReadSize
+        self.position = 0
+
+    def seekable(self):
+        return True
+
+    def readable(self):
+        return True
+
+    def writable(self):
+        return False
+
+    def tell(self):
+        return self.position
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        if whence == io.SEEK_SET:
+            self.position = offset
+        elif whence == io.SEEK_CUR:
+            self.position += offset
+        else:
+            self.position = len(self.data) + offset
+        return self.position
+
+    def read(self, size=-1):
+        # Deliberately ignore size. The C++ reader must not overflow its buffer because of this.
+        count = self.oversizedReadSize if size >= 0 else len(self.data) - self.position
+        start = self.position
+        self.position = min(len(self.data), start + count)
+        return self.data[start:self.position]
+
+    def write(self, data):
+        raise NotImplementedError
+
+    def close(self):
+        pass
+
+
+def testReadReturnsMoreThanRequested():
+    compressed = gzip.compress(b"test data" * 1024)
+    reader = RapidgzipFile(OversizedReadFile(compressed), parallelization=1)
+    try:
+        reader.read(1024)
+    except Exception as exception:
+        print("Correctly rejected a read returning more data than requested:", exception)
+    else:
+        raise AssertionError("A file object returning more data than requested must be rejected")
+    finally:
+        reader.close()
+
+
 def triggerDeadlock(filePath):
     print("Open test file...")
     with open(filePath, 'rb') as fp:
@@ -447,6 +503,7 @@ if __name__ == '__main__':
     print("Cores:", os.cpu_count())
 
     testFileTypeAPI()
+    testReadReturnsMoreThanRequested()
     testDeadlock('pygzip')
     testRpmallocThreadSafety('pygzip')
 
