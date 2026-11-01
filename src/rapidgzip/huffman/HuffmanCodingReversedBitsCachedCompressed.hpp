@@ -75,7 +75,7 @@ public:
         }
 
         auto codeValues = this->m_minimumCodeValuesPerLevel;
-        for ( size_t symbol = 0; static_cast<size_t>( symbol ) < codeLengths.size(); ++symbol ) {
+        for ( size_t symbol = 0; symbol < codeLengths.size(); ++symbol ) {
             const auto length = codeLengths[symbol];
             if ( length == 0 ) {
                 continue;

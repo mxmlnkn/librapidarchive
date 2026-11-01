@@ -377,20 +377,23 @@ ZlibInflateWrapper::readStream( uint8_t* const output,
         #ifndef NDEBUG
             message << " First bytes: 0x\n";
             const auto oldOffset = m_bitReader.tell();
-            m_bitReader.seek( m_bitReader.tell() - oldUnusedBits );
-            size_t nPrintedBytes{ 0 };
-            for ( size_t offset = m_bitReader.tell();
-                  ( !m_bitReader.size() || ( offset < *m_bitReader.size() ) ) && ( nPrintedBytes < 128 );
-                  offset += BYTE_SIZE, ++nPrintedBytes )
-            {
-                if ( ( offset / BYTE_SIZE ) % 16 == 0 ) {
-                    message << '\n';
-                } else if ( ( offset / BYTE_SIZE ) % 8 == 0 ) {
-                    message << ' ';
+            if ( oldOffset >= oldUnusedBits ) {
+                m_bitReader.seek( static_cast<long long int>( oldOffset - oldUnusedBits ) );
+                size_t nPrintedBytes{ 0 };
+                for ( size_t offset = m_bitReader.tell();
+                      ( !m_bitReader.size() || ( offset < *m_bitReader.size() ) ) && ( nPrintedBytes < 128 );
+                      offset += BYTE_SIZE, ++nPrintedBytes )
+                {
+                    if ( ( offset / BYTE_SIZE ) % 16 == 0 ) {
+                        message << '\n';
+                    } else if ( ( offset / BYTE_SIZE ) % 8 == 0 ) {
+                        message << ' ';
+                    }
+                    message << ' ' << std::setw( 2 ) << std::setfill( '0' ) << std::hex
+                            << m_bitReader.read<BYTE_SIZE>();
                 }
-                message << ' ' << std::setw( 2 ) << std::setfill( '0' ) << std::hex << m_bitReader.read<BYTE_SIZE>();
+                m_bitReader.seek( static_cast<long long int>( oldOffset ) );
             }
-            m_bitReader.seek( oldOffset );
         #endif
 
             throw std::runtime_error( std::move( message ).str() );

@@ -511,7 +511,8 @@ Block::readBlockHeader()
         throw std::domain_error( "[BZip2 block header] deprecated isRandomized bit is not supported" );
     }
 
-    if ( ( bwdata.origPtr = getBits<24>() ) > bwdata.dbuf.size() ) {
+    bwdata.origPtr = getBits<24>();
+    if ( bwdata.origPtr > bwdata.dbuf.size() ) {
         std::stringstream msg;
         msg << "[BZip2 block header] origPtr " << bwdata.origPtr << " is larger than buffer size: "
             << bwdata.dbuf.size();

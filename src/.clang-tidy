@@ -16,7 +16,7 @@ Checks: |
     -cppcoreguidelines-avoid-do-while,
     -cppcoreguidelines-avoid-magic-numbers,
     # Explicitly capturing 'this' only works with C++20!
-    -cppcoreguidelines-misleading-capture-default-by-value.
+    -cppcoreguidelines-misleading-capture-default-by-value,
     -cppcoreguidelines-pro-bounds-pointer-arithmetic,
     -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
     -cppcoreguidelines-pro-bounds-constant-array-index,
@@ -48,6 +48,10 @@ Checks: |
     -readability-function-cognitive-complexity,
     -readability-identifier-length,
     -readability-magic-numbers,
+    # Operator precedence is basic knowledge; the suggestions are mostly noise.
+    -readability-math-missing-parentheses,
+    # C++17 only: std::map/set::contains is C++20, and cxxopts::ParseResult has no contains().
+    -readability-container-contains,
     # Why?! _KiB makes perfect sense, or "_s" for seconds, and so on.
     -readability-uppercase-literal-suffix,
     -readability-use-anyofallof,

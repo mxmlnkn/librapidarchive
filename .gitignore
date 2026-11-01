@@ -13,6 +13,8 @@ worktrees/
 # Temporary files created by testBz2.py
 Bzip2TestParameters(*
 *.index.sqlite
+tmp/
+venvs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -24,7 +26,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+build*/
 develop-eggs/
 dist/
 downloads/
@@ -36,6 +38,7 @@ parts/
 sdist/
 var/
 wheels/
+wheelhouse/
 *.egg-info/
 .installed.cfg
 *.egg
