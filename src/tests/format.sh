@@ -2,7 +2,7 @@
 # Format C/C++ sources with uncrustify.
 #
 # Usage:
-#   ./format.sh [changed|all]
+#   src/tests/format.sh [changed|all]
 #
 # "changed" formats all C/C++ files that differ from HEAD, or, if the working
 # tree is clean, the files touched by the current commit. "all" formats all

@@ -154,7 +154,7 @@ if(GIT_FOUND)
 
     add_custom_target(format
         COMMAND ${CMAKE_COMMAND} -E env "GIT=${GIT_EXECUTABLE}" "UNCRUSTIFY=${UNCRUSTIFY_EXECUTABLE}"
-                bash "${CMAKE_SOURCE_DIR}/format.sh" changed
+                bash "${CMAKE_SOURCE_DIR}/src/tests/format.sh" changed
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         USES_TERMINAL
         VERBATIM
@@ -164,7 +164,7 @@ if(GIT_FOUND)
 
     add_custom_target(format-all
         COMMAND ${CMAKE_COMMAND} -E env "GIT=${GIT_EXECUTABLE}" "UNCRUSTIFY=${UNCRUSTIFY_EXECUTABLE}"
-                bash "${CMAKE_SOURCE_DIR}/format.sh" all
+                bash "${CMAKE_SOURCE_DIR}/src/tests/format.sh" all
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         USES_TERMINAL
         VERBATIM
