@@ -41,7 +41,7 @@ testUniqueFilePointer( const std::string& tmpFileName,
     {
         readData.assign( 2 * tmpFileContents.size(), '\0' );
         const auto nBytesRead = std::fread( readData.data(), 1 /* element size */, readData.size(), file1.get() );
-        REQUIRE( nBytesRead == tmpFileContents.size() );
+        REQUIRE_EQUAL( nBytesRead, tmpFileContents.size() );
         REQUIRE( std::equal( tmpFileContents.begin(), tmpFileContents.end(), readData.begin() ) );
         REQUIRE( std::feof( file1.get() ) != 0 );
     }
@@ -51,7 +51,7 @@ testUniqueFilePointer( const std::string& tmpFileName,
         readData.assign( 2 * tmpFileContents.size(), '\0' );
         fileSeek( file1.get(), 0, SEEK_SET );
         const auto nBytesRead = std::fread( readData.data(), 1 /* element size */, readData.size(), file1.get() );
-        REQUIRE( nBytesRead == tmpFileContents.size() );
+        REQUIRE_EQUAL( nBytesRead, tmpFileContents.size() );
         REQUIRE( std::equal( tmpFileContents.begin(), tmpFileContents.end(), readData.begin() ) );
     }
 }
@@ -67,10 +67,10 @@ testFileReader( const std::string& tmpFileContents,
     {
         readData.assign( 2 * tmpFileContents.size(), '\0' );
         const auto nBytesRead = fileReader->read( readData.data(), readData.size() );
-        REQUIRE( nBytesRead == std::min( tmpFileContents.size(), readData.size() ) );
+        REQUIRE_EQUAL( nBytesRead, std::min( tmpFileContents.size(), readData.size() ) );
         REQUIRE( std::equal( tmpFileContents.begin(), tmpFileContents.end(), readData.begin() ) );
         REQUIRE( fileReader->eof() != 0 );
-        REQUIRE( fileReader->tell() == tmpFileContents.size() );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() );
     }
 
     /* Read second time after seeking to start without clearing EOF */
@@ -78,45 +78,115 @@ testFileReader( const std::string& tmpFileContents,
         readData.assign( 2 * tmpFileContents.size(), '\0' );
 
         fileReader->seekTo( 0 );
-        REQUIRE( fileReader->tell() == 0 );
+        REQUIRE_EQUAL( fileReader->tell(), size_t( 0 ) );
 
         const auto nBytesRead = fileReader->read( readData.data(), readData.size() );
-        REQUIRE( nBytesRead == std::min( tmpFileContents.size(), readData.size() ) );
+        REQUIRE_EQUAL( nBytesRead, std::min( tmpFileContents.size(), readData.size() ) );
         REQUIRE( std::equal( tmpFileContents.begin(), tmpFileContents.end(), readData.begin() ) );
 
-        REQUIRE( fileReader->tell() == tmpFileContents.size() );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() );
     }
 
     /* Read from middle. */
     {
         readData.assign( 1, '\0' );
         fileReader->seek( -10, SEEK_END );
-        REQUIRE( fileReader->tell() == tmpFileContents.size() - 10 );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() - 10 );
 
         const auto nBytesRead = fileReader->read( readData.data(), readData.size() );
-        REQUIRE( nBytesRead == std::min( tmpFileContents.size(), readData.size() ) );
+        REQUIRE_EQUAL( nBytesRead, std::min( tmpFileContents.size(), readData.size() ) );
         REQUIRE( std::equal( tmpFileContents.end() - 10, tmpFileContents.end() - 10 + 1, readData.begin() ) );
-        REQUIRE( fileReader->tell() == tmpFileContents.size() - 9 );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() - 9 );
     }
     {
         readData.assign( 1, '\0' );
         const auto nBytesRead = fileReader->read( readData.data(), readData.size() );
-        REQUIRE( nBytesRead == std::min( tmpFileContents.size(), readData.size() ) );
+        REQUIRE_EQUAL( nBytesRead, std::min( tmpFileContents.size(), readData.size() ) );
         REQUIRE( std::equal( tmpFileContents.end() - 9, tmpFileContents.end() - 9 + 1, readData.begin() ) );
-        REQUIRE( fileReader->tell() == tmpFileContents.size() - 8 );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() - 8 );
     }
 
     /* Read multiple from middle. */
     {
-        REQUIRE( fileReader->tell() == tmpFileContents.size() - 8 );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() - 8 );
         fileReader->seek( -10, SEEK_CUR );
-        REQUIRE( fileReader->tell() == tmpFileContents.size() - 18 );
+        REQUIRE_EQUAL( fileReader->tell(), tmpFileContents.size() - 18 );
 
         readData.assign( 5, '\0' );
         const auto nBytesRead = fileReader->read( readData.data(), readData.size() );
-        REQUIRE( nBytesRead == std::min( tmpFileContents.size(), readData.size() ) );
+        REQUIRE_EQUAL( nBytesRead, std::min( tmpFileContents.size(), readData.size() ) );
         REQUIRE( std::equal( tmpFileContents.end() - 18, tmpFileContents.end() - 18 + 5, readData.begin() ) );
     }
+}
+
+
+void
+testBufferedFileReaderSeek( const std::string& tmpFileName )
+{
+    constexpr size_t FILE_SIZE = 512_Ki;
+    constexpr size_t BUFFER_SIZE = 64_Ki;
+
+    std::vector<char> fileContents( FILE_SIZE );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( i % 251 );
+    }
+    {
+        std::ofstream outFile( tmpFileName, std::ios_base::out | std::ios_base::binary );
+        outFile.write( fileContents.data(), static_cast<std::streamsize>( fileContents.size() ) );
+    }
+
+    BufferedFileReader fileReader( std::make_unique<StandardFileReader>( tmpFileName ), BUFFER_SIZE );
+
+    const auto requireContentsAtCurrentPosition =
+        [&] ( const size_t size )
+        {
+            const auto position = fileReader.tell();
+            REQUIRE( position + size <= fileContents.size() );
+            if ( position + size > fileContents.size() ) {
+                return;
+            }
+            std::vector<char> readData( size );
+            REQUIRE_EQUAL( fileReader.read( readData.data(), readData.size() ), size );
+            REQUIRE( std::equal( readData.begin(), readData.end(),
+                                 fileContents.begin() + static_cast<std::ptrdiff_t>( position ) ) );
+        };
+
+    /* Read past the first buffer so that the buffer start offset is not zero anymore. */
+    for ( size_t i = 0; i < 200; ++i ) {
+        requireContentsAtCurrentPosition( 1_Ki );
+    }
+    REQUIRE_EQUAL( fileReader.tell(), 200_Ki );
+    REQUIRE( fileReader.tell() > BUFFER_SIZE );
+
+    /* Seek to an absolute offset that is smaller than the buffer size and smaller than the buffer start offset. */
+    fileReader.seekTo( 1000 );
+    /* Previously, got: 197608 != 1000, and all tests below also returned wrong offsets! */
+    REQUIRE_EQUAL( fileReader.tell(), size_t( 1000 ) );
+    requireContentsAtCurrentPosition( 100 );
+
+    /* Seek to an absolute offset larger than the buffer size but smaller than the buffer start offset. */
+    fileReader.seekTo( 100_Ki );
+    REQUIRE_EQUAL( fileReader.tell(), 100_Ki );
+    requireContentsAtCurrentPosition( 100 );
+
+    /* Seek forward to an offset outside of the current buffer. */
+    fileReader.seek( 300_Ki, SEEK_SET );
+    REQUIRE_EQUAL( fileReader.tell(), 300_Ki );
+    requireContentsAtCurrentPosition( 100 );
+
+    /* Seek relative to the end. */
+    fileReader.seek( -10, SEEK_END );
+    REQUIRE_EQUAL( fileReader.tell(), FILE_SIZE - 10 );
+    requireContentsAtCurrentPosition( 10 );
+
+    /* A read large enough to bypass the buffer must not desynchronize the buffer start offset from its contents. */
+    fileReader.seekTo( 200_Ki );
+    requireContentsAtCurrentPosition( 1 );
+    requireContentsAtCurrentPosition( 300_Ki );
+    REQUIRE_EQUAL( fileReader.tell(), 500_Ki + 1 );
+    fileReader.seekTo( 500_Ki );
+    REQUIRE_EQUAL( fileReader.tell(), 500_Ki );
+    requireContentsAtCurrentPosition( 100 );
 }
 
 
@@ -140,6 +210,10 @@ main()
     const auto memoryFileReader =
         std::make_unique<BufferedFileReader>( std::vector<char>( tmpFileContents.begin(), tmpFileContents.end() ) );
     testFileReader( tmpFileContents, memoryFileReader.get() );
+
+    const auto bufferedSeekFileName = std::string( tmpFileName ) + "-buffered-seek.tmp";
+    testBufferedFileReaderSeek( bufferedSeekFileName );
+    std::remove( bufferedSeekFileName.c_str() );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 

@@ -128,11 +128,13 @@ public:
             return nBytesRead;
         }
 
-        /* Skip buffering step for very large reads. */
+        /* Skip buffering step for very large reads. The buffer has been fully consumed above,
+         * so the file position is behind the buffer and m_originalBufferOffset has to advance past both.
+         * Clearing the buffer keeps m_originalBufferOffset pointing to the start of m_buffer. */
         if ( nMaxBytesToRead - nBytesRead >= m_maxBufferSize ) {
             const auto nBytesReadFromFile = m_file->read( buffer == nullptr ? buffer : buffer + nBytesRead,
                                                           nMaxBytesToRead - nBytesRead );
-            m_originalBufferOffset += nBytesReadFromFile;
+            m_bufferPosition += nBytesReadFromFile;
             return nBytesRead + nBytesReadFromFile;
         }
 
@@ -150,9 +152,10 @@ public:
 
         const auto newBufferPosition = effectiveOffset( offset, origin );
 
-        /* Check if we can simply seek inside the buffer. */
-        if ( newBufferPosition <= m_buffer.size() ) {
-            m_bufferPosition = newBufferPosition;
+        /* Check if we can simply seek inside the buffer. The buffer starts at m_originalBufferOffset and not at 0! */
+        if ( ( newBufferPosition >= m_originalBufferOffset )
+             && ( newBufferPosition - m_originalBufferOffset <= m_buffer.size() ) ) {
+            m_bufferPosition = newBufferPosition - m_originalBufferOffset;
             return tell();
         }
 
@@ -160,8 +163,7 @@ public:
             throw std::invalid_argument( "Cannot seek outside of in-memory file range!" );
         }
 
-        m_originalBufferOffset = m_file->seek( static_cast<long long int>( tell() ) + offset, SEEK_SET );
-        /* Clear buffer AFTER calling tell(), or else the position will be different! */
+        m_originalBufferOffset = m_file->seek( static_cast<long long int>( newBufferPosition ), SEEK_SET );
         m_bufferPosition = 0;
         m_buffer.clear();
 
@@ -196,8 +198,8 @@ private:
             throw std::invalid_argument( "Cannot refill buffer for buffer-only file!" );
         }
 
+        m_originalBufferOffset = m_file->seek( m_originalBufferOffset + m_bufferPosition );
         m_bufferPosition = 0;
-        m_originalBufferOffset = m_file->seek( m_originalBufferOffset + m_buffer.size() );
         m_buffer.resize( m_maxBufferSize );
         const auto nBytesRead = m_file->read( m_buffer.data(), m_buffer.size() );
         m_buffer.resize( nBytesRead );
