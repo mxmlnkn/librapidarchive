@@ -12,12 +12,15 @@
 #include <filereader/BufferView.hpp>
 #include <rapidgzip/gzip/definitions.hpp>
 #include <huffman/HuffmanCodingLinearSearch.hpp>
+#include <huffman/HuffmanCodingShortBitsCached.hpp>
 #include <huffman/HuffmanCodingSymbolsPerLength.hpp>
 #include <rapidgzip/huffman/HuffmanCodingDoubleLiteralCached.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCached.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCachedCompressed.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedCodesPerLength.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCachedSeparateLengths.hpp>
+#include <rapidgzip/huffman/HuffmanCodingShortBitsCachedDeflate.hpp>
+#include <rapidgzip/huffman/HuffmanCodingShortBitsMultiCached.hpp>
 
 
 using namespace rapidgzip;
@@ -141,6 +144,94 @@ testHuffmanCoding( bool testOneSymbolCoding = true )
 }
 
 
+template<typename HuffmanCoding>
+void
+testEmptyAlphabet()
+{
+    /* Deflate allows an empty distance alphabet for blocks without back-references. All code lengths are zero,
+     * so there is no symbol to decode and the decoder must not peek zero bits. */
+    const std::vector<uint8_t> codeLengths( 1, 0 );
+    HuffmanCoding coding;
+    REQUIRE_EQUAL( coding.initializeFromLengths( codeLengths ), rapidgzip::Error::NONE );
+
+    const std::vector<char> encoded = { 0 };
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( encoded ) );
+    REQUIRE( !coding.decode( bitReader ).has_value() );
+}
+
+
+void
+testEmptyAlphabetMultiCached()
+{
+    /* Same as above, but this decoder returns a packed symbol count instead of an optional. A symbol count of zero
+     * signals an invalid code to the caller. */
+    using HuffmanCoding = rapidgzip::deflate::HuffmanCodingShortBitsMultiCached<11>;
+    const std::vector<uint8_t> codeLengths( 1, 0 );
+    HuffmanCoding coding;
+    REQUIRE_EQUAL( coding.initializeFromLengths( codeLengths ), rapidgzip::Error::NONE );
+
+    const std::vector<char> encoded = { 0 };
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( encoded ) );
+    const auto [symbol, symbolCount] = coding.decode( bitReader );
+    REQUIRE_EQUAL( symbolCount, 0U );
+    REQUIRE_EQUAL( symbol, 0U );
+}
+
+
+void
+testEmptyAlphabetDeflateSpecific()
+{
+    /* This decoder has a fixed-size LUT peek, so an empty alphabet does not peek zero bits. But with fewer bits
+     * available than the LUT size, the EOF fallback used to dereference an empty optional. */
+    using HuffmanCoding = rapidgzip::deflate::HuffmanCodingShortBitsCachedDeflate<11>;
+    using DistanceHuffmanCoding =
+        HuffmanCodingReversedBitsCached<uint16_t, 15, uint8_t, rapidgzip::deflate::MAX_DISTANCE_SYMBOL_COUNT>;
+    const std::vector<uint8_t> codeLengths( 1, 0 );
+    HuffmanCoding coding;
+    const DistanceHuffmanCoding distanceCoding;
+    REQUIRE_EQUAL( coding.initializeFromLengths( codeLengths, distanceCoding ), rapidgzip::Error::NONE );
+
+    const std::vector<char> encoded = { 0 };
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( encoded ) );
+
+    bool threwInvalidCode{ false };
+    try {
+        (void)coding.decode( bitReader, distanceCoding );
+    } catch ( const rapidgzip::Error& error ) {
+        threwInvalidCode = error == rapidgzip::Error::INVALID_HUFFMAN_CODE;
+    } catch ( const std::exception& ) {}
+    REQUIRE( threwInvalidCode );
+}
+
+
+void
+testInvalidCodeAtEndOfInputDeflateSpecific()
+{
+    /* Fewer input bits than the LUT size and an invalid code used to reach the EOF fallback, which dereferenced
+     * the empty optional returned by the bit-by-bit decoder. */
+    using HuffmanCoding = rapidgzip::deflate::HuffmanCodingShortBitsCachedDeflate<11>;
+    using DistanceHuffmanCoding =
+        HuffmanCodingReversedBitsCached<uint16_t, 15, uint8_t, rapidgzip::deflate::MAX_DISTANCE_SYMBOL_COUNT>;
+    const std::vector<uint8_t> codeLengths( 1, 1 );
+    HuffmanCoding coding;
+    const DistanceHuffmanCoding distanceCoding;
+    REQUIRE_EQUAL( coding.initializeFromLengths( codeLengths, distanceCoding ), rapidgzip::Error::NONE );
+
+    /* The only symbol has code 0b0 and the first bit is 1. With only 8 input bits, the 11-bit LUT peek fails
+     * and the fallback bit-by-bit decoder must reject the invalid code instead of returning an empty optional. */
+    const std::vector<char> encoded = { 1 };
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( encoded ) );
+
+    bool threwInvalidCode{ false };
+    try {
+        (void)coding.decode( bitReader, distanceCoding );
+    } catch ( const rapidgzip::Error& error ) {
+        threwInvalidCode = error == rapidgzip::Error::INVALID_HUFFMAN_CODE;
+    } catch ( const std::exception& ) {}
+    REQUIRE( threwInvalidCode );
+}
+
+
 void
 testSeparateLengthsMaxSymbolCount()
 {
@@ -158,6 +249,18 @@ main()
     testSeparateLengthsMaxSymbolCount();
     static constexpr auto MAX_CODE_LENGTH = 15;
     static constexpr auto MAX_SYMBOL_COUNT = 512;
+
+    std::cerr << "Testing empty alphabets...\n";
+    testEmptyAlphabet<HuffmanCodingShortBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_SYMBOL_COUNT, 11, true> >();
+    testEmptyAlphabet<HuffmanCodingShortBitsCached<uint32_t, 20, uint16_t, 258, 12, false> >();
+    testEmptyAlphabet<HuffmanCodingReversedBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_SYMBOL_COUNT> >();
+    testEmptyAlphabet<HuffmanCodingReversedBitsCachedCompressed<uint16_t, MAX_CODE_LENGTH,
+                                                                uint16_t, MAX_SYMBOL_COUNT> >();
+    testEmptyAlphabet<HuffmanCodingReversedBitsCachedSeparateLengths<uint16_t, MAX_CODE_LENGTH,
+                                                                     uint16_t, MAX_SYMBOL_COUNT> >();
+    testEmptyAlphabetMultiCached();
+    testEmptyAlphabetDeflateSpecific();
+    testInvalidCodeAtEndOfInputDeflateSpecific();
 
     std::cerr << "Testing HuffmanCodingLinearSearch...\n";
     testHuffmanCoding<HuffmanCodingLinearSearch<uint16_t, uint16_t> >();

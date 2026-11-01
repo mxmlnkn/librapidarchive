@@ -103,6 +103,12 @@ public:
     [[nodiscard]] forceinline std::optional<Symbol>
     decode( gzip::BitReader& bitReader ) const
     {
+        /* An all-zero alphabet has no symbols. Deflate allows this for the distance alphabet of a block without
+         * back-references. Peeking zero bits would assert in the BitReader. */
+        if ( UNLIKELY( this->m_maxCodeLength == 0 ) ) [[unlikely]] {
+            return std::nullopt;
+        }
+
         try {
             const auto value = bitReader.peek( this->m_maxCodeLength );
 
