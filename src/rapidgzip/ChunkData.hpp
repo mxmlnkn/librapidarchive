@@ -865,7 +865,7 @@ struct ChunkDataCounter final :
     ChunkDataCounter& operator=( const ChunkDataCounter& ) = delete;
 
     void
-    append( deflate::DecodedVector&& toAppend )
+    append( const deflate::DecodedVector& toAppend )
     {
         decodedSizeInBytes += toAppend.size();
     }

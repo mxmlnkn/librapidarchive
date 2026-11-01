@@ -31,6 +31,8 @@
 using namespace rapidgzip;
 
 
+namespace
+{
 class BrokenPipeException :
     public std::exception
 {};
@@ -830,6 +832,7 @@ rapidgzipCLI( int                  argc,
         return 0;
     }
     return 2;
+}
 }
 
 

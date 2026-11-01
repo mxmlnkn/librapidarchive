@@ -116,7 +116,7 @@ checkPrecode( const uint64_t next4Bits,
     }
 #elif 1
     /* Try manual Duff's device loop unrolling making use of the fact that 4 <= codeLengthCount <= 19 */
-    constexpr auto& LUT = PRECODE_TO_LEAF_COUNT_LUT<PRECODE_CHUNK_SIZE>;
+    constexpr const auto& LUT = PRECODE_TO_LEAF_COUNT_LUT<PRECODE_CHUNK_SIZE>;
     constexpr auto CACHED_BITS = deflate::PRECODE_BITS * PRECODE_CHUNK_SIZE;
     const auto precodeBits = next57Bits & nLowestBitsSet<uint64_t>( codeLengthCount * deflate::PRECODE_BITS );
 

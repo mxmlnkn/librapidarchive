@@ -305,6 +305,9 @@ inline unique_file_ptr
 make_unique_file_ptr( int         fileDescriptor,
                       char const* mode )
 {
+    if ( fileDescriptor < 0 ) {
+        return nullptr;
+    }
     return make_unique_file_ptr( fdopen( fileDescriptor, mode ) );
 }
 
