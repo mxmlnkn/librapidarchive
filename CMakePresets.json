@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "fuzz",
+      "displayName": "AFL++ fuzzing",
+      "description": "Build the AFL++ persistent-mode targets with ASan and UBSan",
+      "binaryDir": "${sourceDir}/build-afl",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LIBRAPIDARCHIVE_BUILD_FUZZERS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "OFF",
+        "AFL_FUZZ_SECONDS": "60"
+      },
+      "environment": {
+        "CC": "afl-clang-fast",
+        "CXX": "afl-clang-fast++",
+        "AFL_USE_ASAN": "1",
+        "AFL_USE_UBSAN": "1"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz",
+      "targets": [
+        "fuzzRapidgzip",
+        "fuzzDeflate",
+        "fuzzGzipIndex",
+        "fuzzIndexedBzip2"
+      ]
+    },
+    {
+      "name": "run-fuzz",
+      "configurePreset": "fuzz",
+      "targets": [
+        "run-fuzz-all"
+      ]
+    }
+  ]
+}
