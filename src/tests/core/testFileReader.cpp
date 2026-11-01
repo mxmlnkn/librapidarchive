@@ -190,6 +190,48 @@ testBufferedFileReaderSeek( const std::string& tmpFileName )
 }
 
 
+void
+testBufferedFileReaderNullBuffer( const std::string& tmpFileName )
+{
+    constexpr size_t FILE_SIZE = 512_Ki;
+    constexpr size_t BUFFER_SIZE = 64_Ki;
+
+    std::vector<char> fileContents( FILE_SIZE );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( i % 251 );
+    }
+    {
+        std::ofstream outFile( tmpFileName, std::ios_base::out | std::ios_base::binary );
+        outFile.write( fileContents.data(), static_cast<std::streamsize>( fileContents.size() ) );
+    }
+
+    BufferedFileReader fileReader( std::make_unique<StandardFileReader>( tmpFileName ), BUFFER_SIZE );
+
+    /* Partially consume the internal buffer so that a subsequent skip has to read from the file. */
+    std::vector<char> firstBytes( 1000 );
+    REQUIRE_EQUAL( fileReader.read( firstBytes.data(), firstBytes.size() ), firstBytes.size() );
+    REQUIRE_EQUAL( fileReader.tell(), firstBytes.size() );
+
+    /* A null destination means skipping bytes. The remaining buffered bytes are fewer than the requested amount,
+     * so this takes the refill path, which must not derive a destination pointer from the null buffer. */
+    const size_t skipSize = BUFFER_SIZE - firstBytes.size() + 10;
+    REQUIRE_EQUAL( fileReader.read( nullptr, skipSize ), skipSize );
+    REQUIRE_EQUAL( fileReader.tell(), firstBytes.size() + skipSize );
+
+    /* Also exercise the direct path for reads larger than the buffer. */
+    const size_t largeSkip = 2 * BUFFER_SIZE;
+    REQUIRE_EQUAL( fileReader.read( nullptr, largeSkip ), largeSkip );
+    REQUIRE_EQUAL( fileReader.tell(), firstBytes.size() + skipSize + largeSkip );
+
+    /* The skip must not have changed where the following read takes its data from. */
+    const auto position = fileReader.tell();
+    std::vector<char> readData( 100 );
+    REQUIRE_EQUAL( fileReader.read( readData.data(), readData.size() ), readData.size() );
+    REQUIRE( std::equal( readData.begin(), readData.end(),
+                         fileContents.begin() + static_cast<std::ptrdiff_t>( position ) ) );
+}
+
+
 int
 main()
 {
@@ -214,6 +256,10 @@ main()
     const auto bufferedSeekFileName = std::string( tmpFileName ) + "-buffered-seek.tmp";
     testBufferedFileReaderSeek( bufferedSeekFileName );
     std::remove( bufferedSeekFileName.c_str() );
+
+    const auto bufferedNullFileName = std::string( tmpFileName ) + "-buffered-null.tmp";
+    testBufferedFileReaderNullBuffer( bufferedNullFileName );
+    std::remove( bufferedNullFileName.c_str() );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
