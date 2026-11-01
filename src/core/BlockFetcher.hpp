@@ -498,7 +498,8 @@ private:
 
         auto blockIndexesToPrefetch = m_fetchingStrategy.prefetch( m_prefetchCache.capacity() );
 
-        std::vector<size_t> blockOffsetsToPrefetch( blockIndexesToPrefetch.size() );
+        std::vector<size_t> blockOffsetsToPrefetch;
+        blockOffsetsToPrefetch.reserve( 2 * blockIndexesToPrefetch.size() );
         for ( auto blockIndexToPrefetch : blockIndexesToPrefetch ) {
             /* If we don't find the offset in the timeout of 0, then we very likely also don't have it cached yet. */
             const auto [blockOffset, _] = m_blockFinder->get( blockIndexToPrefetch, /* timeout */ 0 );
