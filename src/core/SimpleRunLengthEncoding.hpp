@@ -200,11 +200,16 @@ simpleRunLengthDecode( const InputContainer& data,
         }
         i += nBytesRead2;
 
+        /* Both checks must avoid overflowing the size_t arithmetic with an untrusted varint length. */
+        if ( length > output.size() - decodedSize ) {
+            throw std::domain_error( "Decoded size points past the end!" );
+        }
+
         switch ( backwardReference )
         {
         case 0:
         {
-            if ( i + length > data.size() ) {
+            if ( length > data.size() - i ) {
                 throw std::domain_error( "Literal count points past the end!" );
             }
 

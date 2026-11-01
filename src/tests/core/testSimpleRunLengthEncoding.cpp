@@ -110,11 +110,38 @@ testSimpleRunLengthEncodindConstexpr2()
 }
 
 
+void
+testRunLengthDecodeRejectsOversizedLengths()
+{
+    /* A varint length that would overflow the bounds checks must be rejected without reading out of bounds. */
+    std::vector<uint8_t> oversizedLength{ 0 };
+    writeVarInt( oversizedLength, std::numeric_limits<size_t>::max() );
+    bool threw{ false };
+    try {
+        (void)simpleRunLengthDecode<std::vector<uint8_t> >( oversizedLength, 10 );
+    } catch ( const std::domain_error& ) {
+        threw = true;
+    }
+    REQUIRE( threw );
+
+    /* A literal count larger than the remaining input is also invalid. */
+    const std::vector<uint8_t> shortLiterals{ 0, 5 };
+    threw = false;
+    try {
+        (void)simpleRunLengthDecode<std::vector<uint8_t> >( shortLiterals, 10 );
+    } catch ( const std::domain_error& ) {
+        threw = true;
+    }
+    REQUIRE( threw );
+}
+
+
 int
 main()
 {
     testVarInt();
     testSimpleRunLengthEncoding();
+    testRunLengthDecodeRejectsOversizedLengths();
     testSimpleRunLengthEncodindConstexpr();
     testSimpleRunLengthEncodindConstexpr2();
 
