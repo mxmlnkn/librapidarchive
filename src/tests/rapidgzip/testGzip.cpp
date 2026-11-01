@@ -388,6 +388,45 @@ testSeekingWithIndex( const std::filesystem::path& encodedFilePath,
 }
 
 void
+testCloningAfterPartialRead( const std::filesystem::path& encodedFilePath,
+                             const std::filesystem::path& decodedFilePath )
+{
+    const auto expected = readFile<std::vector<char> >( decodedFilePath );
+    REQUIRE( expected.size() > 128_Ki );
+
+    GzipReader reader( std::make_unique<StandardFileReader>( encodedFilePath ) );
+
+    std::array<char, 1> firstByte{};
+    REQUIRE_EQUAL( reader.read( firstByte.data(), firstByte.size() ), size_t( 1 ) );
+    REQUIRE_EQUAL( firstByte[0], expected[0] );
+
+    /* The clone must not reference the decoder window of the original reader. */
+    const UniqueFileReader clone = reader.clone();
+
+    /* Decode enough data to wrap the original window and overwrite the views held by the clone. */
+    std::vector<char> discarded( expected.size() );
+    while ( reader.read( discarded.data(), discarded.size() ) > 0 ) {}
+
+    std::vector<char> clonedData( 4_Ki );
+    const auto nBytesRead = clone->read( clonedData.data(), clonedData.size() );
+    REQUIRE_EQUAL( nBytesRead, clonedData.size() );
+    const auto matches = nBytesRead == clonedData.size()
+                         && std::equal( clonedData.begin(), clonedData.end(), expected.begin() + 1 );
+    REQUIRE( matches );
+    if ( !matches ) {
+        for ( size_t i = 0; i < clonedData.size(); ++i ) {
+            if ( clonedData[i] != expected[i + 1] ) {
+                std::cerr << "Cloned reader returned " << static_cast<int>( clonedData[i] )
+                          << " instead of " << static_cast<int>( expected[i + 1] )
+                          << " at decompressed offset " << ( i + 1 ) << "\n";
+                break;
+            }
+        }
+    }
+}
+
+
+void
 testCloning( const std::filesystem::path& encodedFilePath )
 {
     GzipReader gzipReader{ std::make_unique<StandardFileReader>( encodedFilePath ) };
@@ -449,6 +488,7 @@ main( int    argc,
             findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bgz" )
         ) / "src" / "tests" / "data";
 
+    testCloningAfterPartialRead( testsFolder / "base64-256KiB.gz", testsFolder / "base64-256KiB" );
     for ( auto const& entry : std::filesystem::directory_iterator( testsFolder ) ) {
         if ( !entry.is_regular_file() || !entry.path().has_extension() ) {
             continue;
