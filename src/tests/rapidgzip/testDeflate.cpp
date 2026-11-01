@@ -10,6 +10,7 @@
 #include <filereader/Buffered.hpp>
 #include <filereader/BufferView.hpp>
 #include <rapidgzip/gzip/definitions.hpp>
+#include <rapidgzip/gzip/GzipAnalyzer.hpp>
 #include <rapidgzip/gzip/deflate.hpp>
 
 
@@ -248,6 +249,37 @@ testTruncatedStoredBlock()
 }
 
 
+void
+testAnalyzeTruncatedGzip()
+{
+    const auto analyzeBytes =
+        [] ( const std::vector<uint8_t>& bytes ) {
+            BufferedFileReader::AlignedBuffer buffer( bytes.size() );
+            std::copy( bytes.begin(), bytes.end(), buffer.begin() );
+            return rapidgzip::deflate::analyze(
+                std::make_unique<BufferedFileReader>( std::move( buffer ) ) );
+        };
+
+    const std::vector<uint8_t> gzipHeader = {
+        0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+    };
+
+    /* Truncated stored-block LEN/NLEN header. */
+    auto truncatedHeader = gzipHeader;
+    truncatedHeader.push_back( 0x00 );
+    REQUIRE( analyzeBytes( truncatedHeader ) != rapidgzip::Error::NONE );
+
+    /* Non-final and final stored blocks with LEN=4 but only two data bytes. The analyzer used to
+     * continue after the decode error and report success for the truncated non-final stream. */
+    for ( const auto finalBlockByte : { uint8_t( 0x00 ), uint8_t( 0x01 ) } ) {
+        auto truncatedBody = gzipHeader;
+        const std::vector<uint8_t> blockHeader{ finalBlockByte, 0x04, 0x00, 0xFB, 0xFF, 'a', 'b' };
+        truncatedBody.insert( truncatedBody.end(), blockHeader.begin(), blockHeader.end() );
+        REQUIRE( analyzeBytes( truncatedBody ) != rapidgzip::Error::NONE );
+    }
+}
+
+
 int
 main()
 {
@@ -255,6 +287,7 @@ main()
     testCalculateLength();
     testFixedHuffmanCoding();
     testTruncatedStoredBlock();
+    testAnalyzeTruncatedGzip();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 

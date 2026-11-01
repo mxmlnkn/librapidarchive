@@ -400,6 +400,7 @@ analyze( UniqueFileReader inputFile,
             const auto nBytesRead = buffers.size();
             if ( error != Error::NONE ) {
                 std::cerr << "Encountered error: " << toString( error ) << " while decompressing deflate block.\n";
+                return error;
             }
             totalBytesRead += nBytesRead;
             streamBytesRead += nBytesRead;
