@@ -396,7 +396,7 @@ ZlibInflateWrapper::readStream( uint8_t* const output,
             }
         #endif
 
-            throw std::runtime_error( std::move( message ).str() );
+            throw std::domain_error( std::move( message ).str() );
         }
 
         if ( decodedSize + m_stream.total_out > outputSize ) {
@@ -601,7 +601,7 @@ ZlibInflateWrapper::readHeader()
         if ( error != Error::NONE ) {
             std::stringstream message;
             message << "Error reading zlib header: " << toString( error );
-            throw std::logic_error( std::move( message ).str() );
+            throw std::domain_error( std::move( message ).str() );
         }
         break;
     }

@@ -422,6 +422,48 @@ testEmptyInitialWindow( const std::filesystem::path& rootFolder )
 
 template<typename InflateWrapper>
 void
+testInvalidZlibHeader()
+{
+    /* Not a valid zlib header. This is malformed input and must not be reported as an internal logic error. */
+    const std::vector<uint8_t> compressedData{ 0x00, 0x00, 0x00, 0x00 };
+    gzip::BitReader bitReader(
+        std::make_unique<BufferViewFileReader>( compressedData ) );
+    InflateWrapper inflateWrapper( std::move( bitReader ) );
+    inflateWrapper.setFileType( FileType::ZLIB );
+    inflateWrapper.setStartWithHeader( true );
+
+    std::byte dummy{ 0 };
+    bool threwDomainError{ false };
+    try {
+        (void)inflateWrapper.readStream( reinterpret_cast<uint8_t*>( &dummy ), 1U );
+    } catch ( const std::domain_error& ) {
+        threwDomainError = true;
+    } catch ( const std::exception& ) {}
+    REQUIRE( threwDomainError );
+}
+
+
+template<typename InflateWrapper>
+void
+testZlibFooter( const std::filesystem::path& rootFolder )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.zlib" );
+
+    auto fileReader = std::make_unique<SharedFileReader>(
+        std::make_unique<BufferViewFileReader>( compressed ) );
+    gzip::BitReader bitReader( std::move( fileReader ) );
+    bitReader.seek( 2 * CHAR_BIT );  // The wrapper starts at the deflate block, after the zlib header.
+    InflateWrapper inflateWrapper( std::move( bitReader ), compressed.size() * BYTE_SIZE );
+    inflateWrapper.setFileType( FileType::ZLIB );
+
+    std::vector<uint8_t> output( 32_Ki );
+    const auto [decompressedSize, footer] = inflateWrapper.readStream( output.data(), output.size() );
+    REQUIRE_EQUAL( decompressedSize, output.size() );
+    REQUIRE( footer.has_value() );
+}
+
+template<typename InflateWrapper>
+void
 testNoProgressAfterStreamEnd()
 {
     const std::vector<std::byte> dataToCompress = { std::byte( 'A' ), std::byte( 'B' ) };
@@ -1005,6 +1047,8 @@ testInflateWrapper( const std::filesystem::path& rootFolder )
     testEmptyStoredZlibStream<InflateWrapper>();
     testEmptyInitialWindow<InflateWrapper>( rootFolder );
     testEmptyInputHeader<InflateWrapper>();
+    testInvalidZlibHeader<InflateWrapper>();
+    testZlibFooter<InflateWrapper>( rootFolder );
     testNoProgressAfterStreamEnd<InflateWrapper>();
     testGettingFooter<InflateWrapper>();
 }

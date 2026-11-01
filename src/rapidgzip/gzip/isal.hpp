@@ -342,7 +342,7 @@ IsalInflateWrapper::readStream( uint8_t* const output,
             m_bitReader.seek( oldOffset );
         #endif
 
-            throw std::runtime_error( std::move( message ).str() );
+            throw std::domain_error( std::move( message ).str() );
         }
 
         if ( decodedSize + m_stream.total_out > outputSize ) {
@@ -517,7 +517,7 @@ IsalInflateWrapper::readHeader()
         if ( error != Error::NONE ) {
             std::stringstream message;
             message << "Error reading zlib header: " << toString( error );
-            throw std::logic_error( std::move( message ).str() );
+            throw std::domain_error( std::move( message ).str() );
         }
         return true;
     }
@@ -549,7 +549,7 @@ IsalInflateWrapper::readIsalHeader( Header* const    header,
         if ( errorCode != ISAL_END_INPUT ) {
             std::stringstream message;
             message << "Failed to parse gzip/zlib header (" << errorCode << ": " << getErrorString( errorCode ) << ")!";
-            throw std::runtime_error( std::move( message ).str() );
+            throw std::domain_error( std::move( message ).str() );
         }
 
         refillBuffer();
@@ -679,7 +679,7 @@ inflateWithIsal( const Container& toDecompress,
         std::stringstream message;
         message << "Decompression of " << toDecompress.size() << "B sized vector failed with error code: "
                 << IsalInflateWrapper::getErrorString( result ) << " (" << std::to_string( result ) << ")";
-        throw std::runtime_error( std::move( message ).str() );
+        throw std::domain_error( std::move( message ).str() );
     }
     if ( stream.avail_out > 0 ) {
         std::stringstream message;
