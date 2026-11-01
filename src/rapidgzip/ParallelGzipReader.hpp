@@ -928,11 +928,16 @@ private:
             throw std::invalid_argument( "May not clear offsets. Construct a new ParallelGzipReader instead!" );
         }
 
-        setBlockFinderOffsets( offsets );
-
         if ( offsets.size() < 2 ) {
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
+
+        /* Wait for in-flight chunk jobs before finalizing the new finder offsets. A worker that finishes a
+         * stale chunk afterwards would try to insert into the finalized finder, which throws. */
+        if ( m_chunkFetcher ) {
+            m_chunkFetcher->clearCache();
+        }
+        setBlockFinderOffsets( offsets );
         m_blockMap->setBlockOffsets( offsets );
     }
 
