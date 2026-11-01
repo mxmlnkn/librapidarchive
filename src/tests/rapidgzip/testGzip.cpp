@@ -388,6 +388,41 @@ testSeekingWithIndex( const std::filesystem::path& encodedFilePath,
 }
 
 void
+testSeekingToStartVerifiesChecksum( const std::filesystem::path& encodedFilePath,
+                                    const std::filesystem::path& gzipIndexPath )
+{
+    auto encoded = readFile<std::vector<uint8_t> >( encodedFilePath );
+    const auto indexData = readFile<std::vector<uint8_t> >( gzipIndexPath );
+    REQUIRE( encoded.size() > 8 );
+
+    /* Corrupt the first CRC32 byte, which is 8 bytes before the end, without changing the stream structure. */
+    encoded[encoded.size() - 8] ^= 0xFF;
+
+    GzipReader reader( std::make_unique<BufferViewFileReader>( encoded ) );
+    reader.importIndex( std::make_unique<BufferViewFileReader>( indexData ) );
+    REQUIRE( reader.seekable() );
+
+    std::array<char, 1000> prefix{};
+    REQUIRE_EQUAL( reader.read( prefix.data(), prefix.size() ), prefix.size() );
+
+    /* Seeking back to the start covers the whole stream again, so the footer checksum must be verified. */
+    reader.seek( 0 );
+
+    bool threw{ false };
+    std::string message;
+    std::array<char, 4_Ki> buffer{};
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        message = exception.what();
+    }
+    REQUIRE( threw );
+    REQUIRE( message.find( "Mismatching CRC32" ) != std::string::npos );
+}
+
+
+void
 testCloningAfterPartialRead( const std::filesystem::path& encodedFilePath,
                              const std::filesystem::path& decodedFilePath )
 {
@@ -423,6 +458,43 @@ testCloningAfterPartialRead( const std::filesystem::path& encodedFilePath,
             }
         }
     }
+}
+
+
+void
+testSeekingChecksumState( const std::filesystem::path& encodedFilePath,
+                          const std::filesystem::path& gzipIndexPath,
+                          const std::filesystem::path& decodedFilePath )
+{
+    const auto expected = readFile<std::vector<char> >( decodedFilePath );
+    REQUIRE( expected.size() > 4_Ki );
+
+    GzipReader reader( std::make_unique<StandardFileReader>( encodedFilePath ) );
+    reader.importIndex( std::make_unique<StandardFileReader>( gzipIndexPath ) );
+    REQUIRE( reader.seekable() );
+
+    /* Read a prefix so that the checksum state only covers part of the stream. */
+    std::array<char, 1000> prefix{};
+    REQUIRE_EQUAL( reader.read( prefix.data(), prefix.size() ), prefix.size() );
+    REQUIRE( std::equal( prefix.begin(), prefix.end(), expected.begin() ) );
+
+    /* Seeking tracks back to the block start and decodes the skipped bytes again. The checksum of that
+     * discontinuous range cannot match the footer, so it must not be verified against the footer. */
+    reader.seek( 2000 );
+
+    std::vector<char> rest;
+    std::array<char, 4_Ki> buffer{};
+    while ( true ) {
+        const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+        if ( nBytesRead == 0 ) {
+            break;
+        }
+        rest.insert( rest.end(), buffer.begin(), buffer.begin() + nBytesRead );
+    }
+
+    REQUIRE_EQUAL( rest.size(), expected.size() - 2000 );
+    REQUIRE( ( rest.size() == expected.size() - 2000 )
+             && std::equal( rest.begin(), rest.end(), expected.begin() + 2000 ) );
 }
 
 
@@ -534,6 +606,12 @@ main( int    argc,
 
     testSerialDecoderZlibAdler32( testsFolder );
     testCloningAfterPartialRead( testsFolder / "base64-256KiB.gz", testsFolder / "base64-256KiB" );
+    testSeekingChecksumState( testsFolder / "base64-256KiB.gz",
+                              testsFolder / "base64-256KiB.gz.index",
+                              testsFolder / "base64-256KiB" );
+    testSeekingToStartVerifiesChecksum( testsFolder / "base64-256KiB.gz",
+                                        testsFolder / "base64-256KiB.gz.index" );
+
     for ( auto const& entry : std::filesystem::directory_iterator( testsFolder ) ) {
         if ( !entry.is_regular_file() || !entry.path().has_extension() ) {
             continue;

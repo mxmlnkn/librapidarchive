@@ -75,7 +75,7 @@ public:
         m_adler32Calculator( other.m_adler32Calculator ),
         m_blockMap( other.m_blockMap ),
         m_windowMap( other.m_windowMap ),
-        m_didReadHeader( other.m_didReadHeader )
+        m_checksumStateValid( other.m_checksumStateValid )
     {
         /* The copied views point into the window of the original block. Reconstruct them from our own copy. */
         if ( m_currentDeflateBlock && m_offsetInLastBuffers && ( m_lastBlockData.size() > 0 ) ) {
@@ -190,6 +190,16 @@ public:
             readHeader();
         }
 
+        /* Pending data and checksums belong to the old position. The block is reset to the checkpoint and
+         * decoded forward to the target offset, so all previously decoded output has to be discarded. */
+        m_offsetInLastBuffers.reset();
+        m_lastBlockData = {};
+        m_streamBytesCount = 0;
+        m_crc32Calculator.reset();
+        m_adler32Calculator.reset();
+        /* A stream that is not read from its start cannot have its checksum verified against the footer. */
+        m_checksumStateValid = positiveOffset == 0;
+
         const auto blockInfo = m_blockMap->findDataOffset( positiveOffset );
         if ( !blockInfo.contains( positiveOffset ) ) {
             throw std::logic_error( "BlockMap returned unwanted block!" );
@@ -207,7 +217,6 @@ public:
         m_atEndOfFile = m_currentPosition >= m_blockMap->back().second;
         m_bitReader.seekTo( blockInfo.encodedOffsetInBits );
         readBlockHeader();
-        m_didReadHeader = false;
         read( -1, nullptr, positiveOffset - m_currentPosition );
         return m_currentPosition;
     }
@@ -467,7 +476,7 @@ private:
         m_currentPoint = StoppingPoint::END_OF_STREAM_HEADER;
         m_crc32Calculator.reset();
         m_adler32Calculator.reset();
-        m_didReadHeader = true;
+        m_checksumStateValid = true;
     }
 
     void
@@ -592,7 +601,8 @@ private:
 
     std::shared_ptr<const BlockMap> m_blockMap;
     std::shared_ptr<const WindowMap> m_windowMap;
-    bool m_didReadHeader{ false };
+    /** False when the current stream was not read from its start, e.g., after seeking into it. */
+    bool m_checksumStateValid{ true };
 };
 
 
@@ -714,7 +724,8 @@ GzipReader::readFooter()
     {
         const auto footer = gzip::readFooter( m_bitReader );
 
-        if ( m_didReadHeader && static_cast<uint32_t>( m_streamBytesCount ) != footer.uncompressedSize ) {
+        if ( m_checksumStateValid
+             && ( static_cast<uint32_t>( m_streamBytesCount ) != footer.uncompressedSize ) ) {
             std::stringstream message;
             message << "Mismatching size (" << static_cast<uint32_t>( m_streamBytesCount ) << " <-> footer: "
                     << footer.uncompressedSize << ") for gzip stream!";
@@ -726,7 +737,7 @@ GzipReader::readFooter()
             throw std::logic_error( "Call readHeader and readBlockHeader before readFooter!" );
         }
 
-        if ( m_didReadHeader ) {
+        if ( m_checksumStateValid ) {
             m_crc32Calculator.verify( footer.crc32 );
         }
         break;
@@ -740,7 +751,7 @@ GzipReader::readFooter()
             throw std::logic_error( "Call readHeader and readBlockHeader before readFooter!" );
         }
 
-        if ( m_didReadHeader ) {
+        if ( m_checksumStateValid ) {
             m_adler32Calculator.verify( footer.adler32 );
         }
 
@@ -770,6 +781,5 @@ GzipReader::readFooter()
     }
 
     m_currentPoint = StoppingPoint::END_OF_STREAM;
-    m_didReadHeader = false;
 }
 }  // namespace rapidgzip
