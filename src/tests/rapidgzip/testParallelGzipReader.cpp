@@ -26,6 +26,15 @@
 using namespace rapidgzip;
 
 
+#ifdef SHORT_TESTS
+constexpr const auto LARGE_TEST_SIZE = 8_Mi;
+constexpr const auto MULTI_STREAM_TEST_SIZE = 4_Mi;
+#else
+constexpr const auto LARGE_TEST_SIZE = 64_Mi;
+constexpr const auto MULTI_STREAM_TEST_SIZE = 32_Mi;
+#endif
+
+
 // *INDENT-OFF*
 const std::vector<uint8_t> NANO_SAMPLE_GZIP = {
     /*          ID1   ID2   CM    FLG  [       MTIME        ]     XFL   OS   [      FNAME = "nano"      ]  <Deflate */
@@ -487,14 +496,14 @@ void
 testPerformance( const TemporaryDirectory& tmpFolder )
 {
     const auto fileName = std::filesystem::absolute( tmpFolder.path() / "random-base64" ).string();
-    createRandomBase64( fileName, 64_Mi );
+    createRandomBase64( fileName, LARGE_TEST_SIZE );
 
     try {
         const auto& [name, getVersion, command, extension] = TEST_ENCODERS.front();
         const auto encodedFilePath = encodeTestFile( fileName, tmpFolder, command );
 
         for ( const auto parallelization : { 1, 2, 3, 4, 8 } ) {
-            for ( const auto bufferSize : { 64_Mi, 4_Mi, 32_Ki, 1_Ki } ) {
+            for ( const auto bufferSize : { LARGE_TEST_SIZE, 4_Mi, 32_Ki, 1_Ki } ) {
                 try {
                     testPerformance( encodedFilePath, bufferSize, parallelization );
                 } catch ( const std::exception& exception ) {
@@ -686,7 +695,7 @@ testCachedChunkReuseAfterSplit()
 void
 testPrefetchingAfterSplit()
 {
-    static constexpr size_t DATA_SIZE = 64_Mi;
+    static constexpr size_t DATA_SIZE = LARGE_TEST_SIZE;
     static constexpr size_t CHUNK_SIZE = 1_Mi;
 
     /* As there are 4 symbols, 2 bits per symbol should suffice and as the data is random, almost no backreferences
@@ -701,9 +710,9 @@ testPrefetchingAfterSplit()
     reader.setCRC32Enabled( true );
 
     /* Read everything. The data should contain sufficient chunks such that the first ones have been evicted. */
-    REQUIRE_EQUAL( reader.read( -1, nullptr, std::numeric_limits<size_t>::max() ), 64_Mi );
+    REQUIRE_EQUAL( reader.read( -1, nullptr, std::numeric_limits<size_t>::max() ), LARGE_TEST_SIZE );
     REQUIRE_EQUAL( reader.statistics().onDemandFetchCount, 1U );
-    REQUIRE_EQUAL( reader.tell(), 64_Mi );
+    REQUIRE_EQUAL( reader.tell(), LARGE_TEST_SIZE );
     REQUIRE_EQUAL( reader.tellCompressed(), compressedRandomDNA.size() * BYTE_SIZE );
     REQUIRE( reader.blockOffsets().size() >= DATA_SIZE / CHUNK_SIZE );
 
@@ -729,7 +738,7 @@ testPrefetchingAfterSplit()
 void
 testMultiThreadedUsage()
 {
-    static constexpr size_t DATA_SIZE = 64_Mi;
+    static constexpr size_t DATA_SIZE = LARGE_TEST_SIZE;
 
     /* As there are 4 symbols, 2 bits per symbol should suffice and as the data is random, almost no backreferences
      * should be viable. This leads to a compression ratio of ~4, which is large enough for splitting and benign
@@ -807,7 +816,7 @@ testMultiStreamDecompression( const std::filesystem::path& encoded,
     auto decompressedData = readFile<std::vector<uint8_t> >( decoded.string() );
 
     /* Duplicate gzip stream. We need something larger than the chunk size at least. */
-    const auto duplicationCount = ceilDiv( 32_Mi, compressedData.size() );
+    const auto duplicationCount = ceilDiv( MULTI_STREAM_TEST_SIZE, compressedData.size() );
     compressedData = duplicateContents( std::move( compressedData ), duplicationCount );
     decompressedData = duplicateContents( std::move( decompressedData ), duplicationCount );
 
@@ -837,7 +846,7 @@ testChecksummedMultiStreamDecompression( const std::filesystem::path& encoded,
     checksummer.update( decompressedData.data(), decompressedData.size() );
 
     /* Duplicate gzip stream. We need something larger than the chunk size at least. */
-    const auto duplicationCount = ceilDiv( 32_Mi, compressedData.size() );
+    const auto duplicationCount = ceilDiv( MULTI_STREAM_TEST_SIZE, compressedData.size() );
     compressedData = duplicateContents( std::move( compressedData ), duplicationCount );
     decompressedData = duplicateContents( std::move( decompressedData ), duplicationCount );
 
