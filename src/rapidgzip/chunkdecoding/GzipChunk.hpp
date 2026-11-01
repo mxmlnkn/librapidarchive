@@ -293,7 +293,7 @@ public:
         const auto tStart = now();
         auto nextBlockOffset = bitReader->tell();
         bool stoppingPointReached{ false };
-        auto alreadyDecoded = result.size();
+        auto alreadyDecoded = result.currentDecodedSize();
 
         if ( ( alreadyDecoded > 0 ) && !bitReader->eof() ) {
             appendDeflateBlockBoundary( result, subchunks, *bitReader, nextBlockOffset, alreadyDecoded );
@@ -627,7 +627,8 @@ public:
                     footer.gzipFooter = gzip::readFooter( *bitReader );
                     /* We only check for the stream size and CRC32 if we have read the whole stream including the header! */
                     if ( didReadHeader ) {
-                        if ( streamBytesRead != footer.gzipFooter.uncompressedSize ) {
+                        /* ISIZE is stored modulo 2^32. */
+                        if ( static_cast<uint32_t>( streamBytesRead ) != footer.gzipFooter.uncompressedSize ) {
                             std::stringstream message;
                             message << "Mismatching size (" << streamBytesRead << " <-> footer: "
                                     << footer.gzipFooter.uncompressedSize << ") for gzip stream!";

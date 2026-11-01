@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -18,6 +21,9 @@
 #include <filereader/Buffered.hpp>
 #include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
+#include <rapidgzip/blockfinder/Bgzf.hpp>
+#include <rapidgzip/gzip/crc32.hpp>
+#include <rapidgzip/gzip/format.hpp>
 #include <rapidgzip/gzip/zlib.hpp>
 #include <rapidgzip/ParallelGzipReader.hpp>
 #include <rapidgzip/rapidgzip.hpp>
@@ -857,7 +863,7 @@ testChecksummedMultiStreamDecompression( const std::filesystem::path& encoded,
     std::unordered_map<size_t, uint32_t> crc32s;
     crc32s.reserve( duplicationCount );
     for ( size_t i = 0; i < duplicationCount; ++i ) {
-        crc32s.emplace( i * singleStreamSize, checksummer.crc32() );
+        crc32s.emplace( ( i + 1 ) * singleStreamSize, checksummer.crc32() );
     }
 
     std::unique_ptr<GzipIndex> index;
@@ -866,7 +872,7 @@ testChecksummedMultiStreamDecompression( const std::filesystem::path& encoded,
         std::vector<uint8_t> decompressedResult( decompressedData.size() + 1, 3 );
         ParallelGzipReader reader( std::make_unique<BufferViewFileReader>( compressedData ) );
         reader.setCRC32Enabled( true );
-        reader.setDeflateStreamCRC32s( std::move( crc32s ) );
+        reader.setDeflateStreamCRC32s( crc32s );
 
         const auto readSize = reader.read( reinterpret_cast<char*>( decompressedResult.data() ),
                                            decompressedResult.size() );
@@ -882,7 +888,7 @@ testChecksummedMultiStreamDecompression( const std::filesystem::path& encoded,
         std::vector<uint8_t> decompressedResult( decompressedData.size() + 1, 3 );
         ParallelGzipReader reader( std::make_unique<BufferViewFileReader>( compressedData ) );
         reader.setCRC32Enabled( true );
-        reader.setDeflateStreamCRC32s( std::move( crc32s ) );
+        reader.setDeflateStreamCRC32s( crc32s );
         reader.setBlockOffsets( *index );
 
         const auto readSize = reader.read( reinterpret_cast<char*>( decompressedResult.data() ),
@@ -1168,6 +1174,151 @@ testClearCacheWithInFlightMarkerReplacements()
 }
 
 
+[[nodiscard]] std::vector<char>
+createGzipIndex( const std::vector<uint8_t>& data,
+                 const size_t                chunkSize )
+{
+    std::vector<char> index;
+    rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, chunkSize );
+    reader.read( -1, nullptr );
+    reader.exportIndex(
+        [&index] ( const void* buffer, const size_t size ) {
+            const auto* const bytes = reinterpret_cast<const char*>( buffer );
+            index.insert( index.end(), bytes, bytes + size );
+        } );
+    return index;
+}
+
+
+void
+requireReadError( const std::vector<uint8_t>&        data,
+                  const size_t                       chunkSize,
+                  const size_t                       readBufferSize,
+                  const std::vector<char>*           indexData,
+                  const size_t                       preReadBytes,
+                  const std::optional<size_t>        seekOffset,
+                  const std::string&                 expectedMessage,
+                  const bool                         verifyChecksums )
+{
+    rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
+        std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, chunkSize );
+    reader.setCRC32Enabled( verifyChecksums );
+
+    bool threw{ false };
+    std::string what;
+    try {
+        if ( indexData != nullptr ) {
+            reader.importIndex( std::make_unique<BufferViewFileReader>( *indexData ) );
+        }
+        if ( preReadBytes > 0 ) {
+            std::vector<char> buffer( preReadBytes );
+            const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+            REQUIRE( nBytesRead > 0 );
+        }
+        if ( seekOffset ) {
+            reader.seek( static_cast<long long int>( *seekOffset ) );
+        }
+
+        std::vector<char> buffer( readBufferSize );
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        what = exception.what();
+    }
+
+    if ( !threw || ( what.find( expectedMessage ) == std::string::npos ) ) {
+        std::cerr << "Expected an exception containing '" << expectedMessage << "' for chunk size "
+                  << chunkSize << ", read buffer " << readBufferSize << ", index "
+                  << ( indexData != nullptr ? "yes" : "no" ) << ", pre-read " << preReadBytes
+                  << " B, seek " << ( seekOffset ? std::to_string( *seekOffset ) : "none" )
+                  << " but got: " << ( threw ? what : "no exception" ) << "\n";
+    }
+    REQUIRE( threw );
+    REQUIRE( what.find( expectedMessage ) != std::string::npos );
+}
+
+
+void
+testGzipISIZE( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
+
+    const auto corruptISIZE =
+        [] ( std::vector<uint8_t>& data, const size_t memberStart, const size_t memberSize )
+        {
+            const auto isizeOffset = memberStart + memberSize - 4;
+            uint32_t isize = static_cast<uint32_t>( data[isizeOffset] )
+                         | ( static_cast<uint32_t>( data[isizeOffset + 1] ) << 8U )
+                         | ( static_cast<uint32_t>( data[isizeOffset + 2] ) << 16U )
+                         | ( static_cast<uint32_t>( data[isizeOffset + 3] ) << 24U );
+            ++isize;
+            for ( size_t i = 0; i < 4; ++i ) {
+                data[isizeOffset + i] = static_cast<uint8_t>( ( isize >> ( 8 * i ) ) & 0xFFU );
+            }
+        };
+
+    const auto index = createGzipIndex( member, 16_Ki );
+
+    auto badSingleMember = member;
+    corruptISIZE( badSingleMember, 0, member.size() );
+    for ( const auto chunkSize : { 16_Ki, 1_Mi } ) {
+        for ( const auto verifyChecksums : { false, true } ) {
+            requireReadError( badSingleMember, chunkSize, 4_Ki, nullptr, 0, std::nullopt,
+                              "Mismatching size", verifyChecksums );
+        }
+    }
+
+    /* Importing an index and reading from offset 0 must validate the first stream's ISIZE. */
+    requireReadError( badSingleMember, 16_Ki, 4_Ki, &index, 0, std::nullopt,
+                      "Mismatching size", /* verifyChecksums */ false );
+    /* Seeking back to 0 after a partial read must reprocess the chunk for ISIZE validation. */
+    const auto largeMember = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
+    auto largeBadMember = largeMember;
+    corruptISIZE( largeBadMember, 0, largeMember.size() );
+    requireReadError( largeBadMember, 16_Ki, 4_Ki, nullptr, 32_Ki, size_t( 0 ),
+                      "Mismatching size", /* verifyChecksums */ false );
+
+    auto concatenated = member;
+    concatenated.insert( concatenated.end(), member.begin(), member.end() );
+
+    auto badSecondMember = concatenated;
+    corruptISIZE( badSecondMember, member.size(), member.size() );
+    for ( const auto chunkSize : { 16_Ki, 1_Mi } ) {
+        requireReadError( badSecondMember, chunkSize, 4_Ki, nullptr, 0, std::nullopt,
+                          "Mismatching size", /* verifyChecksums */ false );
+    }
+
+    auto badFirstMember = concatenated;
+    corruptISIZE( badFirstMember, 0, member.size() );
+    requireReadError( badFirstMember, 16_Ki, 4_Ki, nullptr, 0, std::nullopt,
+                      "Mismatching size", /* verifyChecksums */ false );
+}
+
+
+void
+testChunkDataCounter( const std::filesystem::path& rootFolder )
+{
+    auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "random-512kiB.gz" );
+
+    const auto requireCount =
+        [&] ( const std::vector<uint8_t>& data,
+              const std::string&            description )
+        {
+            rapidgzip::ParallelGzipReader<rapidgzip::ChunkDataCounter> reader(
+                std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, /* chunk size */ 64_Ki );
+            reader.setCRC32Enabled( false );
+            const auto countedSize = reader.read( -1, nullptr );
+            if ( countedSize != 512_Ki ) {
+                std::cerr << "Unexpected counted size for " << description << ": " << countedSize << "\n";
+            }
+            REQUIRE_EQUAL( countedSize, 512_Ki );
+        };
+
+    requireCount( compressed, "unpadded" );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -1193,6 +1344,8 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testChunkRemerging();
+    testChunkDataCounter( rootFolder );
+    testGzipISIZE( rootFolder );
     testMultiThreadedUsage();
     testCRC32AndCleanUnmarkedData();
     testPrefetchingAfterSplit();

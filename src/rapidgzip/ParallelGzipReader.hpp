@@ -620,6 +620,8 @@ public:
 
             const auto nBytesToDecode = std::min( blockSize - offsetInBlock, nBytesToRead - nBytesDecoded );
 
+            processGzipStreamSizes( chunkData, decodedOffsetInBytes );
+
             [[maybe_unused]] const auto tCRC32Start = now();
             processCRC32( chunkData, offsetInBlock, nBytesToDecode );
             if ( m_statisticsEnabled ) {
@@ -687,6 +689,7 @@ public:
             if ( !seekable() ) {
                 throw std::invalid_argument( "Cannot seek backwards with non-seekable input!" );
             }
+            resetChecksumVerificationState( positiveOffset );
             m_atEndOfFile = false;
             m_currentPosition = positiveOffset;
             return positiveOffset;
@@ -938,6 +941,7 @@ private:
             throw std::invalid_argument( "May not clear offsets. Construct a new ParallelGzipReader instead!" );
         }
 
+        resetChecksumVerificationState( tell() );
         if ( offsets.size() < 2 ) {
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
@@ -1466,6 +1470,71 @@ private:
         blockFinder().setBlockOffsets( std::move( encodedBlockOffsets ) );
     }
 
+    /**
+     * Resetting ISIZE state after seeking or replacing the block map is necessary because the data between
+     * the previous and the new position may have been skipped.
+     */
+    void
+    resetChecksumVerificationState( const size_t position )
+    {
+        m_lastStreamEndDecodedOffset = position == 0 ? std::optional<size_t>( 0 ) : std::nullopt;
+        m_lastProcessedISIZEChunkOffset = std::numeric_limits<size_t>::max();
+    }
+
+    /**
+     * The gzip ISIZE field is a modulo-2^32 copy of the stream's decoded size. GzipChunk only checks it when it
+     * also read the stream header, which is never the case for the first member because its header was consumed
+     * during file type detection, and it cannot check streams spanning multiple chunks. Use the global decoded
+     * offsets here instead, which works independently of chunk splitting and of the decoder used.
+     */
+    void
+    processGzipStreamSizes( const std::shared_ptr<ChunkData>& chunkData,
+                            const size_t                      chunkDecodedOffset )
+    {
+        const auto fileType = chunkData->configuration.fileType;
+        if ( ( fileType != FileType::GZIP ) && ( fileType != FileType::BGZF ) ) {
+            return;
+        }
+
+        /* read() may be called multiple times for the same chunk. Process its footers only once. */
+        if ( m_lastProcessedISIZEChunkOffset == chunkData->encodedOffsetInBits ) {
+            return;
+        }
+        m_lastProcessedISIZEChunkOffset = chunkData->encodedOffsetInBits;
+
+        for ( size_t i = 0; i < chunkData->footers.size(); ++i ) {
+            const auto& footer = chunkData->footers[i];
+            const auto streamEnd = chunkDecodedOffset + footer.blockBoundary.decodedOffset;
+
+            std::optional<size_t> streamStart;
+            if ( i == 0 ) {
+                /* May be unknown after seeking into the middle of a stream. A chunk at decoded offset 0
+                 * and every BGZF block start are known stream starts. */
+                if ( m_lastStreamEndDecodedOffset ) {
+                    streamStart = m_lastStreamEndDecodedOffset;
+                } else if ( ( chunkDecodedOffset == 0 )
+                            || ( ( ( chunkDecodedOffset + footer.blockBoundary.decodedOffset ) < ( 1ULL << 32U ) )
+                                 && ( footer.blockBoundary.decodedOffset == footer.gzipFooter.uncompressedSize ) ) ) {
+                    streamStart = chunkDecodedOffset;
+                }
+            } else {
+                streamStart = chunkDecodedOffset + chunkData->footers[i - 1].blockBoundary.decodedOffset;
+            }
+
+            if ( streamStart ) {
+                const auto streamSize = streamEnd - *streamStart;
+                /* ISIZE is stored modulo 2^32. */
+                if ( static_cast<uint32_t>( streamSize ) != footer.gzipFooter.uncompressedSize ) {
+                    std::stringstream message;
+                    message << "Mismatching size (" << streamSize << " <-> footer: "
+                            << footer.gzipFooter.uncompressedSize << ") for gzip stream!";
+                    throw std::runtime_error( std::move( message ).str() );
+                }
+            }
+            m_lastStreamEndDecodedOffset = streamEnd;
+        }
+    }
+
     void
     processCRC32( const std::shared_ptr<ChunkData>& chunkData,
                   [[maybe_unused]] size_t const     offsetInBlock,
@@ -1565,6 +1634,9 @@ private:
     std::optional<char> m_newlineCharacter;
 
     CRC32Calculator m_crc32;
+    /* Global decoded offset at which the last seen gzip stream ended. Unknown after seeking into a stream. */
+    std::optional<size_t> m_lastStreamEndDecodedOffset{ 0 };
+    size_t m_lastProcessedISIZEChunkOffset{ std::numeric_limits<size_t>::max() };
     uint64_t m_nextCRC32ChunkOffset{ 0 };
     std::unordered_map<size_t, uint32_t> m_deflateStreamCRC32s;
 
