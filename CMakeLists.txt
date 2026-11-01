@@ -5,6 +5,7 @@ project("Indexed BZip2/Gzip Decoder" CXX)
 
 option(LIBRAPIDARCHIVE_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(LIBRAPIDARCHIVE_BUILD_TESTS "Build tests" ON)
+option(LIBRAPIDARCHIVE_BUILD_FUZZERS "Build AFL++ fuzz targets" OFF)
 option(LIBRAPIDARCHIVE_BUILD_TOOLS "Build tools" ON)
 option(LIBRAPIDARCHIVE_CODE_COVERAGE "Enable coverage reporting" OFF)
 option(LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB "Use the system-installed zlib library instead of compiling it from source" OFF)
@@ -21,6 +22,14 @@ endif()
 # rpmalloc 2.0.2 does not support 32-bit builds.
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     set(LIBRAPIDARCHIVE_WITH_RPMALLOC OFF)
+endif()
+
+# Fuzzing targets should exercise the instrumented C++ decoder. ISA-L is assembly and cannot be
+# instrumented by AFL++, and rpmalloc's allocator confuses the sanitizer runtimes.
+if(LIBRAPIDARCHIVE_BUILD_FUZZERS)
+    set(LIBRAPIDARCHIVE_WITH_ISAL OFF CACHE BOOL "" FORCE)
+    set(LIBRAPIDARCHIVE_WITH_RPMALLOC OFF CACHE BOOL "" FORCE)
+    message(STATUS "Fuzz builds: disabling ISA-L and rpmalloc")
 endif()
 
 # There are too many bugs on macOS and I don't have a local test system.
@@ -87,7 +96,12 @@ if(${LIBRAPIDARCHIVE_BUILD_TEST} OR ${SLIBRAPIDARCHIVE_BUILD_BENCHMARKS})
     add_compile_options("$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/std:c++20>")
 endif()
 
-if(NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm" AND NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch" AND NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
+# AFL++'s compiler wrapper treats -fcf-protection as an LTO request and emits LLVM bitcode, which its
+# separate link step does not consume. Fuzz builds do not need CET hardening, so leave it out there.
+if(NOT ${LIBRAPIDARCHIVE_BUILD_FUZZERS}
+   AND NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm"
+   AND NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "aarch"
+   AND NOT ${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
     add_compile_options("$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-fcf-protection=full>")
 endif()
 
@@ -142,6 +156,13 @@ if(NOT WIN32 AND (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQU
     else()
         message(STATUS "IPO / LTO not supported: ${IPO_ERROR}")
     endif()
+endif()
+
+# AFL++ instrumentation and LTO both emit/consume bitcode in ways that its separate link step does not
+# handle reliably. Fuzz builds use ordinary objects.
+if(LIBRAPIDARCHIVE_BUILD_FUZZERS)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
+    message(STATUS "Fuzz builds: disabling LTO")
 endif()
 
 

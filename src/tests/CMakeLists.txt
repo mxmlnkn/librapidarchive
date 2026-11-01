@@ -25,3 +25,7 @@ endif()
 add_subdirectory(core)
 add_subdirectory(indexed_bzip2)
 add_subdirectory(rapidgzip)
+
+if (LIBRAPIDARCHIVE_BUILD_FUZZERS)
+    add_subdirectory(fuzz)
+endif()
