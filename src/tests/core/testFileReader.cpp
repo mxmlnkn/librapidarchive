@@ -217,6 +217,25 @@ testNullBufferSkipAtEnd( FileReader&                fileReader,
 
 
 void
+testStandardFileReaderNullBufferBeyondEnd( const std::string& tmpFileName,
+                                           size_t             fileSize )
+{
+    StandardFileReader fileReader( tmpFileName );
+
+    /* Seeking beyond the end is allowed, but a skip may only report and advance over available bytes. */
+    const auto beyondEndOffset = 2 * fileSize;
+    REQUIRE_EQUAL( fileReader.seek( static_cast<long long int>( beyondEndOffset ) ), beyondEndOffset );
+    REQUIRE_EQUAL( fileReader.read( nullptr, 100 ), size_t( 0 ) );
+    REQUIRE_EQUAL( fileReader.tell(), beyondEndOffset );
+
+    /* A non-null read behaves the same way, so the two forms must not disagree. */
+    char byte{ 0 };
+    REQUIRE_EQUAL( fileReader.read( &byte, 1 ), size_t( 0 ) );
+    REQUIRE_EQUAL( fileReader.tell(), beyondEndOffset );
+}
+
+
+void
 testBufferViewFileReaderNullBuffer()
 {
     std::vector<char> fileContents( 512_Ki );
@@ -324,6 +343,8 @@ main()
         BufferViewFileReader bufferViewReader( contents );
         testNullBufferSkipAtEnd( bufferViewReader, contents );
     }
+
+    testStandardFileReaderNullBufferBeyondEnd( tmpFileName, tmpFileContents.size() );
 
     testBufferViewFileReaderNullBuffer();
 
