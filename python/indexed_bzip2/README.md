@@ -248,7 +248,7 @@ A rudimentary command line tool exists but is not yet shipped with the Python mo
 
 ```c++
 git clone https://github.com/mxmlnkn/librapidarchive.git
-cd indexed_bzip2
+cd librapidarchive
 mkdir build
 cd build
 cmake ..

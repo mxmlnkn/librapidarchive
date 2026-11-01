@@ -1405,7 +1405,7 @@ python3 -c 'import indexed_gzip as igz; import time; t0 = time.time(); igz.open(
 
 /*
 git clone https://github.com/mxmlnkn/librapidarchive
-cd indexed_bzip2 && mkdir build && cd build && cmake ..
+cd librapidarchive && mkdir build && cd build && cmake ..
 sudo apt install pigz isal tabix
 
 # Create a compressible random file

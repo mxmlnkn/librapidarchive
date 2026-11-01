@@ -3,7 +3,7 @@
 Two repositories are involved:
 
 - `mxmlnkn/librapidarchive` (also called `librapidarchive`) contains the C++ library, the rapidgzip changelog,
-  and the Python packaging metadata for both `librapidarchive` and `rapidgzip`.
+  and the Python packaging metadata for both `indexed_bzip2` and `rapidgzip`.
 - `mxmlnkn/rapidgzip` contains the rapidgzip release CI. It includes `librapidarchive` as the
   `librapidarchive` submodule. Its top-level `CHANGELOG.md` is only a pointer to the changelog in
   `librapidarchive`.
