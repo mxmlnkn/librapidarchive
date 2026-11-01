@@ -10,15 +10,33 @@
 
 namespace rapidgzip
 {
-[[nodiscard]] bool
+[[nodiscard]] inline bool
 pythonIsFinalizing()
 {
-#if ( PY_MAJOR_VERSION != 3 ) || ( PY_MINOR_VERSION < 8 )
+#if defined( Py_LIMITED_API ) && Py_LIMITED_API < 0x030E0000
+    /* _Py_IsFinalizing is not part of the limited API and Py_IsFinalizing is only available since 3.13.
+     * The abi3 build targets 3.14, where Py_IsFinalizing is part of the stable ABI. */
+    return false;
+#elif ( PY_MAJOR_VERSION != 3 ) || ( PY_MINOR_VERSION < 8 )
     return false;
 #elif PY_MINOR_VERSION < 13
     return _Py_IsFinalizing();
 #else
     return Py_IsFinalizing();
+#endif
+}
+
+
+[[nodiscard]] inline bool
+probeGILState() noexcept
+{
+#if defined( Py_LIMITED_API )
+    /* PyGILState_Check is not part of the limited API. GetThisThreadState is part of the stable ABI and
+     * returns nullptr for a C thread that has not used the GILState API yet. It is not fully equivalent
+     * for a thread that holds the GIL without a GILState entry; the normal build keeps PyGILState_Check. */
+    return PyGILState_GetThisThreadState() != nullptr;
+#else
+    return PyGILState_Check() == 1;
 #endif
 }
 
@@ -90,7 +108,7 @@ private:
          * Therefore, use block-scoped thread_local variables, which are initialized on first pass as per the standard.
          * @see https://stackoverflow.com/a/49821006/2191065
          */
-        static thread_local bool isLocked{ PyGILState_Check() == 1 };
+        static thread_local bool isLocked{ probeGILState() };
 
         /** Used for locking non-Python threads. */
         static thread_local std::optional<PyGILState_STATE> lockState{};
@@ -100,8 +118,8 @@ private:
         /* When Python is finalizing, we might get our acquired GIL rugpulled from us, meaning isLocked=true but
          * PyGILState_Check() is 0 / unlocked!
          * Python 3.10 has _Py_IsFinalizing, 3.13 has Py_IsFinalizing, however on Python 3.6, these are missing. */
-        if ( pythonIsFinalizing() || ( isLocked && ( PyGILState_Check() == 0 ) ) ) {
-            if ( ( PyGILState_Check() == 1 ) && lockState.has_value() ) {
+        if ( pythonIsFinalizing() || ( isLocked && !probeGILState() ) ) {
+            if ( probeGILState() && lockState.has_value() ) {
                 PyGILState_Release( *lockState );
                 lockState.reset();
             }
@@ -119,13 +137,14 @@ private:
         /* PyPy did not have PyGILState_GetThisThreadState, so we have to use a workaround.
          * https://github.com/pypy/pypy/issues/5302 */
         PyThreadState* threadState{ nullptr };
-    #ifdef PYPY_VERSION_NUM
+    #if defined( PYPY_VERSION_NUM ) && !defined( Py_LIMITED_API )
         threadState = _PyThreadState_UncheckedGet();
     #else
         threadState = PyGILState_GetThisThreadState();
     #endif
 
         const auto gilExists = threadState != nullptr;
+
         if ( doLock ) {
             if ( gilExists ) {
                 /* Calling PyEval_RestoreThread with PyGILState_GetThisThreadState is what PyGILState_Ensure does
