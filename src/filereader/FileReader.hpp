@@ -18,6 +18,17 @@ using UniqueFileReader = std::unique_ptr<FileReader>;
 
 
 /**
+ * Thrown when a reader has no data left.
+ *
+ * An exception is used instead of std::optional for BitReader::peek because reaching EOF happens at most once per
+ * stream, so a try-catch block acts as a zero-cost conditional in the common case.
+ */
+class EndOfFileReached :
+    public std::exception
+{};
+
+
+/**
  * This file interface is heavily inspired by IOBase from Python because it is to be used from Python.
  * However, it strips anything related to file modification resulting a read-only file object.
  * @see https://docs.python.org/3/library/io.html#class-hierarchy

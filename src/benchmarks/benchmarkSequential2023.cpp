@@ -111,7 +111,7 @@ benchmarkBitReader( const std::vector<char>& data,
         while ( true ) {
             sum += bitReader.read( nBits );
         }
-    } catch ( const typename gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* Ignore EOF exception. Checking for it in each loop is expensive! */
     }
 
@@ -433,7 +433,7 @@ findDeflateBlocksRapidgzip( const std::vector<char>& buffer )
             }
 
             ++count;
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             break;
         }
     }
@@ -504,7 +504,7 @@ findDeflateBlocksRapidgzipLUT( const std::vector<char>& buffer )
             }
 
             ++count;
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             break;
         }
 

@@ -91,7 +91,7 @@ public:
           size_t nMaxBytesToRead ) override
     {
         if ( closed() ) {
-            throw std::invalid_argument( "Cannot read from closed file!" );
+            throw EndOfFileReached();
         }
 
         if ( ( nMaxBytesToRead == 0 ) || ( m_bufferPosition >= m_size ) ) {

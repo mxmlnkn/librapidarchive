@@ -224,7 +224,7 @@ findDynamicBitTripletFalsePositives()
                     bitReader.seekAfterPeek( nextPosition );
                 }
             }
-        } catch ( const BitReader64::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             // EOF reached
         }
 
@@ -520,7 +520,7 @@ AnalyzeDynamicBlockFalsePositives::countFalsePositives( const std::vector<char>&
             }
 
             ++foundOffsets;
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             throw std::logic_error( "EOF reached. Trailing buffer calculation must be wrong!" );
             break;
         }

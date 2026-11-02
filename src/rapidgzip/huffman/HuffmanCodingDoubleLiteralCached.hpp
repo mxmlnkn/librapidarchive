@@ -303,7 +303,7 @@ public:
             symbol1 &= nLowestBitsSet<Symbol, LENGTH_SHIFT>();
 
             return symbol1;
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             /* Should only happen at the end of the file and probably not even there
              * because the gzip footer should be longer than the peek length. */
             return BaseType::decode( bitReader );

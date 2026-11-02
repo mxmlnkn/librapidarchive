@@ -68,7 +68,7 @@ benchmarkHuffmanCoding( const std::vector<typename HuffmanCoding::BitCount>& cod
                     break;
                 }
                 ++count;
-            } catch ( const gzip::BitReader::EndOfFileReached& ) {
+            } catch ( const EndOfFileReached& ) {
                 break;
             }
         }

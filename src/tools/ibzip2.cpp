@@ -489,7 +489,7 @@ main( int argc, char** argv )
 {
     try {
         return ibzip2CLI( argc, argv );
-    } catch ( const bzip2::BitReader::EndOfFileReached& exception ) {
+    } catch ( const EndOfFileReached& exception ) {
         std::cerr << "Unexpected end of file. Truncated or invalid bzip2?\n";
         return 1;
     } catch ( const std::exception& exception ) {

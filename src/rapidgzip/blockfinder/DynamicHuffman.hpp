@@ -290,7 +290,7 @@ seekToNonFinalDynamicDeflateBlock( gzip::BitReader& bitReader,
 
             offset += bitsToLoad;
         }
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* This might happen when calling readDynamicHuffmanCoding quite some bytes before the end! */
     }
 

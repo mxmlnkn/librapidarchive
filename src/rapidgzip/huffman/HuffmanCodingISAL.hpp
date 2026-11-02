@@ -119,7 +119,7 @@ public:
         try
         {
             nextBits = bitReader.peek<32>();
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             /* This should only happen in the error case or for raw deflate streams because those don't have
              * any footer acting as a kind of buffer to ensure that peek always works. */
             const auto [availableBits, count] = bitReader.peekAvailable();
@@ -145,7 +145,7 @@ public:
             /* peek<32> may have failed because the stream is truncated. Do not seek past the bits that
              * are actually available; that would assert in Debug and corrupt the buffer in Release. */
             if ( availableBitsCount && ( bit_count > *availableBitsCount ) ) {
-                throw gzip::BitReader::EndOfFileReached();
+                throw EndOfFileReached();
             }
             bitReader.seekAfterPeek( bit_count );
 
@@ -181,7 +181,7 @@ public:
                                                   + ( nextBits >> ISAL_DECODE_LONG_BITS )];
         const auto bit_count = next_sym >> LARGE_LONG_CODE_LEN_OFFSET;
         if ( ( availableBitsCount > 0 ) && ( bit_count > availableBitsCount ) ) {
-            throw gzip::BitReader::EndOfFileReached();
+            throw EndOfFileReached();
         }
         bitReader.seekAfterPeek( bit_count );
 

@@ -73,17 +73,6 @@ public:
         public BitReaderException
     {};
 
-    /**
-     * An exception that may be returned by @ref BitReader::peek. An exception is used instead of std::optional
-     * because this only happens once for the whole input stream, so very rarely, and it is expensive to still
-     * check the optional each time when it isn't needed 99.999% of the time! A try-catch block instead can act
-     * as a kind of zero-cost conditional in case nothing is thrown and is sufficiently cheap for the very rare
-     * case that an exception has to be thrown.
-     */
-    class EndOfFileReached :
-        public BitReaderException
-    {};
-
     struct Statistics
     {
         size_t byteBufferRefillCount{ 0 };

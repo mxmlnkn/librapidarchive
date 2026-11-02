@@ -1015,7 +1015,7 @@ try {
     m_backreferences.clear();
 
     return error;
-} catch ( const gzip::BitReader::EndOfFileReached& ) {
+} catch ( const EndOfFileReached& ) {
     return Error::END_OF_FILE;
 }
 
@@ -1507,7 +1507,7 @@ Block<ENABLE_STATISTICS>::readInternalUncompressed( gzip::BitReader& bitReader,
     for ( ; totalBytesRead < m_uncompressedSize; ++totalBytesRead ) {
         try {
             appendToWindow( window, static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() ) );
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             m_atEndOfBlock = true;
             m_decodedBytes += totalBytesRead;
             return { totalBytesRead, Error::EOF_UNCOMPRESSED };

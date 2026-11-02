@@ -676,7 +676,7 @@ private:
                 /* This call given the exact block offset must always yield the correct data and should be equivalent
                  * to directly call @ref decodeBlock with that offset. */
                 chunkData = BaseType::get( blockOffset, blockIndex, getPartitionOffsetFromOffset );
-            } catch ( const gzip::BitReader::EndOfFileReached& exception ) {
+            } catch ( const EndOfFileReached& exception ) {
                 std::cerr << "Unexpected end of file when getting block at " << formatBits( blockOffset )
                           << " (block index: " << blockIndex << ") on demand\n";
                 throw exception;

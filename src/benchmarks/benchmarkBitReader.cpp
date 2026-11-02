@@ -39,7 +39,7 @@ benchmarkBitReader( const std::vector<char>& data,
         while ( true ) {
             sum += bitReader.read( nBits );
         }
-    } catch ( const typename CustomBitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* Ignore EOF exception. Checking for it in each loop is expensive! */
     }
 
@@ -63,7 +63,7 @@ benchmarkBitReaderTemplatedReadBits( const std::vector<char>& data )
         while ( true ) {
             sum += bitReader.template read<nBits>();
         }
-    } catch ( const typename CustomBitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* Ignore EOF exception. Checking for it in each loop is expensive! */
     }
 
@@ -176,7 +176,7 @@ benchmarkBitReaderTemplatedPeekBits( const std::vector<char>& data )
             sum += bitReader.template peek<nBits>();
             bitReader.seekAfterPeek( nBits );
         }
-    } catch ( const typename CustomBitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* Ignore EOF exception. Checking for it in each loop is expensive! */
     }
 
