@@ -314,7 +314,15 @@ public:
         while ( queuedResult.wait_for( 1ms ) == std::future_status::timeout ) {
             prefetchNewBlocks( getPartitionOffsetFromOffset, resultIsReady );
         }
-        auto result = std::make_shared<BlockData>( queuedResult.get() );
+        std::shared_ptr<BlockData> result;
+        try {
+            result = std::make_shared<BlockData>( queuedResult.get() );
+        } catch ( ... ) {
+            /* This function owns the only future referencing the worker's shared state. It is destroyed while
+             * unwinding, so the stored exception may be freed before the caller handles it. Rethrowing through
+             * an exception_ptr keeps the exception object alive for the catch handler. */
+            std::rethrow_exception( std::current_exception() );
+        }
         [[maybe_unused]] const auto futureGetDuration = duration( tFutureGetStart );
 
         insertIntoCache( blockOffset, result );
