@@ -256,6 +256,8 @@ testStandardFileReaderNullBufferOnPipe()
 
     StandardFileReader fileReader( fileDescriptors[0] );
     REQUIRE( !fileReader.seekable() );
+    /* A pipe reports st_size == 0, which must not be mistaken for a real file size. */
+    REQUIRE( !fileReader.size().has_value() );
 
     /* A skip must not consume or report more than requested even if the pipe contains more data. */
     REQUIRE_EQUAL( fileReader.read( nullptr, 1 ), size_t( 1 ) );

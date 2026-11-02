@@ -237,6 +237,11 @@ public:
     [[nodiscard]] std::optional<size_t>
     size() const override
     {
+        /* A non-seekable stream such as a pipe reports st_size == 0, which is not its length.
+         * Returning nullopt also keeps effectiveOffset() from clamping seeks to a bogus zero size. */
+        if ( !m_seekable && ( m_fileSizeBytes == 0 ) ) {
+            return std::nullopt;
+        }
         return m_fileSizeBytes;
     }
 
