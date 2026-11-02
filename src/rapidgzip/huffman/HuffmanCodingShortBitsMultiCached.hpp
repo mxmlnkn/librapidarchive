@@ -36,9 +36,11 @@ public:
 
     struct CacheEntry
     {
-        bool needToReadDistanceBits : 1;
-        uint8_t bitsToSkip : 6;  // ceil(log2 2*MAX_CODE_LENGTH(20)) = 6 bits would suffice
-        uint8_t symbolCount : 2;
+        /* Using one underlying type for all bitfields is important for MinGW, which otherwise starts a new
+         * storage unit for the uint32_t field and makes the structure eight bytes large. */
+        uint32_t needToReadDistanceBits : 1;
+        uint32_t bitsToSkip : 6;  // ceil(log2 2*MAX_CODE_LENGTH(20)) = 6 bits would suffice
+        uint32_t symbolCount : 2;
         /**
          * Contains one 8-9-bit symbol in the lower bits and one 8-9 bit symbol in the higher bits only if
          * the first symbol is an 8-bit literal.
