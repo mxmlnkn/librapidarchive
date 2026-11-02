@@ -475,7 +475,7 @@ findDeflateBlocksRapidgzip( BufferedFileReader::AlignedBuffer buffer )
              * decoded data if we do decide that it is a valid block. The number of checks during reading is also
              * pretty few because there almost are no wasted / invalid symbols. */
             bitOffsets.push_back( offset );
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             break;
         }
     }
@@ -515,7 +515,7 @@ countDeflateBlocksPreselection( BufferedFileReader::AlignedBuffer data )
 
             ++candidateCount;
             offset += -nextPosition;
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             /* This might happen when calling readDynamicHuffmanCoding quite some bytes before the end! */
             break;
         }
@@ -564,7 +564,7 @@ countDeflateBlocksPreselectionManualSlidingBuffer( BufferedFileReader::AlignedBu
                                << static_cast<uint8_t>( CACHED_BIT_COUNT - nextPosition );
             offset += nextPosition;
         }
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* This might happen when calling readDynamicHuffmanCoding quite some bytes before the end! */
     }
 
@@ -793,7 +793,7 @@ findDeflateBlocksRapidgzipLUT( BufferedFileReader::AlignedBuffer data )
 
             offset += nextPosition;
         }
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* This might happen when calling readDynamicHuffmanCoding quite some bytes before the end! */
     }
 
@@ -865,7 +865,7 @@ countFilterEfficiencies( BufferedFileReader::AlignedBuffer data,
 
             bitOffsets.push_back( offset );
             offset += -nextPosition;
-        } catch ( const gzip::BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             /* This might happen when calling readDynamicHuffmanCoding quite some bytes before the end! */
             break;
         }

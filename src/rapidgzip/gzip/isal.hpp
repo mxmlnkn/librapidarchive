@@ -421,7 +421,7 @@ IsalInflateWrapper::readBytes()
             m_stream.avail_in = 0;
             refillBuffer();
             if ( m_stream.avail_in == 0 ) {
-                throw gzip::BitReader::EndOfFileReached();
+                throw EndOfFileReached();
             }
         }
     }

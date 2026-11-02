@@ -93,7 +93,7 @@ seekToNonFinalUncompressedDeflateBlock( gzip::BitReader& bitReader,
 
             bitReader.seekTo( oldOffset );
         }
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* This might happen when trying to read the 32 bits! */
     }
 

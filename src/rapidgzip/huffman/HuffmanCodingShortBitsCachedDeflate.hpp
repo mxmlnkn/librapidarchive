@@ -133,7 +133,7 @@ public:
                 return interpretSymbol( bitReader, distanceHC, cacheEntry.symbolOrLength + 257U );
             }
             return cacheEntry;
-        } catch ( const typename BitReader::EndOfFileReached& ) {
+        } catch ( const EndOfFileReached& ) {
             /* Should only happen at the end of the file and probably not even there
              * because the bzip2 footer (EOS block) should be longer than the peek length. */
             return interpretSymbol( bitReader, distanceHC, BaseType::decode( bitReader ).value() );

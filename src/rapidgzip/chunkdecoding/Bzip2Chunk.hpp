@@ -97,7 +97,7 @@ public:
                 if ( !block->eos() ) {
                     block->readBlockData();
                 }
-            } catch ( const bzip2::BitReader::EndOfFileReached& exception ) {
+            } catch ( const EndOfFileReached& exception ) {
                 /* Encountering EOF while reading the (first bit for the) deflate block header is only
                  * valid if it is the very first deflate block given to us. Else, it should not happen
                  * because the final block bit should be set in the previous deflate block. */

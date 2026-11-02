@@ -736,7 +736,7 @@ GzipReader::readFooter()
              * regard the remaining bits as end-of-file padding for the end of the raw deflate stream. */
             try {
                 m_bitReader.peek<7>();
-            } catch ( const gzip::BitReader::EndOfFileReached& ) {
+            } catch ( const EndOfFileReached& ) {
                 /* Skip the padding bits to get into correct EOF state. */
                 m_bitReader.read( BYTE_SIZE - remainder );
             }

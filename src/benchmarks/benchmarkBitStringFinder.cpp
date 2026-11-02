@@ -745,7 +745,7 @@ findBitStringsLUT( const std::vector<char>& data )
             }
             bitReader.seekAfterPeek( 1 );
         }
-    } catch ( const bzip2::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         /* Break condition for infinite loop inside. */
     }
 

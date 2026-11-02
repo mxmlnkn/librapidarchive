@@ -162,7 +162,7 @@ readHeader( gzip::BitReader& bitReader )
 
     try {
         bitReader.peek<1>();
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         return { header, Error::END_OF_FILE };
     }
 
@@ -226,7 +226,7 @@ readHeader( gzip::BitReader& bitReader )
         if ( ( flags & ( 1U << 1U ) ) != 0 ) {
             header.crc16 = bitReader.read<16>();
         }
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         return { header, Error::INCOMPLETE_GZIP_HEADER };
     }
 
@@ -386,7 +386,7 @@ readHeader( const std::function<uint64_t()>& readByte )
         }
 
         header.compressionLevel = static_cast<CompressionLevel>( ( flags >> 6U ) & 0b11U );
-    } catch ( const gzip::BitReader::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         return { header, readPartialHeader ? Error::INCOMPLETE_GZIP_HEADER : Error::END_OF_FILE };
     }
 
