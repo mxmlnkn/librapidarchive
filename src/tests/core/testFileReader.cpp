@@ -272,6 +272,19 @@ testStandardFileReaderNullBufferOnPipe()
 
     REQUIRE_EQUAL( ::close( fileDescriptors[0] ), 0 );
 }
+
+
+void
+testNonRegularFileHasUnknownSize()
+{
+    StandardFileReader reader( "/dev/null" );
+    REQUIRE( !reader.seekable() );
+    REQUIRE( !reader.size().has_value() );
+
+    char byte{ 0 };
+    REQUIRE_EQUAL( reader.read( &byte, 1 ), size_t( 0 ) );
+    REQUIRE( reader.eof() );
+}
 #endif
 
 
@@ -388,6 +401,7 @@ main()
 
 #if !defined(_WIN32)
     testStandardFileReaderNullBufferOnPipe();
+    testNonRegularFileHasUnknownSize();
 #endif
 
     testBufferViewFileReaderNullBuffer();

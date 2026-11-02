@@ -35,7 +35,7 @@ public:
         m_fileDescriptor( ::fileno( fp() ) ),
         m_filePath( std::move( filePath ) ),
         m_seekable( determineSeekable( m_fileDescriptor ) ),
-        m_fileSizeBytes( std::filesystem::file_size( m_filePath ) )
+        m_fileSizeBytes( m_seekable ? std::filesystem::file_size( m_filePath ) : 0 )
     {
         init();
     }
@@ -64,7 +64,7 @@ public:
         m_fileDescriptor( ::fileno( fp() ) ),
         m_filePath( fdFilePath( m_fileDescriptor ) ),
         m_seekable( determineSeekable( m_fileDescriptor ) ),
-        m_fileSizeBytes( fileSize( m_fileDescriptor ) )
+        m_fileSizeBytes( m_seekable ? fileSize( m_fileDescriptor ) : 0 )
     {
         init();
     }
@@ -277,8 +277,16 @@ private:
     determineSeekable( int fileNumber )
     {
         struct stat fileStats{};
-        fstat( fileNumber, &fileStats );
+        if ( fstat( fileNumber, &fileStats ) != 0 ) {
+            return false;
+        }
+    #if defined( _MSC_VER )
         return !S_ISFIFO( fileStats.st_mode );
+    #else
+        /* Only regular files and block devices have a meaningful size and support fseek.
+         * Pipes, sockets, character devices, and directories do not. */
+        return S_ISREG( fileStats.st_mode ) || S_ISBLK( fileStats.st_mode );
+    #endif
     }
 
     [[nodiscard]] FILE*
