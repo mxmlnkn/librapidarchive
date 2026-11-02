@@ -128,30 +128,40 @@ protected:
         throw std::logic_error( "Not implemented!" );
     }
 
+    /**
+     * Resolve an offset and origin to an absolute offset without clamping it to the file size. A negative
+     * result means the target is before the start. SEEK_END requires a known size and throws otherwise.
+     */
+    [[nodiscard]] long long int
+    resolveOffset( long long int offset,
+                   int           origin ) const
+    {
+        switch ( origin )
+        {
+        case SEEK_CUR:
+            return saturatingAddition( static_cast<long long int>( tell() ), offset );
+        case SEEK_SET:
+            return offset;
+        case SEEK_END:
+            if ( const auto fileSize = size(); fileSize.has_value() ) {
+                return saturatingAddition( static_cast<long long int>( *fileSize ), offset );
+            }
+            throw std::logic_error( "File size is not available to seek from end!" );
+        default:
+            break;
+        }
+        throw std::invalid_argument( "Invalid seek origin supplied: " + std::to_string( origin ) );
+    }
+
+    /**
+     * Resolve an offset and clamp it to [0, size()]. Streaming readers may not know their size yet and
+     * therefore do not clamp. Readers that must reject out-of-range seeks should use resolveOffset().
+     */
     [[nodiscard]] size_t
     effectiveOffset( long long int offset,
                      int           origin ) const
     {
-        offset =
-            [&] () {
-                switch ( origin )
-                {
-                case SEEK_CUR:
-                    return saturatingAddition( static_cast<long long int>( tell() ), offset );
-                case SEEK_SET:
-                    return offset;
-                case SEEK_END:
-                    if ( const auto fileSize = size(); fileSize.has_value() ) {
-                        return saturatingAddition( static_cast<long long int>( *fileSize ), offset );
-                    }
-                    throw std::logic_error( "File size is not available to seek from end!" );
-                default:
-                    break;
-                }
-                throw std::invalid_argument( "Invalid seek origin supplied: " + std::to_string( origin ) );
-            } ();
-
-        const auto positiveOffset = static_cast<size_t>( std::max( offset, 0LL ) );
+        const auto positiveOffset = static_cast<size_t>( std::max( resolveOffset( offset, origin ), 0LL ) );
         /* Streaming file readers may return nullopt until EOF has been reached. */
         const auto fileSize = size();
         return fileSize.has_value() ? std::min( positiveOffset, *fileSize ) : positiveOffset;
