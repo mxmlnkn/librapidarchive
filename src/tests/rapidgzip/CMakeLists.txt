@@ -6,6 +6,10 @@ function(addRapidgzipTest name)
     add_test(NAME ${name} COMMAND ${name})
     add_dependencies(all_tests ${name})
 
+    if(SANITIZER_TEST_ENVIRONMENT)
+        set_tests_properties(${name} PROPERTIES ENVIRONMENT "${SANITIZER_TEST_ENVIRONMENT}")
+    endif()
+
     # macos-13 ASAN is very slow!
     # 24/28 Test #19: testGzipChunk ....................   Passed  127.72 sec
     # 25/28 Test #21: testPrecodeCheck .................   Passed  460.81 sec
