@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -319,9 +320,10 @@ public:
             result = std::make_shared<BlockData>( queuedResult.get() );
         } catch ( ... ) {
             /* This function owns the only future referencing the worker's shared state. It is destroyed while
-             * unwinding, so the stored exception may be freed before the caller handles it. Rethrowing through
-             * an exception_ptr keeps the exception object alive for the catch handler. */
-            std::rethrow_exception( std::current_exception() );
+             * unwinding, and the worker's task state may be the last owner of the stored exception. Keep the
+             * exception alive in a member until the next failure so the caller can read exception.what(). */
+            m_exceptionBeingRethrown = std::current_exception();
+            std::rethrow_exception( m_exceptionBeingRethrown );
         }
         [[maybe_unused]] const auto futureGetDuration = duration( tFutureGetStart );
 
@@ -718,5 +720,8 @@ private:
 
     std::map</* block offset */ size_t, std::future<BlockData> > m_prefetching;
     ThreadPool m_threadPool;
+
+    /* Keeps a rethrown worker exception alive after the future and task state owning it are destroyed. */
+    std::exception_ptr m_exceptionBeingRethrown;
 };
 }  // namespace rapidgzip
