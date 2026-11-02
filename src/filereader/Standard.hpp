@@ -163,8 +163,11 @@ public:
             } else {
                 std::array<char, 16_Ki> tmpBuffer{};
                 while ( nBytesRead < nMaxBytesToRead ) {
+                    /* Only request the remaining bytes. Otherwise the last chunk could consume up to a whole
+                     * temporary buffer more than the skip requested, so the returned count would exceed it. */
+                    const auto nBytesToRead = std::min( tmpBuffer.size(), nMaxBytesToRead - nBytesRead );
                     const auto nBytesReadPerCall =
-                        std::fread( tmpBuffer.data(), /* element size */ 1, tmpBuffer.size(), m_file.get() );
+                        std::fread( tmpBuffer.data(), /* element size */ 1, nBytesToRead, m_file.get() );
                     if ( nBytesReadPerCall == 0 ) {
                         break;
                     }
