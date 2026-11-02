@@ -724,7 +724,11 @@ Block::readBlockData()
             selector++;
         }
 
-        const auto nextSym = huffmanCoding->decode( *m_bitReader ).value();
+        const auto nextSymbol = huffmanCoding->decode( *m_bitReader );
+        if ( UNLIKELY( !nextSymbol ) ) [[unlikely]] {
+            throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
+        }
+        const auto nextSym = *nextSymbol;
 
         // If this is a repeated run, loop collecting data
         if ( nextSym <= SYMBOL_RUNB ) {

@@ -259,20 +259,26 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
 
 void
 testMalformedBzip2( const std::filesystem::path& dataFolder,
-                    const std::string&           fileName )
+                    const std::string&           fileName,
+                    const std::string&           expectedMessageFragment = {} )
 {
-    /* The input is malformed and used to trip a Debug assertion. It must be rejected with an exception instead. */
+    /* The inputs are malformed and used to trip Debug assertions or leak std::bad_optional_access. They must be
+     * rejected with a descriptive exception instead. */
     ParallelBZ2Reader reader(
         std::make_unique<StandardFileReader>( ( dataFolder / fileName ).string() ),
         /* parallelization */ 2 );
     std::vector<char> buffer( 4_Ki );
-    bool threw{ false };
+    std::string message;
     try {
         while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
-    } catch ( const std::exception& ) {
-        threw = true;
+    } catch ( const std::exception& exception ) {
+        message = exception.what();
     }
-    REQUIRE( threw );
+    REQUIRE( !message.empty() );
+    REQUIRE( message.find( "bad optional access" ) == std::string::npos );
+    if ( !expectedMessageFragment.empty() ) {
+        REQUIRE( message.find( expectedMessageFragment ) != std::string::npos );
+    }
 }
 
 
@@ -297,6 +303,7 @@ main( int    argc,
 
     testMalformedBzip2( dataFolder, "bzip2-read-selectors-overread.bz2" );
     testMalformedBzip2( dataFolder, "bzip2-block-finder-false-positive.bz2" );
+    testMalformedBzip2( dataFolder, "bzip2-invalid-huffman-code.bz2", "Invalid Huffman code" );
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testParallelBZ2Reader" );
 
