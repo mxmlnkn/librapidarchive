@@ -577,6 +577,32 @@ testBufferedFileReaderNullBuffer( const std::string& tmpFileName )
 }
 
 
+void
+testBufferViewFileReaderRejectsSeeksOutsideRange()
+{
+    const std::vector<char> contents( 100, 'x' );
+    BufferViewFileReader reader( contents );
+
+    REQUIRE_EQUAL( reader.seek( contents.size(), SEEK_SET ), contents.size() );
+
+    bool threwPastEnd{ false };
+    try {
+        (void)reader.seek( static_cast<long long int>( contents.size() ) + 1, SEEK_SET );
+    } catch ( const std::invalid_argument& ) {
+        threwPastEnd = true;
+    }
+    REQUIRE( threwPastEnd );
+
+    bool threwNegative{ false };
+    try {
+        (void)reader.seek( -1, SEEK_SET );
+    } catch ( const std::invalid_argument& ) {
+        threwNegative = true;
+    }
+    REQUIRE( threwNegative );
+}
+
+
 int
 main()
 {
@@ -634,6 +660,7 @@ main()
 #endif
 
     testBufferViewFileReaderNullBuffer();
+    testBufferViewFileReaderRejectsSeeksOutsideRange();
 
     const auto bufferedNullFileName = std::string( tmpFileName ) + "-buffered-null.tmp";
     testBufferedFileReaderNullBuffer( bufferedNullFileName );
