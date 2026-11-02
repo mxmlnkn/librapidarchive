@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -195,6 +196,183 @@ testBufferedFileReaderSeek( const std::string& tmpFileName )
 }
 
 
+struct FileReaderOperation
+{
+    enum class Type
+    {
+        READ,
+        SEEK,
+    };
+
+    Type type{ Type::READ };
+    size_t readSize{ 0 };
+    bool skip{ false };
+    long long int seekOffset{ 0 };
+    int seekOrigin{ SEEK_SET };
+};
+
+
+void
+applyOperation( FileReader&                 first,
+                FileReader&                 second,
+                const FileReaderOperation&  operation )
+{
+    switch ( operation.type )
+    {
+    case FileReaderOperation::Type::READ:
+    {
+        std::vector<char> firstData( operation.readSize );
+        std::vector<char> secondData( operation.readSize );
+        const auto firstBytesRead = first.read( operation.skip ? nullptr : firstData.data(), operation.readSize );
+        const auto secondBytesRead = second.read( operation.skip ? nullptr : secondData.data(), operation.readSize );
+        REQUIRE_EQUAL( firstBytesRead, secondBytesRead );
+        if ( !operation.skip ) {
+            REQUIRE( firstData == secondData );
+        }
+        break;
+    }
+    case FileReaderOperation::Type::SEEK:
+    {
+        const auto firstPosition = first.seek( operation.seekOffset, operation.seekOrigin );
+        const auto secondPosition = second.seek( operation.seekOffset, operation.seekOrigin );
+        REQUIRE_EQUAL( firstPosition, secondPosition );
+        break;
+    }
+    }
+
+    REQUIRE_EQUAL( first.tell(), second.tell() );
+    REQUIRE_EQUAL( first.eof(), second.eof() );
+}
+
+
+void
+testBufferedFileReaderRetainsCache( const std::string& tmpFileName )
+{
+    constexpr size_t FILE_SIZE = 512_Ki;
+    constexpr size_t BUFFER_SIZE = 64_Ki;
+
+    std::vector<char> fileContents( FILE_SIZE );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( i % 251 );
+    }
+    {
+        std::ofstream outFile( tmpFileName, std::ios_base::out | std::ios_base::binary );
+        outFile.write( fileContents.data(), static_cast<std::streamsize>( fileContents.size() ) );
+    }
+
+    BufferedFileReader bufferedReader( std::make_unique<StandardFileReader>( tmpFileName ), BUFFER_SIZE );
+    StandardFileReader reference( tmpFileName );
+
+    /* Advance to 150 KiB so that the active cache window starts at 128 KiB. */
+    for ( size_t i = 0; i < 150; ++i ) {
+        applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 1_Ki, false, 0, SEEK_SET } );
+    }
+    REQUIRE_EQUAL( bufferedReader.tell(), 150_Ki );
+
+    /* The first 42 KiB of this read come from the cache and the remainder bypasses it. */
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 200_Ki, false, 0, SEEK_SET } );
+    REQUIRE_EQUAL( bufferedReader.tell(), 350_Ki );
+
+    /* Seek back into the retained [128 KiB, 192 KiB) range and read from it. */
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::SEEK, 0, false, 150_Ki, SEEK_SET } );
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 1_Ki, false, 0, SEEK_SET } );
+
+    /* Seek to the retained range's end. Reading there refills and repositions the underlying file. */
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::SEEK, 0, false, 192_Ki, SEEK_SET } );
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 1_Ki, false, 0, SEEK_SET } );
+
+    /* Seek before, and then after, the newly active cache window. */
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::SEEK, 0, false, 100_Ki, SEEK_SET } );
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 1_Ki, false, 0, SEEK_SET } );
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::SEEK, 0, false, 300_Ki, SEEK_SET } );
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 1_Ki, false, 0, SEEK_SET } );
+
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::SEEK, 0, false, -10, SEEK_END } );
+    applyOperation( bufferedReader, reference, { FileReaderOperation::Type::READ, 10, false, 0, SEEK_SET } );
+}
+
+
+void
+testBufferedFileReaderDifferential( const std::string& tmpFileName )
+{
+    constexpr size_t FILE_SIZE = 256_Ki;
+    constexpr size_t BUFFER_SIZE = 4_Ki;
+
+    std::vector<char> fileContents( FILE_SIZE );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( ( i * 17 + i / 251 ) % 251 );
+    }
+    {
+        std::ofstream outFile( tmpFileName, std::ios_base::out | std::ios_base::binary );
+        outFile.write( fileContents.data(), static_cast<std::streamsize>( fileContents.size() ) );
+    }
+
+    const std::vector<size_t> readSizes = {
+        0, 1, 17, 255, BUFFER_SIZE - 1, BUFFER_SIZE, BUFFER_SIZE + 1, 2 * BUFFER_SIZE, 3 * BUFFER_SIZE + 17
+    };
+
+    std::vector<FileReaderOperation> operations;
+    operations.emplace_back( FileReaderOperation{ FileReaderOperation::Type::SEEK, 0, false, 0, SEEK_SET } );
+
+    /* Explicitly cover every read size with and without a destination buffer. */
+    for ( const auto readSize : readSizes ) {
+        operations.emplace_back( FileReaderOperation{ FileReaderOperation::Type::READ, readSize, false, 0, SEEK_SET } );
+        operations.emplace_back( FileReaderOperation{ FileReaderOperation::Type::READ, readSize, true, 0, SEEK_SET } );
+    }
+    operations.emplace_back( FileReaderOperation{ FileReaderOperation::Type::SEEK, 0, false, 0, SEEK_SET } );
+
+    std::mt19937_64 randomEngine{ 12345 };
+    std::uniform_int_distribution<int> operationDistribution( 0, 99 );
+    std::uniform_int_distribution<size_t> readSizeDistribution( 0, readSizes.size() - 1 );
+    std::uniform_int_distribution<int> skipDistribution( 0, 3 );
+    std::uniform_int_distribution<long long int> targetPositionDistribution(
+        0, static_cast<long long int>( FILE_SIZE ) );
+    std::uniform_int_distribution<int> seekOriginDistribution( 0, 2 );
+    const int seekOrigins[] = { SEEK_SET, SEEK_CUR, SEEK_END };
+
+    /* Generate only seeks that both readers accept. StandardFileReader rejects relative seeks before the start
+     * and does not clamp absolute seeks, while BufferedFileReader clamps with effectiveOffset. */
+    long long int position = 0;
+    constexpr size_t N_OPERATIONS = 2000;
+    for ( size_t i = 0; i < N_OPERATIONS; ++i ) {
+        if ( operationDistribution( randomEngine ) < 60 ) {
+            const auto readSize = readSizes[readSizeDistribution( randomEngine )];
+            const auto skip = skipDistribution( randomEngine ) == 0;
+            operations.emplace_back( FileReaderOperation{ FileReaderOperation::Type::READ, readSize, skip, 0,
+                                                          SEEK_SET } );
+            position += static_cast<long long int>( std::min( readSize, FILE_SIZE - static_cast<size_t>( position ) ) );
+        } else {
+            const auto target = targetPositionDistribution( randomEngine );
+            const auto origin = seekOrigins[seekOriginDistribution( randomEngine )];
+            long long int offset = target;
+            if ( origin == SEEK_CUR ) {
+                offset = target - position;
+            } else if ( origin == SEEK_END ) {
+                offset = target - static_cast<long long int>( FILE_SIZE );
+            }
+            operations.emplace_back( FileReaderOperation{ FileReaderOperation::Type::SEEK, 0, false, offset, origin } );
+            position = target;
+        }
+    }
+
+    {
+        BufferedFileReader bufferedReader( std::make_unique<StandardFileReader>( tmpFileName ), BUFFER_SIZE );
+        StandardFileReader reference( tmpFileName );
+        for ( const auto& operation : operations ) {
+            applyOperation( bufferedReader, reference, operation );
+        }
+    }
+
+    {
+        BufferedFileReader bufferedReader( fileContents, BUFFER_SIZE );
+        BufferViewFileReader reference( fileContents );
+        for ( const auto& operation : operations ) {
+            applyOperation( bufferedReader, reference, operation );
+        }
+    }
+}
+
+
 void
 testNullBufferSkipAtEnd( FileReader&                fileReader,
                          const std::vector<char>&   fileContents )
@@ -284,6 +462,48 @@ testNonRegularFileHasUnknownSize()
     char byte{ 0 };
     REQUIRE_EQUAL( reader.read( &byte, 1 ), size_t( 0 ) );
     REQUIRE( reader.eof() );
+}
+
+
+void
+testBufferedFileReaderRetainsCacheOnPipe()
+{
+    constexpr size_t FILE_SIZE = 20_Ki;
+    constexpr size_t BUFFER_SIZE = 4_Ki;
+
+    std::vector<char> fileContents( FILE_SIZE );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( ( i * 13 + i / 251 ) % 251 );
+    }
+
+    int fileDescriptors[2] = { -1, -1 };
+    REQUIRE_EQUAL( ::pipe( fileDescriptors ), 0 );
+    REQUIRE_EQUAL( ::write( fileDescriptors[1], fileContents.data(), fileContents.size() ),
+                   static_cast<ssize_t>( fileContents.size() ) );
+    REQUIRE_EQUAL( ::close( fileDescriptors[1] ), 0 );
+
+    BufferedFileReader reader( std::make_unique<StandardFileReader>( fileDescriptors[0] ), BUFFER_SIZE );
+    REQUIRE( !reader.seekable() );
+    REQUIRE( !reader.size().has_value() );
+
+    std::vector<char> firstBytes( 1_Ki );
+    REQUIRE_EQUAL( reader.read( firstBytes.data(), firstBytes.size() ), firstBytes.size() );
+    REQUIRE( std::equal( firstBytes.begin(), firstBytes.end(), fileContents.begin() ) );
+
+    /* This read consumes the rest of the cache and then bypasses it with a direct read. The cache is retained. */
+    std::vector<char> directBytes( 8_Ki );
+    REQUIRE_EQUAL( reader.read( directBytes.data(), directBytes.size() ), directBytes.size() );
+    REQUIRE( std::equal( directBytes.begin(), directBytes.end(),
+                         fileContents.begin() + static_cast<std::ptrdiff_t>( firstBytes.size() ) ) );
+
+    /* Seek back into the retained [0, 4 KiB) range. A non-seekable reader can serve this without touching the file. */
+    REQUIRE_EQUAL( reader.seek( 2_Ki, SEEK_SET ), 2_Ki );
+    std::vector<char> cachedBytes( 2_Ki );
+    REQUIRE_EQUAL( reader.read( cachedBytes.data(), cachedBytes.size() ), cachedBytes.size() );
+    REQUIRE( std::equal( cachedBytes.begin(), cachedBytes.end(),
+                         fileContents.begin() + static_cast<std::ptrdiff_t>( 2_Ki ) ) );
+
+    REQUIRE_EQUAL( ::close( fileDescriptors[0] ), 0 );
 }
 #endif
 
@@ -382,6 +602,14 @@ main()
     testBufferedFileReaderSeek( bufferedSeekFileName );
     std::remove( bufferedSeekFileName.c_str() );
 
+    const auto bufferedCacheFileName = std::string( tmpFileName ) + "-buffered-cache.tmp";
+    testBufferedFileReaderRetainsCache( bufferedCacheFileName );
+    std::remove( bufferedCacheFileName.c_str() );
+
+    const auto bufferedDifferentialFileName = std::string( tmpFileName ) + "-buffered-differential.tmp";
+    testBufferedFileReaderDifferential( bufferedDifferentialFileName );
+    std::remove( bufferedDifferentialFileName.c_str() );
+
     /* All readers must agree on the skip semantics, including zero-length and past-the-end skips. */
     const std::vector<char> contents( tmpFileContents.begin(), tmpFileContents.end() );
     {
@@ -402,6 +630,7 @@ main()
 #if !defined(_WIN32)
     testStandardFileReaderNullBufferOnPipe();
     testNonRegularFileHasUnknownSize();
+    testBufferedFileReaderRetainsCacheOnPipe();
 #endif
 
     testBufferViewFileReaderNullBuffer();
