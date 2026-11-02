@@ -42,7 +42,27 @@ endif()
 set(CLANG_TIDY_COMMAND "${CLANG_TIDY_EXECUTABLE};--config-file;${CMAKE_CURRENT_SOURCE_DIR}/src/.clang-tidy;--header-filter=/src/\(core\|huffman\|indexed_bzip2\|rapidgzip\|tools\)")
 
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Chile the build type: Debug, Release, RelWithDebInfo" FORCE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING
+        "Choose the build type: Debug, Release, RelWithDebInfo, Sanitize, ThreadSanitize" FORCE)
+endif()
+
+# AddressSanitizer and UndefinedBehaviorSanitizer can be combined in one build. ThreadSanitizer must be
+# a separate build because it is incompatible with AddressSanitizer. The sanitizer runtimes are linked
+# through the per-configuration linker flags, so -DCMAKE_BUILD_TYPE=Sanitize is enough.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    set(CMAKE_C_FLAGS_SANITIZE
+        "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer")
+    set(CMAKE_CXX_FLAGS_SANITIZE
+        "-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS")
+    set(CMAKE_EXE_LINKER_FLAGS_SANITIZE "-fsanitize=address,undefined")
+    set(CMAKE_SHARED_LINKER_FLAGS_SANITIZE "-fsanitize=address,undefined")
+    set(CMAKE_MODULE_LINKER_FLAGS_SANITIZE "-fsanitize=address,undefined")
+
+    set(CMAKE_C_FLAGS_THREADSANITIZE "-O1 -g -fsanitize=thread -fno-omit-frame-pointer")
+    set(CMAKE_CXX_FLAGS_THREADSANITIZE "-O1 -g -fsanitize=thread -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS")
+    set(CMAKE_EXE_LINKER_FLAGS_THREADSANITIZE "-fsanitize=thread")
+    set(CMAKE_SHARED_LINKER_FLAGS_THREADSANITIZE "-fsanitize=thread")
+    set(CMAKE_MODULE_LINKER_FLAGS_THREADSANITIZE "-fsanitize=thread")
 endif()
 
 add_compile_options(
