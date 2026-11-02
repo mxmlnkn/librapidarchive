@@ -36,6 +36,28 @@ testSimpleOpenAndClose( const std::string& bz2File )
 }
 
 
+void
+testInvalidBlockOffsetsLeaveReaderUsable( const std::string& bz2File )
+{
+    ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( bz2File ) );
+
+    bool threw{ false };
+    try {
+        reader.setBlockOffsets( { { 0, 0 } } );
+    } catch ( const std::invalid_argument& ) {
+        threw = true;
+    }
+    REQUIRE( threw );
+
+    std::vector<char> buffer( 64_Ki );
+    size_t totalBytesRead{ 0 };
+    while ( const auto nBytesRead = reader.read( -1, buffer.data(), buffer.size() ) ) {
+        totalBytesRead += nBytesRead;
+    }
+    REQUIRE_EQUAL( totalBytesRead, size_t( 2_Mi ) );
+}
+
+
 /**
  * Tests are in such a way that seeking and reading are mirrored on the ParallelBZ2Reader file and the decoded file.
  * Then all read results can be checked against each other. Same for the result of tell.
@@ -322,6 +344,7 @@ main( int    argc,
     try
     {
         testSimpleOpenAndClose( encodedTestFilePath.string() );
+        testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string() );
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
