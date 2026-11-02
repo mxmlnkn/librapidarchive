@@ -368,11 +368,11 @@ public:
             throw std::invalid_argument( "May not clear offsets. Construct a new ParallelBZ2Reader instead!" );
         }
 
-        setBlockFinderOffsets( offsets );
-
         if ( offsets.size() < 2 ) {
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
+
+        setBlockFinderOffsets( offsets );
         m_blockMap->setBlockOffsets( offsets );
     }
 
