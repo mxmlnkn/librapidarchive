@@ -5,6 +5,10 @@
 #include <string>
 #include <vector>
 
+#if !defined(_WIN32)
+    #include <unistd.h>
+#endif
+
 #include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/Buffered.hpp>
@@ -235,6 +239,40 @@ testStandardFileReaderNullBufferBeyondEnd( const std::string& tmpFileName,
 }
 
 
+#if !defined(_WIN32)
+void
+testStandardFileReaderNullBufferOnPipe()
+{
+    std::vector<char> fileContents( 100 );
+    for ( size_t i = 0; i < fileContents.size(); ++i ) {
+        fileContents[i] = static_cast<char>( i % 251 );
+    }
+
+    int fileDescriptors[2] = { -1, -1 };
+    REQUIRE_EQUAL( ::pipe( fileDescriptors ), 0 );
+    REQUIRE_EQUAL( ::write( fileDescriptors[1], fileContents.data(), fileContents.size() ),
+                   static_cast<ssize_t>( fileContents.size() ) );
+    REQUIRE_EQUAL( ::close( fileDescriptors[1] ), 0 );
+
+    StandardFileReader fileReader( fileDescriptors[0] );
+    REQUIRE( !fileReader.seekable() );
+
+    /* A skip must not consume or report more than requested even if the pipe contains more data. */
+    REQUIRE_EQUAL( fileReader.read( nullptr, 1 ), size_t( 1 ) );
+    REQUIRE_EQUAL( fileReader.tell(), size_t( 1 ) );
+    REQUIRE( !fileReader.eof() );
+
+    REQUIRE_EQUAL( fileReader.read( nullptr, fileContents.size() ), fileContents.size() - 1 );
+    REQUIRE_EQUAL( fileReader.tell(), fileContents.size() );
+    REQUIRE( fileReader.eof() );
+
+    REQUIRE_EQUAL( fileReader.read( nullptr, 100 ), size_t( 0 ) );
+
+    REQUIRE_EQUAL( ::close( fileDescriptors[0] ), 0 );
+}
+#endif
+
+
 void
 testBufferViewFileReaderNullBuffer()
 {
@@ -345,6 +383,10 @@ main()
     }
 
     testStandardFileReaderNullBufferBeyondEnd( tmpFileName, tmpFileContents.size() );
+
+#if !defined(_WIN32)
+    testStandardFileReaderNullBufferOnPipe();
+#endif
 
     testBufferViewFileReaderNullBuffer();
 
