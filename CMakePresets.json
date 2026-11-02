@@ -2,6 +2,112 @@
   "version": 2,
   "configurePresets": [
     {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_COLOR_DIAGNOSTICS": "ON"
+      }
+    },
+    {
+      "name": "release-tools",
+      "inherits": "base",
+      "displayName": "Release tools",
+      "description": "Optimized rapidgzip and ibzip2 binaries without tests or benchmarks",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "ON",
+        "LIBRAPIDARCHIVE_WITH_ISAL": "ON",
+        "LIBRAPIDARCHIVE_WITH_RPMALLOC": "ON"
+      }
+    },
+    {
+      "name": "dev",
+      "inherits": "base",
+      "displayName": "Development",
+      "description": "RelWithDebInfo with tests, benchmarks, and tools",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "ON"
+      }
+    },
+    {
+      "name": "sanitize-clang",
+      "inherits": "base",
+      "displayName": "Sanitize (Clang)",
+      "description": "ASan + UBSan with Clang and libc++/libstdc++",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Sanitize",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "OFF",
+        "LIBRAPIDARCHIVE_WITH_ISAL": "OFF"
+      },
+      "environment": {
+        "CC": "clang",
+        "CXX": "clang++"
+      }
+    },
+    {
+      "name": "sanitize-gcc",
+      "inherits": "base",
+      "displayName": "Sanitize (GCC)",
+      "description": "ASan + UBSan with GCC and libstdc++",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Sanitize",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "OFF",
+        "LIBRAPIDARCHIVE_WITH_ISAL": "OFF"
+      },
+      "environment": {
+        "CC": "gcc",
+        "CXX": "g++"
+      }
+    },
+    {
+      "name": "tsan-clang",
+      "inherits": "base",
+      "displayName": "TSan (Clang)",
+      "description": "ThreadSanitizer with Clang",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "ThreadSanitize",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "OFF",
+        "LIBRAPIDARCHIVE_WITH_ISAL": "OFF",
+        "LIBRAPIDARCHIVE_WITH_RPMALLOC": "OFF"
+      },
+      "environment": {
+        "CC": "clang",
+        "CXX": "clang++"
+      }
+    },
+    {
+      "name": "tsan-gcc",
+      "inherits": "base",
+      "displayName": "TSan (GCC)",
+      "description": "ThreadSanitizer with GCC",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "ThreadSanitize",
+        "LIBRAPIDARCHIVE_BUILD_TESTS": "ON",
+        "LIBRAPIDARCHIVE_BUILD_BENCHMARKS": "OFF",
+        "LIBRAPIDARCHIVE_BUILD_TOOLS": "OFF",
+        "LIBRAPIDARCHIVE_WITH_ISAL": "OFF",
+        "LIBRAPIDARCHIVE_WITH_RPMALLOC": "OFF"
+      },
+      "environment": {
+        "CC": "gcc",
+        "CXX": "g++"
+      }
+    },
+    {
       "name": "fuzz",
       "displayName": "AFL++ fuzzing",
       "description": "Build the AFL++ persistent-mode targets with ASan and UBSan",
@@ -24,6 +130,34 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "release-tools",
+      "configurePreset": "release-tools"
+    },
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "sanitize-clang",
+      "configurePreset": "sanitize-clang",
+      "targets": ["all_tests"]
+    },
+    {
+      "name": "sanitize-gcc",
+      "configurePreset": "sanitize-gcc",
+      "targets": ["all_tests"]
+    },
+    {
+      "name": "tsan-clang",
+      "configurePreset": "tsan-clang",
+      "targets": ["all_tests"]
+    },
+    {
+      "name": "tsan-gcc",
+      "configurePreset": "tsan-gcc",
+      "targets": ["all_tests"]
+    },
     {
       "name": "fuzz",
       "configurePreset": "fuzz",
