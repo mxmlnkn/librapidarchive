@@ -25,7 +25,32 @@ using UniqueFileReader = std::unique_ptr<FileReader>;
  */
 class EndOfFileReached :
     public std::exception
-{};
+{
+public:
+    [[nodiscard]] const char*
+    what() const noexcept override
+    {
+        return "End of file reached!";
+    }
+};
+
+
+/**
+ * Thrown when a read or seek is attempted on a closed reader.
+ *
+ * Deliberately not derived from EndOfFileReached: a closed reader is a state misuse, not data exhaustion, and
+ * existing EOF catch sites should not swallow it.
+ */
+class ReaderClosed :
+    public std::exception
+{
+public:
+    [[nodiscard]] const char*
+    what() const noexcept override
+    {
+        return "Cannot read from closed file!";
+    }
+};
 
 
 /**

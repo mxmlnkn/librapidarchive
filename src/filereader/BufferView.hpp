@@ -91,7 +91,7 @@ public:
           size_t nMaxBytesToRead ) override
     {
         if ( closed() ) {
-            throw EndOfFileReached();
+            throw ReaderClosed();
         }
 
         if ( ( nMaxBytesToRead == 0 ) || ( m_bufferPosition >= m_size ) ) {
@@ -111,7 +111,7 @@ public:
           int           origin = SEEK_SET ) override
     {
         if ( closed() ) {
-            throw std::invalid_argument( "Cannot seek closed file!" );
+            throw ReaderClosed();
         }
 
         const auto newBufferPosition = resolveOffset( offset, origin );

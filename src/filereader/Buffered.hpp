@@ -55,10 +55,14 @@ public:
     [[nodiscard]] UniqueFileReader
     cloneRaw() const override
     {
+        std::unique_ptr<BufferedFileReader> clone;
         if ( m_file ) {
-            return std::make_unique<BufferedFileReader>( m_file->clone() );
+            clone = std::make_unique<BufferedFileReader>( m_file->clone() );
+        } else {
+            clone = std::make_unique<BufferedFileReader>( m_buffer, m_maxBufferSize );
         }
-        return std::make_unique<BufferedFileReader>( m_buffer, m_maxBufferSize );
+        clone->m_closed = m_closed;
+        return clone;
     }
 
     /* Copying is simply not allowed because that might interfere with the file position state, use SharedFileReader! */
@@ -66,6 +70,7 @@ public:
     void
     close() override
     {
+        m_closed = true;
         if ( m_file ) {
             m_file->close();
         }
@@ -75,7 +80,8 @@ public:
     [[nodiscard]] bool
     closed() const override
     {
-        return ( !m_file || m_file->closed() ) && m_buffer.empty();
+        /* An empty in-memory buffer is EOF, not a closed reader. Only close() sets m_closed. */
+        return m_closed || ( m_file && m_file->closed() && m_buffer.empty() );
     }
 
     [[nodiscard]] bool
@@ -132,7 +138,7 @@ public:
           size_t nMaxBytesToRead ) override
     {
         if ( closed() ) {
-            throw std::invalid_argument( "Cannot read from closed file!" );
+            throw ReaderClosed();
         }
 
         if ( nMaxBytesToRead == 0 ) {
@@ -173,7 +179,7 @@ public:
           int           origin = SEEK_SET ) override
     {
         if ( closed() ) {
-            throw std::invalid_argument( "Cannot seek closed file!" );
+            throw ReaderClosed();
         }
 
         const auto newOffset = effectiveOffset( offset, origin );
@@ -286,5 +292,6 @@ protected:
     size_t m_originalBufferOffset{ 0 };
     AlignedBuffer m_buffer;
     size_t m_offset{ 0 };
+    bool m_closed{ false };
 };
 }  // namespace rapidgzip

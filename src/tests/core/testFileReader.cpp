@@ -603,6 +603,17 @@ testBufferViewFileReaderRejectsSeeksOutsideRange()
 }
 
 
+void
+testEmptyInMemoryBufferedFileReaderIsNotClosed()
+{
+    BufferedFileReader reader{ BufferedFileReader::AlignedBuffer{} };
+    REQUIRE( !reader.closed() );
+    REQUIRE( reader.eof() );
+    char byte{ 0 };
+    REQUIRE_EQUAL( reader.read( &byte, 1 ), 0U );
+}
+
+
 int
 main()
 {
@@ -661,6 +672,7 @@ main()
 
     testBufferViewFileReaderNullBuffer();
     testBufferViewFileReaderRejectsSeeksOutsideRange();
+    testEmptyInMemoryBufferedFileReaderIsNotClosed();
 
     const auto bufferedNullFileName = std::string( tmpFileName ) + "-buffered-null.tmp";
     testBufferedFileReaderNullBuffer( bufferedNullFileName );
