@@ -41,6 +41,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: true
 
     - name: Check that generated Cython files are not tracked

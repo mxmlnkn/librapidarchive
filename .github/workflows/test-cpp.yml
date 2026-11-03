@@ -12,6 +12,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v7
@@ -49,6 +51,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install Dependencies
@@ -99,6 +102,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install Dependencies
@@ -124,6 +128,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install System Dependencies
@@ -220,6 +225,7 @@ jobs:
 
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install System Dependencies
@@ -299,6 +305,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install System Dependencies
@@ -357,6 +364,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install System Dependencies
@@ -409,6 +417,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Fix pip
@@ -457,6 +466,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install Dependencies
@@ -494,6 +504,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Install System Dependencies
