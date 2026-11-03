@@ -24,6 +24,22 @@ jobs:
         python3 -m pip install codespell
         codespell --ignore-words-list thirdparty,Ned $( git ls-tree -r --name-only HEAD | 'grep' -E '[.](py|md|txt|sh|yml|cpp|c|hpp|h)$' )
 
+    - name: Reject AI co-authorship
+      if: github.event_name == 'pull_request'
+      run: |
+        if git log \
+          "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+          --format='%B' |
+          grep -Eiq \
+            '^Co-Authored-By:.*<(.*@)?(anthropic\.com|openai\.com|google\.com|github\.com|amazon\.com|cursor\.com|cline\.bot|windsurf\.com|devin\.ai)>[[:space:]]*$'
+        then
+          echo "::error::AI co-authorship attribution is not permitted."
+          echo "::error::AI tools may be used, but the merge request creator must take full responsibility for the submitted work."
+          echo "::error::AI systems cannot assume responsibility for the changes and therefore must not be represented as co-authors."
+          echo "::error::Co-authorship attribution is considered promotional/advertising content and is prohibited by repository policy."
+          exit 1
+        fi
+
   Code-Coverage:
     name: Code Coverage
     runs-on: ubuntu-26.04
