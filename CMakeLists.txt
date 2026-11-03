@@ -175,7 +175,7 @@ if (LIBRAPIDARCHIVE_BUILD_TESTS)
     include(ProcessorCount)
     ProcessorCount(coreCount)
 
-    add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} -j ${coreCount} --extra-verbose)
+    add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} -j 1 --extra-verbose)
 
     add_custom_target(check-memcheck
         COMMAND ${CMAKE_CTEST_COMMAND} -j ${coreCount} --extra-verbose --force-new-ctest-process --test-action memcheck
