@@ -32,6 +32,10 @@ decompressWithRapidgzip( UniqueFileReader fileReader )
     [[maybe_unused]] size_t blockCount = 0;
 
     GzipReader gzipReader( std::move( fileReader ) );
+    /* The inputs are generated and compressed by this benchmark, i.e., they are trusted.
+     * Disable CRC verification to measure pure inflate throughput.
+     * CRC32 is a separate cost: callgrind snapshot: ~37M of 267M instructions in the sequential path. */
+    gzipReader.setCRC32Enabled( true );
     std::vector<uint8_t> outputBuffer( 64_Mi );
     while ( true ) {
         const auto nBytesRead = gzipReader.read( -1,
@@ -155,6 +159,37 @@ benchmarkDecompressionOfRandomBase64( const CompressionStrategy compressionStrat
 }
 
 
+/**
+ * Generates matches that overlap their source (length > distance). Such matches repeat a short period and are
+ * decoded by the repetition copy path in resolveBackreference, unlike the random-backreference case, which
+ * rejects length > distance and therefore only covers the non-overlapping copy paths.
+ */
+void
+benchmarkDecompressionOfOverlappingBackreferences()
+{
+    const auto t0 = now();
+
+    std::mt19937_64 randomEngine;
+
+    constexpr auto INITIAL_RANDOM_SIZE = rapidgzip::deflate::MAX_WINDOW_SIZE;
+    auto randomData = createRandomData( INITIAL_RANDOM_SIZE );
+    randomData.resize( 128_Mi );
+
+    for ( size_t i = INITIAL_RANDOM_SIZE; i < randomData.size(); ) {
+        const auto distance = 2 + randomEngine() % 30;
+        const auto remainingSize = randomData.size() - i;
+        const auto length = std::min<size_t>( 4 + randomEngine() % 255, remainingSize );
+        std::memcpy( randomData.data() + i, randomData.data() + ( i - distance ), length );
+        i += length;
+    }
+
+    const auto creationDuration = duration( t0 );
+    std::cout << "Created " << formatBytes( randomData.size() )
+              << " data with overlapping backreferences in " << creationDuration << " s\n";
+    benchmarkDecompression( randomData, "data with overlapping backreferences" );
+}
+
+
 void
 benchmarkDecompressionOfRandomBackreferences()
 {
@@ -193,6 +228,7 @@ main()
     benchmarkDecompressionOfRandomBase64( CompressionStrategy::HUFFMAN_ONLY );
     benchmarkDecompressionOfRandomBase64( CompressionStrategy::FIXED_HUFFMAN );
     benchmarkDecompressionOfRandomBackreferences();
+    benchmarkDecompressionOfOverlappingBackreferences();
 
     return 0;
 }
