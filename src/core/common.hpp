@@ -67,10 +67,12 @@ testFileType( FileMode fileMode,
 
 #if defined( _MSC_VER )
     #define forceinline __forceinline
+    #define noinline __declspec(noinline)
 #elif defined( __clang__ ) || defined( __GNUC__ )
 /* https://stackoverflow.com/questions/38499462/how-to-tell-clang-to-stop-pretending-to-be-other-compilers */
 /* *INDENT-OFF* */
     #define forceinline __attribute__(( always_inline )) inline
+    #define noinline __attribute__(( noinline ))
 /* *INDENT-ON* */
 #endif
 

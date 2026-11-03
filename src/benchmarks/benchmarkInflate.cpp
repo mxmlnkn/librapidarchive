@@ -455,4 +455,21 @@ Compressed 128 MiB data with random backreferences to 5 MiB 736 KiB 719 B, compr
 | Random Base64                 | 121   +- 3                     |  167.3 +- 0.7                 |
 | Random Base64 (Fixed Huffman) | 111   +- 3                     |  121   +- 4                   |
 | Random Backreferences         | 445.0 +- 1.8                   |  600   +- 70                  |
+
+Fixed-Huffman ISA-L routing A/B, c571199 against its parent ab027b2
+  AMD Ryzen 7 PRO 8840U, Release, ISA-L ON, 8 alternating pairs with the 3 runs per case,
+  pinned to one CPU with taskset. Median of the per-pair bandwidth ratios. Run-to-run noise
+  on this shared machine is +-5 to +-10% per case:
+    Zeros                         1.00 (2 wins, 2 losses beyond +-2%)
+    Random                        1.00 (3 wins, 3 losses)
+    Random Base64                 1.04 (6 wins, 1 loss; per-pair 0.95 to 1.17)
+    Random Base64 (Fixed Huffman) 1.72 (8 wins, 0 losses; per-pair 1.45 to 1.80)
+    Random Backreferences         0.99 (2 wins, 3 losses)
+
+  Z_HUFFMAN_ONLY emits 8193 Dynamic Huffman blocks for the Random Base64 input and Z_FIXED
+  emits 8146 Fixed Huffman blocks, so only the Fixed Huffman case decodes different work.
+  The Random Base64 case changes only through code layout: the additional fixed call site
+  makes GCC compile the dynamic-block loop outside of Block::read, which retires 2.0% more
+  instructions and 5.7% fewer branches with 20 decode repetitions per run. Giving the fixed path its
+  own loop instantiation restores the parent's instruction count but also its code layout.
 */

@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include <core/common.hpp>
 #include <core/Error.hpp>
 #include <rapidgzip/DecodedDataView.hpp>
 #include <rapidgzip/MarkerReplacement.hpp>
@@ -344,8 +345,8 @@ using DistanceHuffmanCoding = HuffmanCodingReversedBitsCached<uint16_t, MAX_CODE
 using LiteralAndDistanceCLBuffer = std::array<uint8_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + MAX_DISTANCE_SYMBOL_COUNT + 256>;
 
 
-[[nodiscard]] constexpr FixedHuffmanCoding
-createFixedHC()
+[[nodiscard]] constexpr std::array<uint8_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + 2>
+createEncodedFixedHuffmanTree()
 {
     std::array<uint8_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + 2> encodedFixedHuffmanTree{};
     for ( size_t i = 0; i < encodedFixedHuffmanTree.size(); ++i ) {
@@ -361,7 +362,14 @@ createFixedHC()
         }
         // NOLINTEND(bugprone-branch-clone)
     }
+    return encodedFixedHuffmanTree;
+}
 
+
+[[nodiscard]] constexpr FixedHuffmanCoding
+createFixedHC()
+{
+    constexpr auto encodedFixedHuffmanTree = createEncodedFixedHuffmanTree();
     FixedHuffmanCoding result;
     const auto error = result.initializeFromLengths( { encodedFixedHuffmanTree.data(),
                                                        encodedFixedHuffmanTree.size() } );
@@ -371,6 +379,32 @@ createFixedHC()
 
     return result;
 }
+
+
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+/**
+ * The fixed Huffman tree is identical for every block, so a single ISAL coding is built once and shared.
+ * It is immutable, so it is thread-safe. Decoding fixed blocks through the multi-cached ISAL loop lets
+ * them benefit from the same multi-literal batching as dynamic blocks.
+ */
+[[nodiscard]] inline const LiteralOrLengthHuffmanCoding&
+createFixedHCISAL()
+{
+    static const auto fixedISAL =
+        [] ()
+        {
+            constexpr auto encodedFixedHuffmanTree = createEncodedFixedHuffmanTree();
+            LiteralOrLengthHuffmanCoding result;
+            const auto error = result.initializeFromLengths( { encodedFixedHuffmanTree.data(),
+                                                               encodedFixedHuffmanTree.size() } );
+            if ( error != Error::NONE ) {
+                throw std::logic_error( "Fixed Huffman Tree could not be created!" );
+            }
+            return result;
+        }();
+    return fixedISAL;
+}
+#endif
 
 
 namespace
@@ -736,13 +770,13 @@ private:
                   Window&          window );
 
     template<typename Window>
-    [[nodiscard]] std::pair<size_t, Error>
+    [[nodiscard]] noinline std::pair<size_t, Error>
     readInternalUncompressed( gzip::BitReader& bitReader,
                               Window&          window );
 
     template<typename Window,
              typename HuffmanCoding>
-    [[nodiscard]] std::pair<size_t, Error>
+    [[nodiscard]] noinline std::pair<size_t, Error>
     readInternalCompressed( gzip::BitReader&     bitReader,
                             size_t               nMaxToDecode,
                             Window&              window,
@@ -750,7 +784,7 @@ private:
 
 #if defined( LIBRAPIDARCHIVE_WITH_ISAL ) || defined( WITH_MULTI_CACHED_HUFFMAN_DECODER )
     template<typename Window>
-    [[nodiscard]] std::pair<size_t, Error>
+    [[nodiscard]] noinline std::pair<size_t, Error>
     readInternalCompressedMultiCached( gzip::BitReader&                    bitReader,
                                        size_t                              nMaxToDecode,
                                        Window&                             window,
@@ -759,7 +793,7 @@ private:
 #elif defined( WITH_DEFLATE_SPECIFIC_HUFFMAN_DECODER )
 
     template<typename Window>
-    [[nodiscard]] std::pair<size_t, Error>
+    [[nodiscard]] noinline std::pair<size_t, Error>
     readInternalCompressedSpecialized( gzip::BitReader&                    bitReader,
                                        size_t                              nMaxToDecode,
                                        Window&                             window,
@@ -1488,7 +1522,11 @@ Block<ENABLE_STATISTICS>::readInternal( gzip::BitReader& bitReader,
     }
 
     if ( m_compressionType == CompressionType::FIXED_HUFFMAN ) {
-    #ifdef _MSC_VER
+    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
+        /* Decode fixed blocks with the batched multi-literal ISAL loop instead of the single-coded
+         * fixed table: dynamic ISAL blocks reach ~390 MB/s where the fixed path is ~160 MB/s. */
+        return readInternalCompressedMultiCached( bitReader, nMaxToDecode, window, createFixedHCISAL() );
+    #elif defined( _MSC_VER )
         /**
          * Initialization of a local static variable is thread-safe and happens on first pass as opposed to
          * the static initialization ordering fiasco for global or class-scope static variables.
@@ -1676,7 +1714,7 @@ Block<ENABLE_STATISTICS>::readInternalCompressed( gzip::BitReader&     bitReader
 #if defined( LIBRAPIDARCHIVE_WITH_ISAL ) || defined( WITH_MULTI_CACHED_HUFFMAN_DECODER )
 template<bool ENABLE_STATISTICS>
 template<typename Window>
-std::pair<size_t, Error>
+noinline std::pair<size_t, Error>
 Block<ENABLE_STATISTICS>::readInternalCompressedMultiCached
 (
     gzip::BitReader&                    bitReader,
