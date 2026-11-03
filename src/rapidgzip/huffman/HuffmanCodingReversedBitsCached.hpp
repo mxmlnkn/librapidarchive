@@ -2,10 +2,12 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 #include <huffman/HuffmanCodingSymbolsPerLength.hpp>
@@ -28,7 +30,8 @@ namespace rapidgzip
 template<typename HuffmanCode,
          uint8_t  MAX_CODE_LENGTH,
          typename Symbol,
-         size_t   MAX_SYMBOL_COUNT>
+         size_t   MAX_SYMBOL_COUNT,
+         bool     USE_DOUBLING_CONSTRUCTION = true>
 class HuffmanCodingReversedBitsCached :
     public HuffmanCodingSymbolsPerLength<HuffmanCode, MAX_CODE_LENGTH, Symbol, MAX_SYMBOL_COUNT>
 {
@@ -36,6 +39,15 @@ public:
     using BaseType = HuffmanCodingSymbolsPerLength<HuffmanCode, MAX_CODE_LENGTH, Symbol, MAX_SYMBOL_COUNT>;
     using BitCount = typename BaseType::BitCount;
     using CodeLengthFrequencies = typename BaseType::CodeLengthFrequencies;
+
+    /* std::pair is not trivially copyable, so the doubling construction cannot memcpy it. This aggregate is
+     * trivially copyable, which the bulk copy below relies on. */
+    struct CodeEntry
+    {
+        uint8_t length;
+        Symbol symbol;
+    };
+    static_assert( std::is_trivially_copyable_v<CodeEntry> );
 
 public:
     [[nodiscard]] constexpr Error
@@ -63,31 +75,67 @@ public:
         //const auto t0 = now();
 
         if ( m_needsToBeZeroed ) {
-            // Works constexpr
-            for ( size_t symbol = 0; symbol < ( 1ULL << this->m_maxCodeLength ); ++symbol ) {
-                m_codeCache[symbol].first = 0;
+            /* If the code is complete and overwrites the whole LUT anyway, we can skip the zeroing. */
+            size_t usedCodeSpace{ 0 };
+            for ( const auto length : codeLengths ) {
+                if ( length != 0 ) {
+                    usedCodeSpace += size_t( 1 ) << ( this->m_maxCodeLength - length );
+                }
+            }
+            const auto isComplete = usedCodeSpace == ( size_t( 1 ) << this->m_maxCodeLength );
+
+            /* The strided fill is constexpr-compatible, unlike memcpy, and is used for tables that must be
+             * initialized at compile time. */
+            if ( !isComplete ) {
+                for ( size_t symbol = 0; symbol < ( 1ULL << this->m_maxCodeLength ); ++symbol ) {
+                    m_codeCache[symbol].length = 0;
+                }
             }
         }
 
-        auto codeValues = this->m_minimumCodeValuesPerLevel;
-        for ( size_t symbol = 0; symbol < codeLengths.size(); ++symbol ) {
-            const auto length = codeLengths[symbol];
-            if ( length == 0 ) {
-                continue;
+        if constexpr ( USE_DOUBLING_CONSTRUCTION ) {
+            /* Fill one entry per code in canonical order and double the table after each code-length level.
+             * For complete codes every entry is overwritten, so the zeroing pass above can be skipped. */
+            auto codeValues = this->m_minimumCodeValuesPerLevel;
+            size_t tableSize{ size_t( 1 ) << this->m_minCodeLength };
+            for ( uint8_t length = this->m_minCodeLength; length <= this->m_maxCodeLength; ++length ) {
+                if ( length > this->m_minCodeLength ) {
+                    std::memcpy( &m_codeCache[tableSize], m_codeCache.data(),
+                                 tableSize * sizeof( m_codeCache.front() ) );
+                    tableSize *= 2;
+                }
+
+                const auto k = length - this->m_minCodeLength;
+                for ( size_t i = this->m_offsets[k]; i < this->m_offsets[k + 1]; ++i ) {
+                    const auto symbol = this->m_symbolsPerLength[i];
+                    const auto code = codeValues[k]++;
+                    const auto reversedCode = reverseBits( code, length );
+                    assert( reversedCode < tableSize );
+                    m_codeCache[reversedCode] = { length, symbol };
+                }
             }
+        } else {
+            auto codeValues = this->m_minimumCodeValuesPerLevel;
+            for ( size_t symbol = 0; symbol < codeLengths.size(); ++symbol ) {
+                const auto length = codeLengths[symbol];
+                if ( length == 0 ) {
+                    continue;
+                }
 
-            const auto k = length - this->m_minCodeLength;
-            const auto code = codeValues[k]++;
-            const auto reversedCode = reverseBits( code, length );
+                const auto k = length - this->m_minCodeLength;
+                const auto code = codeValues[k]++;
+                const auto reversedCode = reverseBits( code, length );
 
-            const auto fillerBitCount = this->m_maxCodeLength - length;
-            const auto maximumPaddedCode = static_cast<HuffmanCode>(
-                reversedCode | static_cast<HuffmanCode>( nLowestBitsSet<HuffmanCode>( fillerBitCount ) << length ) );
-            assert( maximumPaddedCode < m_codeCache.size() );
-            const auto increment = static_cast<HuffmanCode>( HuffmanCode( 1 ) << length );
-            for ( auto paddedCode = reversedCode; paddedCode <= maximumPaddedCode; paddedCode += increment ) {
-                m_codeCache[paddedCode].first = length;
-                m_codeCache[paddedCode].second = static_cast<Symbol>( symbol );
+                const auto fillerBitCount = this->m_maxCodeLength - length;
+                const auto maximumPaddedCode = static_cast<HuffmanCode>(
+                    reversedCode
+                    | static_cast<HuffmanCode>( nLowestBitsSet<HuffmanCode>( fillerBitCount ) << length ) );
+                assert( maximumPaddedCode < m_codeCache.size() );
+                const auto increment = static_cast<HuffmanCode>( HuffmanCode( 1 ) << length );
+                for ( auto paddedCode = reversedCode; paddedCode <= maximumPaddedCode; paddedCode += increment ) {
+                    m_codeCache[paddedCode].length = length;
+                    m_codeCache[paddedCode].symbol = static_cast<Symbol>( symbol );
+                }
             }
         }
 
@@ -143,7 +191,7 @@ public:
     }
 
 private:
-    alignas( 64 ) std::array<std::pair</* length */ uint8_t, Symbol>, ( 1UL << MAX_CODE_LENGTH )> m_codeCache{};
+    alignas( 64 ) std::array<CodeEntry, ( 1UL << MAX_CODE_LENGTH )> m_codeCache{};
     bool m_needsToBeZeroed{ false };
 };
 }  // namespace rapidgzip

@@ -195,7 +195,8 @@ using LiteralOrLengthHuffmanCoding = HuffmanCodingShortBitsCached<
 /* The fixed DEFLATE Huffman tree uses code lengths 7 to 9, so a 9-bit cache suffices. Using the full 15-bit cache
  * here would make the per-decode peek runtime-counted and blow the LUT out of L1 for no reason. */
 using FixedHuffmanCoding =
-    HuffmanCodingReversedBitsCached<uint16_t, /* MAX_CODE_LENGTH */ 9, uint16_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + 2>;
+    HuffmanCodingReversedBitsCached<uint16_t, /* MAX_CODE_LENGTH */ 9, uint16_t, MAX_LITERAL_OR_LENGTH_SYMBOLS + 2,
+                                   /* USE_DOUBLING_CONSTRUCTION */ false>;
 
 
 

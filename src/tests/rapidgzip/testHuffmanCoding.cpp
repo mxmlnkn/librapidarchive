@@ -269,6 +269,55 @@ testSeparateLengthsMaxSymbolCount()
 }
 
 
+void
+testReversedBitsCachedDoublingEquivalence()
+{
+    using Doubling = HuffmanCodingReversedBitsCached<uint16_t, 15, uint16_t, 512, true>;
+    using Strided = HuffmanCodingReversedBitsCached<uint16_t, 15, uint16_t, 512, false>;
+
+    const auto compareCaches =
+        [] ( const Doubling& doubling, const Strided& strided )
+        {
+            const auto& doublingCache = doubling.codeCache();
+            const auto& stridedCache = strided.codeCache();
+            REQUIRE_EQUAL( doublingCache.size(), stridedCache.size() );
+            for ( size_t i = 0; i < doublingCache.size(); ++i ) {
+                REQUIRE_EQUAL( doublingCache[i].length, stridedCache[i].length );
+                REQUIRE_EQUAL( doublingCache[i].symbol, stridedCache[i].symbol );
+            }
+        };
+
+    std::vector<uint8_t> allLengths;
+    for ( uint8_t length = 1; length < 15; ++length ) {
+        allLengths.push_back( length );
+    }
+    allLengths.push_back( 15 );
+    allLengths.push_back( 15 );
+
+    std::vector<uint8_t> fixedLengths( 288, 8 );
+    std::fill( fixedLengths.begin() + 144, fixedLengths.begin() + 256, 9 );
+    std::fill( fixedLengths.begin() + 256, fixedLengths.begin() + 280, 7 );
+
+    /* Reuse one pair of codings across shapes with different maximum lengths to also check the zeroing path. */
+    const std::vector<std::vector<uint8_t> > shapes = {
+        allLengths,
+        { 1 },
+        std::vector<uint8_t>( 512, 9 ),
+        { 2, 2, 2, 2 },
+        fixedLengths,
+        allLengths,
+    };
+
+    Doubling doubling;
+    Strided strided;
+    for ( const auto& codeLengths : shapes ) {
+        REQUIRE_EQUAL( doubling.initializeFromLengths( codeLengths ),
+                       strided.initializeFromLengths( codeLengths ) );
+        compareCaches( doubling, strided );
+    }
+}
+
+
 #ifdef LIBRAPIDARCHIVE_WITH_ISAL
 void
 testIsalHuffmanRejectsOutOfRangeCodeLengths()
@@ -289,13 +338,15 @@ main()
     testIsalHuffmanRejectsOutOfRangeCodeLengths();
 #endif
     testSeparateLengthsMaxSymbolCount();
+    testReversedBitsCachedDoublingEquivalence();
     static constexpr auto MAX_CODE_LENGTH = 15;
     static constexpr auto MAX_SYMBOL_COUNT = 512;
 
     std::cerr << "Testing empty alphabets...\n";
     testEmptyAlphabet<HuffmanCodingShortBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_SYMBOL_COUNT, 11, true> >();
     testEmptyAlphabet<HuffmanCodingShortBitsCached<uint32_t, 20, uint16_t, 258, 12, false> >();
-    testEmptyAlphabet<HuffmanCodingReversedBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_SYMBOL_COUNT> >();
+    testEmptyAlphabet<HuffmanCodingReversedBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_SYMBOL_COUNT, true> >();
+    testEmptyAlphabet<HuffmanCodingReversedBitsCached<uint16_t, MAX_CODE_LENGTH, uint16_t, MAX_SYMBOL_COUNT, false> >();
     testEmptyAlphabet<HuffmanCodingReversedBitsCachedCompressed<uint16_t, MAX_CODE_LENGTH,
                                                                 uint16_t, MAX_SYMBOL_COUNT> >();
     testEmptyAlphabet<HuffmanCodingReversedBitsCachedSeparateLengths<uint16_t, MAX_CODE_LENGTH,
