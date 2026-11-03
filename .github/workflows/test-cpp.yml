@@ -279,7 +279,7 @@ jobs:
     - name: Run Tests With Sanitizers
       if: "startsWith(matrix.os , 'windows')"
       run: |
-        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF .
+        cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF -DCMAKE_CXX_FLAGS="-DSHORT_TESTS" .
         cmake --build build -- check
 
   Sanitize:
