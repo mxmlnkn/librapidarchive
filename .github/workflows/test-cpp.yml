@@ -136,16 +136,6 @@ jobs:
         break-system-packages = true
         EOF
 
-    - uses: conda-incubator/setup-miniconda@v4
-      if: startsWith(matrix.os, 'windows')
-      with:
-        auto-update-conda: true
-
-    - name: Install pigz
-      if: startsWith(matrix.os, 'windows')
-      run: |
-        conda install conda-forge::pigz
-
     - name: Fix pip
       run: |
         echo "PIP_BREAK_SYSTEM_PACKAGES=1" >> "${GITHUB_ENV}"
@@ -228,16 +218,6 @@ jobs:
       run: |
         sudo apt update
         sudo apt-get -y install g++ ninja-build gzip tabix pigz gztool libarchive-dev zlib1g-dev isal
-
-    - uses: conda-incubator/setup-miniconda@v4
-      if: startsWith(matrix.os, 'windows')
-      with:
-        auto-update-conda: true
-
-    - name: Install pigz
-      if: startsWith(matrix.os, 'windows')
-      run: |
-        conda install conda-forge::pigz
 
     - name: Fix pip
       if: "startsWith(matrix.os , 'macos')"
