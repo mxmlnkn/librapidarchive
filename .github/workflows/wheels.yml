@@ -54,6 +54,7 @@ jobs:
 
     - uses: actions/checkout@v7
       with:
+        persist-credentials: false
         submodules: recursive
 
     - name: Set up Python
@@ -97,6 +98,84 @@ jobs:
         TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
       working-directory: python/indexed_bzip2
       run: twine upload --skip-existing -u __token__ dist/*
+
+  Build-ABI3-Wheels:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+        - macos-26
+        - macos-26-intel
+        - ubuntu-24.04-arm
+        - ubuntu-24.04
+        - windows-latest
+        archs: [auto64]
+        manylinux-image: [manylinux_2_28]
+        include:
+        - os: ubuntu-24.04
+          manylinux-image: manylinux_2_28
+          archs: auto32
+
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+
+    - name: Install Dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install --upgrade-strategy eager --upgrade cython twine cibuildwheel~=4.3 build
+
+    - name: Build ABI3 Wheels
+      env:
+        CIBW_ARCHS: ${{ matrix.archs }}
+        CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux-image }}
+        # One wheel per platform covers all CPython versions >= 3.14.
+        CIBW_BUILD: "cp314-*"
+        # CIBW_ENVIRONMENT is required so that the variable also reaches the Linux container.
+        CIBW_ENVIRONMENT: "INDEXED_BZIP2_ABI3=enable"
+      run: python -m cibuildwheel --output-dir dist-abi3 python/indexed_bzip2
+
+    - name: Check distributions
+      run: twine check dist-abi3/*
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: wheels-abi3-${{ matrix.os }}-${{ matrix.archs }}-${{ matrix.manylinux-image }}
+        path: "dist-abi3/*.whl"
+        if-no-files-found: error
+
+  Publish:
+    needs: [Build-Wheels, Build-ABI3-Wheels]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Download all distributions
+      uses: actions/download-artifact@v7
+      with:
+        path: dist
+        merge-multiple: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
 
     - name: Publish to PyPI
       if: startsWith(github.ref, 'refs/tags/')
