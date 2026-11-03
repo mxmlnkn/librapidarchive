@@ -594,7 +594,8 @@ IsalInflateWrapper::getErrorString( int errorCode ) noexcept
 template<typename ResultContainer = std::vector<uint8_t> >
 [[nodiscard]] ResultContainer
 compressWithIsal( const VectorView<uint8_t> toCompress,
-                  const VectorView<uint8_t> dictionary = {} )
+                  const VectorView<uint8_t> dictionary = {},
+                  const uint16_t            gzipFlag = IGZIP_GZIP )
 {
     /* > Parameter avail_out must be large enough to fit the entire compressed output.
      * > Max expansion is limited to the input size plus the header size of a stored/raw block.
@@ -619,7 +620,7 @@ compressWithIsal( const VectorView<uint8_t> toCompress,
     stream.avail_in = toCompress.size();
     stream.next_out = const_cast<uint8_t*>( reinterpret_cast<const uint8_t*>( compressed.data() ) );
     stream.avail_out = compressed.size();
-    stream.gzip_flag = IGZIP_GZIP;
+    stream.gzip_flag = gzipFlag;
     const auto result = isal_deflate_stateless( &stream );
     if ( result != COMP_OK ) {
         throw std::runtime_error( "Compression failed with error code: " + std::to_string( result ) );

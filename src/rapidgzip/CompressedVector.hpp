@@ -90,8 +90,25 @@ compress( const VectorView<typename Container::value_type> toCompress,
         break;
 
     case CompressionType::ZLIB:
-        return rapidgzip::compressWithZlib<Container>( toCompress, CompressionStrategy::DEFAULT, /* dictionary */ {},
-                                                       ContainerFormat::ZLIB );
+    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
+        try {
+            return rapidgzip::compressWithIsal<Container>( toCompress, /* dictionary */ {}, IGZIP_ZLIB );
+        } catch ( const std::runtime_error& exception ) {
+            std::stringstream message;
+            message << "[Warning] Compression with ISA-L failed unexpectedly with: " << exception.what() << "\n";
+            message << "[Warning] Will use zlib as a fallback. Please report this bug anyway.\n";
+        #ifdef RAPIDGZIP_FATAL_PERFORMANCE_WARNINGS
+            throw std::logic_error( std::move( message ).str() );
+        #else
+            std::cerr << std::move( message ).str();
+        #endif
+            return rapidgzip::compressWithZlib<Container>( toCompress, CompressionStrategy::DEFAULT,
+                                                           /* dictionary */ {}, ContainerFormat::ZLIB );
+        }
+    #else
+        return rapidgzip::compressWithZlib<Container>( toCompress, CompressionStrategy::DEFAULT,
+                                                       /* dictionary */ {}, ContainerFormat::ZLIB );
+    #endif
 
     case CompressionType::NONE:
         return Container( toCompress.begin(), toCompress.end() );
