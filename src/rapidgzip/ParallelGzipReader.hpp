@@ -294,17 +294,17 @@ public:
         setMaxDecompressedChunkSize( 20U * m_chunkSizeInBytes );
 
         const auto fileSize = m_sharedFileReader->size();
-        if ( fileSize && ( m_chunkSizeInBytes * 2U * parallelization > *fileSize ) ) {
-            /* Use roughly as many chunks as there is parallelization.
-             * Multiply a factor of two, to give the thread pool more time to be filled out.
+        if ( fileSize && ( parallelization > 0 ) && ( m_chunkSizeInBytes * parallelization > *fileSize ) ) {
+            /* Use roughly as many chunks as there is parallelization. Do not reduce the chunk size
+             * further than that because every chunk has to find or validate its start offset and carries
+             * a window, so many small chunks cost more than the shorter prefetch distance saves.
              * Bound the minimum chunk size because of the block finder overhead for gzip,
              * because <900kB chunks might not have any real work to do, and to avoid many threads
              * being started for very small files.
-             * This formula is mostly optimized for silesia.tar.bz2.
              * Speed isn't that important for small gzip files because it decompresses many times faster.
              * In the first place, this implementation is intended towards very large files not small files. */
             m_chunkSizeInBytes =
-                std::max( 512_Ki, ceilDiv( ceilDiv( *fileSize, 3U * parallelization ), 512_Ki ) * 512_Ki );
+                std::max( 512_Ki, ceilDiv( ceilDiv( *fileSize, parallelization ), 512_Ki ) * 512_Ki );
         }
 
         m_sharedFileReader->setStatisticsEnabled( m_statisticsEnabled );
