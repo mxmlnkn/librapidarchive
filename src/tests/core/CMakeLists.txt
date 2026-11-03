@@ -3,6 +3,8 @@ function(addCoreTest name)
     target_sources(${name} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/${name}.cpp)
     target_link_libraries(${name} PRIVATE core)
     add_test(NAME ${name} COMMAND ${name})
+    # Temporary for the Windows hang diagnosis.
+    set_tests_properties(${name} PROPERTIES TIMEOUT 600)
     if(SANITIZER_TEST_ENVIRONMENT)
         set_tests_properties(${name} PROPERTIES ENVIRONMENT "${SANITIZER_TEST_ENVIRONMENT}")
     endif()

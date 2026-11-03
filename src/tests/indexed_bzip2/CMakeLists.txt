@@ -21,6 +21,8 @@ add_executable(testRunAB)
 target_sources(testRunAB PRIVATE ${CMAKE_CURRENT_LIST_DIR}/testRunAB.cpp)
 target_link_libraries(testRunAB PRIVATE core)
 add_test(NAME Test-Run-AB COMMAND testRunAB)
+# Temporary for the Windows hang diagnosis.
+set_tests_properties(Test-Run-AB PROPERTIES TIMEOUT 600)
 add_dependencies(all_tests testRunAB)
 if(SANITIZER_TEST_ENVIRONMENT)
     set_tests_properties(Test-Run-AB PROPERTIES ENVIRONMENT "${SANITIZER_TEST_ENVIRONMENT}")

@@ -16,7 +16,9 @@ function(addRapidgzipTest name)
     # 26/28 Test #26: testGzip .........................   Passed  758.07 sec
     # 27/28 Test #27: testParallelGzipReader ...........***Timeout 1500.55 sec
     # 28/28 Test #28: testCLI ..........................   Passed  1434.14 sec
-    set_tests_properties(${name} PROPERTIES TIMEOUT 3000)
+    # Temporarily reduced from 3000 s for the Windows hang diagnosis. The normal
+    # macOS ASAN runs need the larger value; this branch only runs Windows.
+    set_tests_properties(${name} PROPERTIES TIMEOUT 600)
 endfunction()
 
 
