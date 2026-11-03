@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -21,6 +22,14 @@
 
 
 using namespace rapidgzip;
+
+
+struct BenchmarkResult
+{
+    std::string name;
+    size_t size{ 0 };
+    std::vector<double> durations;
+};
 
 
 [[nodiscard]] size_t
@@ -73,9 +82,9 @@ printBandwidths( const std::vector<double>& durations,
 };
 
 
-void
+BenchmarkResult
 benchmarkDecompression( const std::vector<std::byte>& dataToCompress,
-                        const std::string_view        dataLabel,
+                        std::string                   name,
                         const CompressionStrategy     compressionStrategy = CompressionStrategy::DEFAULT )
 {
     const auto t0 = now();
@@ -86,24 +95,25 @@ benchmarkDecompression( const std::vector<std::byte>& dataToCompress,
     const auto compressionBandwidth = static_cast<double>( dataToCompress.size() ) / compressDuration;
 
     std::cout << "Compressed " << formatBytes( dataToCompress.size() )
-              << " " << dataLabel << " to " << formatBytes( fileContents.size() )
+              << " " << name << " to " << formatBytes( fileContents.size() )
               << ", compression ratio: " << compressionRatio
               << ",\n  compression strategy: " << toString( compressionStrategy )
               << ", compression bandwidth: " << compressionBandwidth / 1e6 << " MB/s\n";
 
-    const auto [size, durations] = benchmarkFunction<3>(
+    auto [size, durations] = benchmarkFunction<3>(
         [&fileContents] () {
             return decompressWithRapidgzip( std::make_unique<BufferViewFileReader>( fileContents ) );
         } );
     printBandwidths( durations, size );
     std::cout << "\n";
+    return { std::move( name ), size, std::move( durations ) };
 }
 
 
-void
+BenchmarkResult
 benchmarkDecompressionOfZeros()
 {
-    benchmarkDecompression( std::vector<std::byte>( 128_Mi, std::byte( 0 ) ), "zeros" );
+    return benchmarkDecompression( std::vector<std::byte>( 128_Mi, std::byte( 0 ) ), "Zeros" );
 }
 
 
@@ -132,18 +142,18 @@ createRandomData( uint64_t                      size,
 }
 
 
-void
+BenchmarkResult
 benchmarkDecompressionOfNonCompressible()
 {
     const auto t0 = now();
     const auto randomData = createRandomData( 128_Mi );
     const auto creationDuration = duration( t0 );
     std::cout << "Created " << formatBytes( randomData.size() ) << " random data in " << creationDuration << " s\n";
-    benchmarkDecompression( randomData, "random data", CompressionStrategy::HUFFMAN_ONLY );
+    return benchmarkDecompression( randomData, "Random", CompressionStrategy::HUFFMAN_ONLY );
 }
 
 
-void
+BenchmarkResult
 benchmarkDecompressionOfRandomBase64( const CompressionStrategy compressionStrategy )
 {
     std::vector<std::byte> allowedSymbols( BASE64_SYMBOLS.size() );
@@ -155,7 +165,10 @@ benchmarkDecompressionOfRandomBase64( const CompressionStrategy compressionStrat
     const auto creationDuration = duration( t0 );
     std::cout << "Created " << formatBytes( randomData.size() )
               << " random base64 data in " << creationDuration << " s\n";
-    benchmarkDecompression( randomData, "random base64 data", compressionStrategy );
+    const auto name = compressionStrategy == CompressionStrategy::FIXED_HUFFMAN
+                      ? std::string( "Random Base64 (Fixed Huffman)" )
+                      : std::string( "Random Base64" );
+    return benchmarkDecompression( randomData, name, compressionStrategy );
 }
 
 
@@ -164,7 +177,7 @@ benchmarkDecompressionOfRandomBase64( const CompressionStrategy compressionStrat
  * decoded by the repetition copy path in resolveBackreference, unlike the random-backreference case, which
  * rejects length > distance and therefore only covers the non-overlapping copy paths.
  */
-void
+BenchmarkResult
 benchmarkDecompressionOfOverlappingBackreferences()
 {
     const auto t0 = now();
@@ -186,11 +199,11 @@ benchmarkDecompressionOfOverlappingBackreferences()
     const auto creationDuration = duration( t0 );
     std::cout << "Created " << formatBytes( randomData.size() )
               << " data with overlapping backreferences in " << creationDuration << " s\n";
-    benchmarkDecompression( randomData, "data with overlapping backreferences" );
+    return benchmarkDecompression( randomData, "Random Overlapping Backreferences" );
 }
 
 
-void
+BenchmarkResult
 benchmarkDecompressionOfRandomBackreferences()
 {
     const auto t0 = now();
@@ -216,20 +229,58 @@ benchmarkDecompressionOfRandomBackreferences()
     const auto creationDuration = duration( t0 );
     std::cout << "Created " << formatBytes( randomData.size() )
               << " data with random backreferences in " << creationDuration << " s\n";
-    benchmarkDecompression( randomData, "data with random backreferences" );
+    return benchmarkDecompression( randomData, "Random Backreferences" );
+}
+
+
+void
+printSummaryTable( const std::vector<BenchmarkResult>& results )
+{
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+    constexpr auto isalLabel = "WITH_ISAL=ON";
+#else
+    constexpr auto isalLabel = "WITH_ISAL=OFF";
+#endif
+
+    constexpr int bandwidthWidth = 31;
+    auto nameWidth = std::string_view( "Data Type" ).size();
+    for ( const auto& result : results ) {
+        nameWidth = std::max( nameWidth, result.name.size() );
+    }
+
+    const auto header = std::string( "Bandwidth (MB/s) " ) + isalLabel;
+
+    std::cout << "| " << std::left << std::setw( static_cast<int>( nameWidth ) ) << "Data Type" << " | "
+              << std::left << std::setw( bandwidthWidth ) << header << " |\n";
+    std::cout << "|" << std::string( nameWidth + 2, '-' ) << "|"
+              << std::string( bandwidthWidth + 2, '-' ) << "|\n";
+
+    for ( const auto& result : results ) {
+        std::vector<double> bandwidths( result.durations.size() );
+        std::transform( result.durations.begin(), result.durations.end(), bandwidths.begin(),
+                        [size = result.size] ( const auto duration ) {
+                            return static_cast<double>( size ) / 1e6 / duration;
+                        } );
+        const auto statistics = Statistics<double>( bandwidths ).formatAverageWithUncertainty( false );
+        std::cout << "| " << std::left << std::setw( static_cast<int>( nameWidth ) ) << result.name << " | "
+                  << std::left << std::setw( bandwidthWidth ) << statistics << " |\n";
+    }
 }
 
 
 int
 main()
 {
-    benchmarkDecompressionOfZeros();
-    benchmarkDecompressionOfNonCompressible();
-    benchmarkDecompressionOfRandomBase64( CompressionStrategy::HUFFMAN_ONLY );
-    benchmarkDecompressionOfRandomBase64( CompressionStrategy::FIXED_HUFFMAN );
-    benchmarkDecompressionOfRandomBackreferences();
-    benchmarkDecompressionOfOverlappingBackreferences();
+    std::vector<BenchmarkResult> results;
+    results.emplace_back( benchmarkDecompressionOfZeros() );
+    results.emplace_back( benchmarkDecompressionOfNonCompressible() );
+    results.emplace_back( benchmarkDecompressionOfRandomBase64( CompressionStrategy::HUFFMAN_ONLY ) );
+    results.emplace_back( benchmarkDecompressionOfRandomBase64( CompressionStrategy::FIXED_HUFFMAN ) );
+    results.emplace_back( benchmarkDecompressionOfRandomBackreferences() );
+    results.emplace_back( benchmarkDecompressionOfOverlappingBackreferences() );
 
+    std::cout << "\n";
+    printSummaryTable( results );
     return 0;
 }
 
