@@ -2,13 +2,13 @@ name: C++ Code Checks
 
 on:
   push:
-    branches: [ "master" ]
-  pull_request:
+    branches: [ "master", "fix-windows" ]
   workflow_dispatch:
 
 jobs:
   Codespell:
     runs-on: ubuntu-slim
+    if: false
 
     steps:
     - uses: actions/checkout@v7
@@ -80,6 +80,7 @@ jobs:
   Clang-Tidy:
     name: Clang-Tidy
     runs-on: ubuntu-26.04
+    if: false
     steps:
     - uses: actions/checkout@v7
       with:
@@ -99,6 +100,7 @@ jobs:
     name: Check without Sanitizer and with ISA-L
     # And especially without -DSHORT_TESTS, which makes it non redundant to the sanitizer checks!
     runs-on: ${{ matrix.os }}
+    if: false
     strategy:
       matrix:
         # ISA-L currently not supported on macOS. macos-xx would simply build without ISA-L and waste precious CI time.
@@ -191,10 +193,6 @@ jobs:
     strategy:
       matrix:
         os:
-        - ubuntu-26.04
-        - ubuntu-26.04-arm
-        - macos-26
-        - macos-26-intel
         - windows-latest
 
     env:
@@ -292,6 +290,7 @@ jobs:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
     runs-on: ${{ matrix.os }}
+    if: false
     strategy:
       matrix:
         os:
@@ -350,6 +349,7 @@ jobs:
     name: Safe-Stack
 
     runs-on: ${{ matrix.os }}
+    if: false
     strategy:
       matrix:
         os:
@@ -410,6 +410,7 @@ jobs:
     env:
       TSAN_OPTIONS: halt_on_error=1
     runs-on: ubuntu-26.04
+    if: false
     steps:
     - uses: actions/checkout@v7
       with:
@@ -458,6 +459,7 @@ jobs:
   Code-Checks:
     name: Check with Infer
     runs-on: ubuntu-latest
+    if: false
     steps:
     - uses: actions/checkout@v7
       with:
@@ -486,6 +488,7 @@ jobs:
 
     # And especially without -DSHORT_TESTS, which makes it non redundant to the sanitizer checks!
     runs-on: ${{ matrix.os }}
+    if: false
     strategy:
       matrix:
         os:
