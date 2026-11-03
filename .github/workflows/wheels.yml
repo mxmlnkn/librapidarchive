@@ -69,7 +69,7 @@ jobs:
       #  -> fails because it is 404 now :( This means I have to drop Python 3.8 support.
       run: |
         python3 -m pip install --upgrade pip
-        python3 -m pip install --upgrade-strategy eager --upgrade cython twine cibuildwheel~=4.3 build
+        python3 -m pip install --upgrade-strategy eager --upgrade cython twine check-wheel-contents cibuildwheel~=4.3 build
 
     - name: Build Tarball
       working-directory: python/indexed_bzip2
@@ -82,8 +82,13 @@ jobs:
         CIBW_ENABLE: "pypy"
       run: python -m cibuildwheel --output-dir dist python/indexed_bzip2
 
-    - name: Check Wheels
-      run: twine check dist/*
+    - name: Check Distributions
+      shell: bash
+      run: |
+        twine check --strict dist/* python/indexed_bzip2/dist/*
+        # auditwheel and delvewheel add an <package>.libs/ directory to repaired wheels.
+        # Ignore W003,W009,W010, which fail on musllinux and Windows.
+        check-wheel-contents --no-config --ignore W003,W009,W010 dist/*.whl
 
     - uses: actions/upload-artifact@v7
       if: "startsWith(matrix.os, 'windows') && matrix.archs == 'auto64'"
@@ -135,7 +140,7 @@ jobs:
     - name: Install Dependencies
       run: |
         python3 -m pip install --upgrade pip
-        python3 -m pip install --upgrade-strategy eager --upgrade cython twine cibuildwheel~=4.3 build
+        python3 -m pip install --upgrade-strategy eager --upgrade cython twine check-wheel-contents abi3audit cibuildwheel~=4.3 build
 
     - name: Build ABI3 Wheels
       env:
@@ -148,7 +153,20 @@ jobs:
       run: python -m cibuildwheel --output-dir dist-abi3 python/indexed_bzip2
 
     - name: Check distributions
-      run: twine check dist-abi3/*
+      shell: bash
+      run: |
+        twine check --strict dist-abi3/*
+        check-wheel-contents --no-config --ignore W003,W009,W010 dist-abi3/*.whl
+
+    - name: Audit ABI3 wheels
+      shell: bash
+      run: abi3audit --strict dist-abi3/*.whl
+
+    - name: Install ABI3 wheel
+      if: matrix.archs != 'auto32'
+      run: |
+        python3 -m pip install --no-index --no-deps --find-links dist-abi3 indexed_bzip2
+        python3 -c "import indexed_bzip2; print( indexed_bzip2.__version__ )"
 
     - uses: actions/upload-artifact@v7
       with:
