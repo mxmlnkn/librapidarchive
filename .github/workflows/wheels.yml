@@ -71,7 +71,7 @@ jobs:
       #  -> fails because it is 404 now :( This means I have to drop Python 3.8 support.
       run: |
         python3 -m pip install --upgrade pip
-        python3 -m pip install --upgrade-strategy eager --upgrade cython twine cibuildwheel~=3.0 build
+        python3 -m pip install --upgrade-strategy eager --upgrade cython twine cibuildwheel~=4.3 build
 
     - name: Build Tarball
       working-directory: python/indexed_bzip2
