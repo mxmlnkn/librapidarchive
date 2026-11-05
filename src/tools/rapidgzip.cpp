@@ -491,7 +491,60 @@ rapidgzipCLI( int                  argc,
 
     auto errorCode = DecompressErrorCode::SUCCESS;
     const auto hasOutputFiles = ( outputFileDescriptor != -1 ) || ( stdoutFileDescriptor != -1 );
-    if ( !args.indexSaveFile && args.countBytes && !args.countLines && !args.decompress && !hasOutputFiles ) {
+#ifndef LIBRAPIDARCHIVE_WITH_ISAL
+    const auto useSequentialFastPath =
+        ( args.decoderParallelism == 1 )
+        && !args.fileRanges
+        && !args.indexLoadFile
+        && !args.indexSaveFile
+        && !args.verbose
+        && !args.gatherLineOffsets;
+#else
+    constexpr bool useSequentialFastPath = false;
+#endif
+    if ( useSequentialFastPath ) {
+        /**
+         * Straight sequential decode without the block finder, chunk scheduling, and chunk windows. This is
+         * used for the common single-worker case where none of the pipeline-only features (index, seeking,
+         * ranges, line offsets, statistics) are requested. With ISA-L enabled the chunk decoder can pass
+         * larger buffers to the full ISA-L inflate state machine, which is faster than the per-symbol
+         * ISA-L Huffman path used by GzipReader, so the fast path is only taken for the custom decoder.
+         */
+        rapidgzip::GzipReader reader( std::move( args.inputFile ) );
+        reader.setCRC32Enabled( args.crc32Enabled );
+
+        const auto writeFunctor =
+            [&args, &outputFileDescriptors, &newlineCount, &totalBytesRead, &writeDuration]
+            ( const void* const buffer, const uint64_t size )
+            {
+                for ( const auto fileDescriptor : outputFileDescriptors ) {
+                    const auto writeStart = now();
+                    const auto errorCode = writeAllToFd( fileDescriptor, buffer, size );
+                    writeDuration += duration( writeStart );
+                    if ( errorCode == EPIPE ) {
+                        throw BrokenPipeException();
+                    }
+                    if ( errorCode != 0 ) {
+                        std::stringstream message;
+                        message << "Failed to write all bytes because of: " << strerror( errorCode )
+                                << " (" << errorCode << ")";
+                        throw std::runtime_error( std::move( message ).str() );
+                    }
+                }
+
+                totalBytesRead += size;
+                if ( args.countLines ) {
+                    newlineCount += countNewlines(
+                        { reinterpret_cast<const char*>( buffer ), static_cast<size_t>( size ) } );
+                }
+            };
+
+        try {
+            reader.read( writeFunctor );
+        } catch ( const BrokenPipeException& ) {
+            errorCode = DecompressErrorCode::BROKEN_PIPE;
+        }
+    } else if ( !args.indexSaveFile && args.countBytes && !args.countLines && !args.decompress && !hasOutputFiles ) {
         /* Need to do nothing with the chunks because decompressParallel returns the decompressed size.
          * Note that we use ChunkDataCounter to speed up decompression. Therefore an index
          * will not be created and there also will be no checksum verification! */
