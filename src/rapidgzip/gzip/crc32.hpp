@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <core/simd.hpp>
+
 #ifdef LIBRAPIDARCHIVE_WITH_ISAL
     #include <crc.h>
 #endif
@@ -123,6 +125,184 @@ crc32SliceByN( uint32_t    crc,
 }
 
 
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+
+/**
+ * Folded CRC32 using PCLMULQDQ. Based on Intel's "Fast CRC Computation for Generic Polynomials Using PCLMULQDQ".
+ * @see https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/
+ *      fast-crc-computation-generic-polynomials-pclmulqdq-paper.pdf
+ */
+[[nodiscard]] inline __attribute__( ( target( "pclmul,ssse3,sse4.1" ) ) ) uint32_t
+crc32PCLMulImpl( uint32_t    crc,
+                 const char* data,
+                 size_t      size )
+{
+    const auto* source = reinterpret_cast<const uint8_t*>( data );
+
+    for ( ; ( size > 0 ) && ( ( reinterpret_cast<uintptr_t>( source ) & 15U ) != 0 ); ++source, --size ) {
+        crc = ~updateCRC32( ~crc, *source );
+    }
+
+    if ( size < 16 ) {
+        for ( ; size > 0; ++source, --size ) {
+            crc = ~updateCRC32( ~crc, *source );
+        }
+        return crc;
+    }
+
+    const auto xor3 =
+        [] ( const __m128i a, const __m128i b, const __m128i c ) { return _mm_xor_si128( _mm_xor_si128( a, b ), c ); };
+
+    const auto fold4 = _mm_set_epi32( 0x00000001, 0x54442bd4, 0x00000001, 0xc6e41596 );
+
+    auto crc0 = _mm_cvtsi32_si128( 0x9db42487 );
+    auto crc1 = _mm_setzero_si128();
+    auto crc2 = _mm_setzero_si128();
+    auto crc3 = _mm_setzero_si128();
+
+    if ( crc != 0 ) {
+        size -= 16;
+        const auto block = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) );
+        source += 16;
+
+        const auto low = _mm_clmulepi64_si128( crc0, fold4, 0x01 );
+        const auto high = _mm_clmulepi64_si128( crc0, fold4, 0x10 );
+        crc0 = crc1;
+        crc1 = crc2;
+        crc2 = crc3;
+        crc3 = _mm_xor_si128( low, high );
+        crc3 = xor3( crc3, block, _mm_cvtsi32_si128( static_cast<int>( crc ) ) );
+    }
+
+    for ( ; size >= 64; size -= 64, source += 64 ) {
+        const auto block0 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) );
+        const auto block1 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) + 1 );
+        const auto block2 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) + 2 );
+        const auto block3 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) + 3 );
+
+        const auto low0 = _mm_clmulepi64_si128( crc0, fold4, 0x01 );
+        const auto high0 = _mm_clmulepi64_si128( crc0, fold4, 0x10 );
+        const auto low1 = _mm_clmulepi64_si128( crc1, fold4, 0x01 );
+        const auto high1 = _mm_clmulepi64_si128( crc1, fold4, 0x10 );
+        const auto low2 = _mm_clmulepi64_si128( crc2, fold4, 0x01 );
+        const auto high2 = _mm_clmulepi64_si128( crc2, fold4, 0x10 );
+        const auto low3 = _mm_clmulepi64_si128( crc3, fold4, 0x01 );
+        const auto high3 = _mm_clmulepi64_si128( crc3, fold4, 0x10 );
+
+        crc0 = _mm_xor_si128( _mm_xor_si128( low0, high0 ), block0 );
+        crc1 = _mm_xor_si128( _mm_xor_si128( low1, high1 ), block1 );
+        crc2 = _mm_xor_si128( _mm_xor_si128( low2, high2 ), block2 );
+        crc3 = _mm_xor_si128( _mm_xor_si128( low3, high3 ), block3 );
+    }
+
+    if ( size >= 48 ) {
+        size -= 48;
+        const auto block0 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) );
+        const auto block1 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) + 1 );
+        const auto block2 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) + 2 );
+        source += 48;
+
+        const auto low0 = _mm_clmulepi64_si128( crc0, fold4, 0x01 );
+        const auto high0 = _mm_clmulepi64_si128( crc0, fold4, 0x10 );
+        const auto low1 = _mm_clmulepi64_si128( crc1, fold4, 0x01 );
+        const auto high1 = _mm_clmulepi64_si128( crc1, fold4, 0x10 );
+        const auto low2 = _mm_clmulepi64_si128( crc2, fold4, 0x01 );
+        const auto high2 = _mm_clmulepi64_si128( crc2, fold4, 0x10 );
+
+        crc0 = crc3;
+        crc1 = _mm_xor_si128( _mm_xor_si128( low0, high0 ), block0 );
+        crc2 = _mm_xor_si128( _mm_xor_si128( low1, high1 ), block1 );
+        crc3 = _mm_xor_si128( _mm_xor_si128( low2, high2 ), block2 );
+    } else if ( size >= 32 ) {
+        size -= 32;
+        const auto block0 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) );
+        const auto block1 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) + 1 );
+        source += 32;
+
+        const auto low0 = _mm_clmulepi64_si128( crc0, fold4, 0x01 );
+        const auto high0 = _mm_clmulepi64_si128( crc0, fold4, 0x10 );
+        const auto low1 = _mm_clmulepi64_si128( crc1, fold4, 0x01 );
+        const auto high1 = _mm_clmulepi64_si128( crc1, fold4, 0x10 );
+
+        crc0 = crc2;
+        crc1 = crc3;
+        crc2 = _mm_xor_si128( _mm_xor_si128( low0, high0 ), block0 );
+        crc3 = _mm_xor_si128( _mm_xor_si128( low1, high1 ), block1 );
+    } else if ( size >= 16 ) {
+        size -= 16;
+        const auto block0 = _mm_load_si128( reinterpret_cast<const __m128i*>( source ) );
+        source += 16;
+
+        const auto low0 = _mm_clmulepi64_si128( crc0, fold4, 0x01 );
+        const auto high0 = _mm_clmulepi64_si128( crc0, fold4, 0x10 );
+        crc0 = crc1;
+        crc1 = crc2;
+        crc2 = crc3;
+        crc3 = _mm_xor_si128( _mm_xor_si128( low0, high0 ), block0 );
+    }
+
+    const auto k12 = _mm_set_epi32( 0x00000001, 0x751997d0, 0x00000000, static_cast<int>( 0xccaa009e ) );
+    const auto barrett = _mm_set_epi32( 0x00000001, static_cast<int>( 0xdb710640 ),
+                                        static_cast<int>( 0xb4e5b025 ), static_cast<int>( 0xf7011641 ) );
+
+    const auto low0 = _mm_clmulepi64_si128( crc0, k12, 0x01 );
+    const auto high0 = _mm_clmulepi64_si128( crc0, k12, 0x10 );
+    crc1 = xor3( crc1, low0, high0 );
+
+    const auto low1 = _mm_clmulepi64_si128( crc1, k12, 0x01 );
+    const auto high1 = _mm_clmulepi64_si128( crc1, k12, 0x10 );
+    crc2 = xor3( crc2, low1, high1 );
+
+    const auto low2 = _mm_clmulepi64_si128( crc2, k12, 0x01 );
+    const auto high2 = _mm_clmulepi64_si128( crc2, k12, 0x10 );
+    crc3 = xor3( crc3, low2, high2 );
+
+    if ( size > 0 ) {
+        const auto mask = _mm_set1_epi32( static_cast<int>( 0x80808080 ) );
+        const auto sequence = _mm_setr_epi8( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
+
+        const auto shiftLeft = _mm_add_epi8( sequence, _mm_set1_epi8( static_cast<char>( size ) - 16 ) );
+        const auto shiftRight = _mm_xor_si128( shiftLeft, mask );
+
+        const auto overflow = _mm_shuffle_epi8( crc3, shiftLeft );
+        crc3 = _mm_shuffle_epi8( crc3, shiftRight );
+
+        auto partial = _mm_setzero_si128();
+        std::memcpy( &partial, source, size );
+        crc3 = _mm_xor_si128( crc3, _mm_shuffle_epi8( partial, shiftLeft ) );
+
+        const auto overflowLow = _mm_clmulepi64_si128( overflow, k12, 0x01 );
+        const auto overflowHigh = _mm_clmulepi64_si128( overflow, k12, 0x10 );
+        crc3 = xor3( crc3, overflowLow, overflowHigh );
+    }
+
+    auto folded = _mm_clmulepi64_si128( crc3, barrett, 0x00 );
+    auto reduced = _mm_clmulepi64_si128( folded, barrett, 0x10 );
+    reduced = _mm_blend_epi16( reduced, _mm_setzero_si128(), 0xcf );
+    folded = _mm_xor_si128( reduced, crc3 );
+
+    const auto quotient = _mm_clmulepi64_si128( folded, barrett, 0x01 );
+    const auto remainder = _mm_clmulepi64_si128( quotient, barrett, 0x10 );
+    return ~static_cast<uint32_t>( _mm_extract_epi32( remainder, 2 ) );
+}
+
+
+[[nodiscard]] inline bool
+crc32PCLMulAvailable() noexcept
+{
+    static const bool available =
+        [] () {
+            __builtin_cpu_init();
+            return __builtin_cpu_supports( "pclmul" )
+                   && __builtin_cpu_supports( "ssse3" )
+                   && __builtin_cpu_supports( "sse4.1" );
+        }();
+    return available;
+}
+
+#endif  // LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+
+
 template<unsigned int SLICE_SIZE = 16>
 [[nodiscard]] uint32_t
 updateCRC32( const uint32_t    crc,
@@ -131,6 +311,11 @@ updateCRC32( const uint32_t    crc,
 {
 #ifdef LIBRAPIDARCHIVE_WITH_ISAL
     return ~crc32_gzip_refl( ~crc, reinterpret_cast<const uint8_t*>( buffer ), size );
+#elif LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+    if ( ( size >= 64 ) && crc32PCLMulAvailable() ) {
+        return ~crc32PCLMulImpl( ~crc, buffer, size );
+    }
+    return crc32SliceByN<SLICE_SIZE>( crc, buffer, size );
 #else
     return crc32SliceByN<SLICE_SIZE>( crc, buffer, size );
 #endif

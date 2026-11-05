@@ -1,6 +1,8 @@
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
+#include <vector>
 
 #include <core/TestHelpers.hpp>
 #include <rapidgzip/gzip/crc32.hpp>
@@ -130,12 +132,59 @@ testCRC32Calculator()
 }
 
 
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+
+void
+testCRC32PCLMul()
+{
+    if ( !crc32PCLMulAvailable() ) {
+        std::cout << "Skipping the PCLMULQDQ CRC32 test because the CPU does not support it.\n";
+        return;
+    }
+
+    /* Cover the 16-byte tail handling, the 32/48/64-byte folding boundaries, and the dispatch threshold. */
+    constexpr size_t MAX_SIZE = 320;
+    constexpr size_t MAX_OFFSET = 16;
+    constexpr std::array<size_t, 6> LARGER_SIZES = { 511, 512, 513, 1023, 1024, 4096 };
+
+    std::vector<uint8_t> buffer( MAX_OFFSET + LARGER_SIZES.back() );
+    for ( size_t i = 0; i < buffer.size(); ++i ) {
+        buffer[i] = static_cast<uint8_t>( ( i * 131U + ( i >> 8U ) * 17U ) & 0xFFU );
+    }
+
+    /* 0xFFFFFFFF disables the initial-CRC branch inside the PCLMUL implementation, the others exercise it. */
+    constexpr std::array<uint32_t, 3> INITIAL_CRCS = { 0U, 0xFFFF'FFFFU, 0x1234'5678U };
+
+    for ( const auto initialCRC : INITIAL_CRCS ) {
+        for ( size_t offset = 0; offset < MAX_OFFSET; ++offset ) {
+            const auto* const data = reinterpret_cast<const char*>( buffer.data() ) + offset;
+
+            for ( size_t size = 0; size <= MAX_SIZE; ++size ) {
+                REQUIRE_EQUAL( ~crc32PCLMulImpl( ~initialCRC, data, size ),
+                               crc32SliceByN<16>( initialCRC, data, size ) );
+            }
+
+            for ( const auto size : LARGER_SIZES ) {
+                REQUIRE_EQUAL( ~crc32PCLMulImpl( ~initialCRC, data, size ),
+                               crc32SliceByN<16>( initialCRC, data, size ) );
+            }
+        }
+    }
+}
+
+#endif  // x86-64 GCC/Clang
+
+
 int
 main()
 {
     testCRC32();
     testCRC32Combine();
     testCRC32Calculator();
+
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+    testCRC32PCLMul();
+#endif
 
     std::cout << "\nTests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
