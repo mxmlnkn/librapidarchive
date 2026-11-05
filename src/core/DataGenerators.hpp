@@ -97,6 +97,17 @@ createRandomBase64( const std::string& filePath,
 
 template<typename Container>
 void
+fillWithRandomBase64Base64Data( Container& container )
+{
+    std::mt19937_64 randomEngine( 0 );
+    for ( auto& x : container ) {
+        x = static_cast<std::byte>( BASE64_SYMBOLS[static_cast<size_t>( randomEngine() ) % BASE64_SYMBOLS.size()] );
+    }
+}
+
+
+template<typename Container>
+void
 fillWithRandomNumbers( Container& container )
 {
     constexpr std::string_view DIGITS = "0123456789";
@@ -161,6 +172,29 @@ createRandomWords( const std::string& filePath,
         const auto sizeToWrite = std::min( words[iWord].size(), fileSize - i );
         file.write( words[iWord].data(), sizeToWrite );
         i += sizeToWrite;
+    }
+}
+
+
+template<typename Container>
+void
+fillWithRandomBackreferenceData( Container& container,
+                                 size_t     initialRandomSize = 32_Ki )
+{
+    std::mt19937_64 randomEngine( 1 );
+    for ( auto& x : container ) {
+        x = static_cast<std::byte>( randomEngine() );
+    }
+
+    const auto initialSize = std::min<size_t>( initialRandomSize, container.size() );
+    for ( size_t i = initialSize; i < container.size(); ) {
+        const auto distance = 1 + randomEngine() % initialSize;
+        const auto length = std::min<size_t>( 4 + randomEngine() % 255, container.size() - i );
+        if ( length > distance ) {
+            continue;
+        }
+        std::memcpy( container.data() + i, container.data() + ( i - distance ), length );
+        i += length;
     }
 }
 }  // namespace rapidgzip
