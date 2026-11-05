@@ -1457,16 +1457,48 @@ Block<ENABLE_STATISTICS>::resolveBackreference( Window&        window,
                                        && ( static_cast<size_t>( distance ) + length <= window.size() );
         const auto sourceIsContiguous = offset + length <= window.size();
         if ( LIKELY( rangesAreDisjoint && sourceIsContiguous ) ) [[likely]] {
-            std::memcpy( &window[m_windowPosition], &window[offset], length * sizeof( window.front() ) );
+            /* Copy short matches with fixed-size moves instead of a variable-length libc memcpy.
+             * The overrun means the source and destination copy ranges can overlap even though the
+             * valid match ranges are disjoint, so use memmove. The constant sizes make GCC 16 /
+             * Clang 22 emit the same 16/32/64-byte vector moves for memmove as for memcpy:
+             *     bytes   GCC 16                     Clang 22
+             *     16      1x movdqu + 1x movups      1x movups + 1x movups
+             *     32      2x movdqu + 2x movups      2x movups + 2x movups
+             *     64      4x movdqu + 4x movups      4x movups + 4x movups
+             * The overrun stays inside the window slack and ahead of the logical position, so no valid
+             * backreference can observe it. Marker windows use the same path with element-sized copies.
+             * Their extra marker-distance update is skipped when the source is after the last marker. */
+            constexpr size_t ELEMENT_SIZE = sizeof( window.front() );  // 2 B for markers, else 1 B
+            constexpr size_t FAST_COPY_SIZE = 32;
+            constexpr size_t FAST_COPY_BYTES = FAST_COPY_SIZE * ELEMENT_SIZE;
+            if ( LIKELY( ( length <= FAST_COPY_SIZE )
+                         && ( m_windowPosition + FAST_COPY_SIZE <= window.size() )
+                         && ( offset + FAST_COPY_SIZE <= window.size() ) ) ) [[likely]] {
+                const auto* const source = &window[offset];
+                auto* const destination = &window[m_windowPosition];
+                if ( length * ELEMENT_SIZE <= 16 ) {
+                    std::memmove( destination, source, 16 );
+                } else if ( length * ELEMENT_SIZE <= 32 ) {
+                    std::memmove( destination, source, 32 );
+                } else {
+                    std::memmove( destination, source, FAST_COPY_BYTES );
+                }
+            } else {
+                std::memcpy( &window[m_windowPosition], &window[offset], length * sizeof( window.front() ) );
+            }
+
             m_windowPosition += length;
 
             if constexpr ( containsMarkerBytes ) {
-                size_t distanceToLastMarkerByte{ 0 };
-                for ( ; distanceToLastMarkerByte < length; ++distanceToLastMarkerByte ) {
-                    if ( window[m_windowPosition - 1 - distanceToLastMarkerByte]
-                         > std::numeric_limits<uint8_t>::max() ) {
-                        m_distanceToLastMarkerByte = distanceToLastMarkerByte;
-                        return;
+                /* We only need to find the last marker byte when we have copied from behind the last known marker. */
+                if ( distance >= m_distanceToLastMarkerByte ) {
+                    size_t distanceToLastMarkerByte{ 0 };
+                    for ( ; distanceToLastMarkerByte < length; ++distanceToLastMarkerByte ) {
+                        if ( window[m_windowPosition - 1 - distanceToLastMarkerByte]
+                             > std::numeric_limits<uint8_t>::max() ) {
+                            m_distanceToLastMarkerByte = distanceToLastMarkerByte;
+                            return;
+                        }
                     }
                 }
                 m_distanceToLastMarkerByte += length;
