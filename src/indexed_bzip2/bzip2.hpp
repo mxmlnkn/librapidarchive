@@ -28,7 +28,7 @@
 #else
     #define LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 0
 #endif
-
+#include <core/BitManipulation.hpp>
 #include <core/VectorView.hpp>
 #include <filereader/BitReader.hpp>
 #include <huffman/HuffmanCodingShortBitsCached.hpp>
@@ -1214,6 +1214,55 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
             if ( state.position >= writeCount ) {
                 break;
             }
+
+        #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+            /* Scan 16 positions at once. The scalar loop short-circuits after the first mismatch, but it still costs
+             * one load and one compare per literal. A 128-bit/16-byte compare finds the first run start and lets whole
+             * blocks of literals be copied with one load and one store. */
+            bool handledRun = false;
+            while ( ( nBytesDecoded + sizeof( __m128i ) <= nMaxBytesToDecode )
+                    && ( state.position + 20 <= writeCount ) ) {
+                const auto* const source = bwtData.data() + state.position;
+                /* Simply load from byte-shifted offsets instead of load + shift to avoid instruction dependencies
+                 * and to effectively load 16 + 3 bytes as we need to compare 4 subsequent bytes for each position. */
+                const auto v0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source ) );
+                const auto v1 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 1 ) );
+                const auto v2 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 2 ) );
+                const auto v3 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 3 ) );
+                /* all four neighbors equal = ( ( v0 == v1 ) & ( v0 == v2 ) ) & ( v0 == v3 ) */
+                const auto equal = _mm_and_si128( _mm_and_si128( _mm_cmpeq_epi8( v0, v1 ),
+                                                                 _mm_cmpeq_epi8( v0, v2 ) ),
+                                                  _mm_cmpeq_epi8( v0, v3 ) );
+                /* Fast-path for only literals, no run-lengths. */
+                const auto runStartMask = static_cast<uint32_t>( _mm_movemask_epi8( equal ) );
+                if ( runStartMask == 0 ) {
+                    _mm_storeu_si128( reinterpret_cast<__m128i*>( outputBuffer + nBytesDecoded ), v0 );
+                    nBytesDecoded += sizeof( __m128i );
+                    state.position += sizeof( __m128i );
+                    continue;
+                }
+
+                const auto literalCount = static_cast<size_t>( rapidgzip::trailingZeroCount( runStartMask ) );
+                for ( size_t i = 0; i < literalCount; ++i ) {
+                    outputBuffer[nBytesDecoded + i] = static_cast<char>( source[i] );
+                }
+                nBytesDecoded += literalCount;
+                state.position += literalCount;
+                state.repeatByte = source[literalCount];
+                state.repeatCount = 4 + bwtData[state.position + 4];
+                state.position += 5;
+                handledRun = true;
+                break;
+            }
+            if ( handledRun ) {
+                continue;
+            }
+            /* The inner loop can fill the caller's buffer exactly. Recheck before the scalar path,
+             * which would otherwise write one byte past nMaxBytesToDecode. */
+            if ( ( nBytesDecoded >= nMaxBytesToDecode ) || ( state.position >= writeCount ) ) {
+                break;
+            }
+        #endif
 
             const auto byte = bwtData[state.position];
             /* Four identical bytes are followed by a count of additional copies. */

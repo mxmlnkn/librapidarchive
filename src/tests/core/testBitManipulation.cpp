@@ -18,6 +18,17 @@ testByteSwap()
 }
 
 
+void
+testTrailingZeroCount()
+{
+    for ( unsigned int i = 0; i < 32; ++i ) {
+        REQUIRE_EQUAL( trailingZeroCount( 1U << i ), i );
+    }
+    REQUIRE_EQUAL( trailingZeroCount( 0x8000'0000U ), 31U );
+    REQUIRE_EQUAL( trailingZeroCount( 0xFFFF'FFFFU ), 0U );
+}
+
+
 template<uint8_t bitsSet>
 uint8_t
 nLowestBitsSet8()
@@ -266,6 +277,7 @@ main()
 {
     REQUIRE( isLittleEndian() );
     testByteSwap();
+    testTrailingZeroCount();
     testBitReversing();
     testLowestBitsSet();
     testHighestBitsSet();

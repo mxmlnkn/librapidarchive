@@ -6,6 +6,10 @@
 #include <limits>
 #include <type_traits>
 
+#ifdef _MSC_VER
+    #include <intrin.h>
+#endif
+
 namespace rapidgzip
 {
 [[nodiscard]] inline bool
@@ -13,6 +17,36 @@ isLittleEndian()
 {
     constexpr uint16_t endianTestNumber = 1;
     return *reinterpret_cast<const uint8_t*>( &endianTestNumber ) == 1;
+}
+
+
+/**
+ * @return The number of trailing zero bits in @p value. The result is undefined for zero, matching the
+ *         hardware instruction. Callers must ensure that at least one bit is set.
+ *
+ * C++20 provides std::countr_zero, which is portable and well-defined for zero. Use it once the project
+ * requires C++20. std::bitset and std::simd do not map this operation to a single scalar instruction.
+ */
+[[nodiscard]] inline unsigned int
+trailingZeroCount( const uint32_t value ) noexcept
+{
+#ifdef _MSC_VER
+#if defined( _M_IX86 ) || ( defined( _M_X64 ) && !defined( _M_ARM64EC ) )
+    unsigned long int result = 0;
+    _BitScanForward( &result, value );
+    return static_cast<unsigned int>( result );
+#else
+        /* ARM64 and ARM64EC have no x86 bit-scan intrinsic, so use the portable fallback. */
+    uint32_t remaining = value;
+    unsigned int result = 0;
+    for ( ; ( remaining & 1U ) == 0; remaining >>= 1U ) {
+        ++result;
+    }
+    return result;
+#endif
+#else
+    return static_cast<unsigned int>( __builtin_ctz( value ) );
+#endif
 }
 
 
