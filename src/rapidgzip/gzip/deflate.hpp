@@ -614,7 +614,7 @@ public:
      * The only real use case for the latter would be huge deflate blocks. In practice, all gzip implementations
      * I encountered produced deflate blocks not larger than 64 KiB. In that case, it would be simpler to create
      * a new deflate::Block object on the next block and then set the initial window before decoding with the
-     * data from the last read calls whose markers will have to be replaced using @ref replaceMarkerBytes.
+     * data from the last read calls whose markers will have to be replaced.
      * This method does not much more but has to account for wrap-around, too.
      */
     void
@@ -1581,11 +1581,12 @@ struct HasDecodePacked : std::false_type {};
 
 template<typename T>
 struct HasDecodePacked<T, std::void_t<decltype( std::declval<const T&>().decodePacked(
-    std::declval<gzip::BitReader&>() ) )>> : std::true_type {};
+                                                    std::declval<gzip::BitReader&>() ) )>> : std::true_type {};
 
 template<typename HuffmanCoding>
 [[nodiscard]] forceinline uint32_t
-decodePacked( const HuffmanCoding& coding, gzip::BitReader& bitReader )
+decodePacked( const HuffmanCoding& coding,
+              gzip::BitReader&     bitReader )
 {
     if constexpr ( HasDecodePacked<HuffmanCoding>::value ) {
         return coding.decodePacked( bitReader );
@@ -1849,26 +1850,58 @@ Block<ENABLE_STATISTICS>::setInitialWindow( VectorView<uint8_t> const& initialWi
         return;
     }
 
-    /* The buffer is initialized with markers! We need to take care that we do not try to replace those. */
-    for ( size_t i = 0; m_decodedBytes + i < m_window16.size(); ++i ) {
-        m_window16[( m_windowPosition + i ) % m_window16.size()] = 0;
+    /**
+     * Conflate the ring into decoded-byte order in one pass. Starting at m_windowPosition, the first
+     * N - decoded positions are ahead of the write cursor and therefore still contain markers.
+     * The last min(m_decodedBytes, N) entries are the decoded bytes. Doing the marker replacement and
+     * the 16-to-8-bit narrowing together avoids a separate zero fill and a full extra pass over the ring.
+     */
+    constexpr auto WINDOW_SIZE = decltype( m_window16 )().size();
+    const auto validCount = std::min( m_decodedBytes, WINDOW_SIZE );
+    const auto invalidCount = WINDOW_SIZE - validCount;
+
+    /* The byte view of m_window aliases the 16-bit ring, and the wrapped order means the destination overlaps
+     * source entries that have not been read yet. Build the decoded part in a temporary and copy it to the target.
+     * Only the target's marker prefix needs to be zeroed. The temporary's prefix is never read. */
+    std::array<uint8_t, WINDOW_SIZE> conflatedBuffer;
+    const auto sourceOffset = ( m_windowPosition + invalidCount ) % WINDOW_SIZE;
+
+    if ( initialWindow.empty() && ( m_distanceToLastMarkerByte >= validCount ) ) {
+        /* The internal conversion only calls this after the decoded suffix has become marker-free,
+         * so this is a pure 16-to-8-bit narrowing copy. */
+        const auto narrow =
+            [] ( const uint16_t value )
+            {
+                assert( value <= std::numeric_limits<uint8_t>::max() );
+                return static_cast<uint8_t>( value );
+            };
+        const auto firstCount = std::min( validCount, WINDOW_SIZE - sourceOffset );
+        std::transform( m_window16.begin() + sourceOffset,
+                        m_window16.begin() + sourceOffset + firstCount,
+                        conflatedBuffer.begin(),
+                        narrow );
+        std::transform( m_window16.begin(),
+                        m_window16.begin() + ( validCount - firstCount ),
+                        conflatedBuffer.begin() + firstCount,
+                        narrow );
+    } else {
+        const auto conflate =
+            [&] ( auto&& mapMarkers )
+            {
+                for ( size_t i = 0; i < validCount; ++i ) {
+                    conflatedBuffer[i] = mapMarkers( m_window16[( sourceOffset + i ) % WINDOW_SIZE] );
+                }
+            };
+        if ( initialWindow.size() >= MAX_WINDOW_SIZE ) {
+            conflate( MapMarkers<true>{ initialWindow } );
+        } else {
+            conflate( MapMarkers<false>{ initialWindow } );
+        }
     }
-    replaceMarkerBytes( { m_window16.data(), m_window16.size() }, initialWindow );
 
-    /* We cannot simply move each byte to m_window because it has twice as many elements as m_windows16
-     * and simply filling it from left to right will result in wrapping not working because the right half
-     * is empty. It would only work if there is no wrapping necessary because it is a contiguous block!
-     * To achieve that, map i -> i' such that m_windowPosition is m_window.size() - 1.
-     * This way all back-references will not wrap around on the left border. */
-    std::array<uint8_t, decltype( m_window16 )().size()> conflatedBuffer{};
-
-    for ( size_t i = 0; i < m_window16.size(); ++i ) {
-        conflatedBuffer[i] = m_window16[( i + m_windowPosition ) % m_window16.size()];
-    }
-
-    std::memcpy( window.data() + ( window.size() - conflatedBuffer.size() ),
-                 conflatedBuffer.data(),
-                 conflatedBuffer.size() );
+    const auto destination = window.data() + ( window.size() - WINDOW_SIZE );
+    std::memcpy( destination + invalidCount, conflatedBuffer.data(), validCount );
+    std::memset( destination, 0, invalidCount );
 
     m_windowPosition = 0;
 

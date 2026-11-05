@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <limits>
@@ -44,17 +43,4 @@ struct MapMarkers
 private:
     const VectorView<uint8_t> m_window;
 };
-
-
-inline void
-replaceMarkerBytes( WeakVector<std::uint16_t>       buffer,
-                    VectorView<std::uint8_t> const& window )
-{
-    /* For maximum size windows, we can skip one check because even UINT16_MAX is valid. */
-    if ( window.size() >= MAX_WINDOW_SIZE ) {
-        std::transform( buffer.begin(), buffer.end(), buffer.begin(), MapMarkers<true>( window ) );
-    } else {
-        std::transform( buffer.begin(), buffer.end(), buffer.begin(), MapMarkers<false>( window ) );
-    }
-}
 }  // namespace rapidgzip::deflate
