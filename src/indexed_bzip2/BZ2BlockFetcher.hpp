@@ -4,6 +4,8 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -31,6 +33,9 @@ struct BlockData :
 {
     std::vector<uint8_t> data;
     uint32_t calculatedCRC{ 0xFFFFFFFFL };
+
+    /** Header of the block that follows this one, parsed by the worker to keep it off the consumer thread. */
+    std::optional<BlockHeaderData> nextBlockHeader;
 };
 
 
@@ -61,24 +66,47 @@ public:
         this->stopThreadPool();
     }
 
+    /**
+     * Reads only the fixed-size part of a block header. The block magic already identifies an EOS block and
+     * for a data block the caller only needs to know that this is not one, so parsing the Huffman trees here
+     * would be wasted work on the consumer thread.
+     */
+    [[nodiscard]] static BlockHeaderData
+    readBlockHeader( BitReader& bitReader )
+    {
+        BlockHeaderData result;
+        result.encodedOffsetInBits = bitReader.tell();
+
+        const auto magic = ( static_cast<uint64_t>( bitReader.read<24>() ) << 24U )
+                           | static_cast<uint64_t>( bitReader.read<24>() );
+        result.isEndOfStreamBlock = magic == bzip2::MAGIC_BITS_EOS;
+        if ( !result.isEndOfStreamBlock ) {
+            if ( magic != bzip2::MAGIC_BITS_BLOCK ) {
+                std::stringstream msg;
+                msg << "[BZip2 block header] invalid compressed magic 0x" << std::hex << magic
+                    << " at offset " << rapidgzip::formatBits( result.encodedOffsetInBits );
+                throw std::domain_error( std::move( msg ).str() );
+            }
+            result.isEndOfFile = bitReader.eof();
+            return result;
+        }
+
+        result.expectedCRC = bitReader.read( 32 );
+        const auto nBitsInByte = static_cast<uint8_t>( bitReader.tell() & 7LLU );
+        if ( nBitsInByte > 0 ) {
+            bitReader.read( static_cast<uint8_t>( 8 ) - nBitsInByte );
+        }
+        result.encodedSizeInBits = bitReader.tell() - result.encodedOffsetInBits;
+        result.isEndOfFile = bitReader.eof();
+        return result;
+    }
+
     [[nodiscard]] BlockHeaderData
     readBlockHeader( size_t blockOffset ) const
     {
         BitReader bitReader( m_bitReader );
         bitReader.seekTo( blockOffset );
-        const bzip2::Block block( bitReader );
-
-        BlockHeaderData result;
-        result.encodedOffsetInBits = blockOffset;
-        result.isEndOfStreamBlock = block.eos();
-        result.isEndOfFile = block.eof();
-        result.expectedCRC = block.headerCRC();
-
-        if ( block.eos() ) {
-            result.encodedSizeInBits = block.encodedSizeInBits;
-        }
-
-        return result;
+        return readBlockHeader( bitReader );
     }
 
 private:
@@ -133,6 +161,10 @@ private:
         result.data.resize( decodedDataSize );
         result.encodedSizeInBits = block.encodedSizeInBits;
         result.calculatedCRC = block.dataCRC();
+
+        /* The bit reader stops after the compressed block, so the next block header can be inspected here
+         * instead of on the consumer thread. */
+        result.nextBlockHeader = readBlockHeader( bitReader );
 
         /* nextBlockOffset only is a candidate found by the block finder. It may be a false positive inside this
          * block, so the decoded encoded size is authoritative and the block does not have to end before it. */

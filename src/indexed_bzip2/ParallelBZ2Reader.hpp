@@ -214,9 +214,8 @@ public:
                 /* Check whether the next block is an EOS block, which has a different magic byte string
                  * and therefore will not be found by the block finder! Such a block will span 48 + 32 + (0..7) bits.
                  * However, the last 0 to 7 bits are only padding and not needed! */
-                if ( !blockData->isEndOfFile ) {
-                    const auto nextBlockHeaderData = blockFetcher().readBlockHeader( blockData->encodedOffsetInBits +
-                                                                                     blockData->encodedSizeInBits );
+                if ( !blockData->isEndOfFile && blockData->nextBlockHeader ) {
+                    const auto& nextBlockHeaderData = *blockData->nextBlockHeader;
                     if ( nextBlockHeaderData.isEndOfStreamBlock ) {
                         const auto existingEOS =
                             m_blockMap->getEncodedOffset( nextBlockHeaderData.encodedOffsetInBits );
