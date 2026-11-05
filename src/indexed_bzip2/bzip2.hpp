@@ -28,6 +28,10 @@
 #else
     #define LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 0
 #endif
+#if defined( __ARM_NEON )
+    #include <arm_neon.h>
+#endif
+
 #include <core/BitManipulation.hpp>
 #include <core/VectorView.hpp>
 #include <filereader/BitReader.hpp>
@@ -179,6 +183,20 @@ using BitReader = rapidgzip::BitReader<true, uint64_t>;
  * otherwise dominates the literal path for alphabets with a uniform MTF index distribution such as base64.
  */
 using PackedMTF = std::array<uint64_t, 256 / 8>;
+
+
+#if defined( __ARM_NEON )
+/* Compares each of the first 64 list positions against the insert position. */
+constexpr std::array<uint8_t, 64> MTF_INDEX_BYTES =
+    [] ()
+    {
+        std::array<uint8_t, 64> result{};
+        for ( size_t i = 0; i < result.size(); ++i ) {
+            result[i] = static_cast<uint8_t>( i );
+        }
+        return result;
+    }();
+#endif
 
 
 [[nodiscard]] constexpr PackedMTF
@@ -388,6 +406,42 @@ moveToFront( PackedMTF&   mtf,
         return head;
     }
 #endif
+#if defined( __ARM_NEON )
+    if ( position < 64 ) {
+        auto* const data = reinterpret_cast<uint8_t*>( mtf.data() );
+        const auto head = data[position];
+
+        const auto in0 = vld1q_u8( data );
+        const auto in1 = vld1q_u8( data + 16 );
+        const auto in2 = vld1q_u8( data + 32 );
+        const auto in3 = vld1q_u8( data + 48 );
+
+        /* vext concatenates its operands, so [a, b] at offset 15 yields [a[15], b[0..14]]. */
+        auto headVector = vdupq_n_u8( 0 );
+        headVector = vsetq_lane_u8( head, headVector, 15 );
+        const auto out0 = vextq_u8( headVector, in0, 15 );
+        const auto out1 = vextq_u8( in0, in1, 15 );
+        const auto out2 = vextq_u8( in1, in2, 15 );
+        const auto out3 = vextq_u8( in2, in3, 15 );
+
+        const auto limit = vdupq_n_u8( static_cast<uint8_t>( position + 1 ) );
+        const auto index0 = vld1q_u8( MTF_INDEX_BYTES.data() );
+        const auto index1 = vld1q_u8( MTF_INDEX_BYTES.data() + 16 );
+        const auto index2 = vld1q_u8( MTF_INDEX_BYTES.data() + 32 );
+        const auto index3 = vld1q_u8( MTF_INDEX_BYTES.data() + 48 );
+
+        const auto mask0 = vcgtq_u8( limit, index0 );
+        const auto mask1 = vcgtq_u8( limit, index1 );
+        const auto mask2 = vcgtq_u8( limit, index2 );
+        const auto mask3 = vcgtq_u8( limit, index3 );
+
+        vst1q_u8( data, vbslq_u8( mask0, out0, in0 ) );
+        vst1q_u8( data + 16, vbslq_u8( mask1, out1, in1 ) );
+        vst1q_u8( data + 32, vbslq_u8( mask2, out2, in2 ) );
+        vst1q_u8( data + 48, vbslq_u8( mask3, out3, in3 ) );
+        return head;
+    }
+#endif
 
     const auto wordIndex = position >> 3;  // equivalent to division by sizeof( PackedMTF::value_type )
     const auto shift = static_cast<uint32_t>( ( position & 7U ) * 8U );
@@ -406,6 +460,19 @@ moveToFront( PackedMTF&   mtf,
     mtf[wordIndex] = ( current & ~mask ) | ( ( ( current << 8U ) | previous ) & mask );
     return static_cast<uint8_t>( mtf.front() );
 }
+
+
+#if defined( __ARM_NEON )
+/**
+ * @return four mask bits per byte, set for equal bytes, so that ctz(mask) / 4 is the first equal byte.
+ */
+[[nodiscard]] inline uint64_t
+equalByteMask( const uint8x16_t equal ) noexcept
+{
+    const auto narrowed = vshrn_n_u16( vreinterpretq_u16_u8( equal ), 4 );
+    return vget_lane_u64( vreinterpret_u64_u8( narrowed ), 0 );
+}
+#endif
 
 
 /**
@@ -1386,16 +1453,17 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
             }
         #endif
 
-        #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+        #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 || defined( __ARM_NEON )
             /* Scan 16 positions at once. The scalar loop short-circuits after the first mismatch, but it still costs
              * one load and one compare per literal. A 128-bit/16-byte compare finds the first run start and lets whole
              * blocks of literals be copied with one load and one store. */
             bool handledRun = false;
-            while ( ( nBytesDecoded + sizeof( __m128i ) <= nMaxBytesToDecode )
+            while ( ( nBytesDecoded + 16 <= nMaxBytesToDecode )
                     && ( state.position + 20 <= writeCount ) ) {
                 const auto* const source = bwtData.get() + state.position;
                 /* Simply load from byte-shifted offsets instead of load + shift to avoid instruction dependencies
                  * and to effectively load 16 + 3 bytes as we need to compare 4 subsequent bytes for each position. */
+            #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
                 const auto v0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source ) );
                 const auto v1 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 1 ) );
                 const auto v2 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 2 ) );
@@ -1414,6 +1482,23 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 }
 
                 const auto literalCount = static_cast<size_t>( rapidgzip::trailingZeroCount( runStartMask ) );
+            #else
+                const auto v0 = vld1q_u8( source );
+                const auto v1 = vld1q_u8( source + 1 );
+                const auto v2 = vld1q_u8( source + 2 );
+                const auto v3 = vld1q_u8( source + 3 );
+                const auto equal = vandq_u8( vandq_u8( vceqq_u8( v0, v1 ), vceqq_u8( v0, v2 ) ),
+                                             vceqq_u8( v0, v3 ) );
+                const auto runStartMask = equalByteMask( equal );
+                if ( runStartMask == 0 ) {
+                    vst1q_u8( reinterpret_cast<uint8_t*>( outputBuffer + nBytesDecoded ), v0 );
+                    nBytesDecoded += 16;
+                    state.position += 16;
+                    continue;
+                }
+
+                const auto literalCount = static_cast<size_t>( __builtin_ctzll( runStartMask ) / 4 );
+            #endif
                 for ( size_t i = 0; i < literalCount; ++i ) {
                     outputBuffer[nBytesDecoded + i] = static_cast<char>( source[i] );
                 }
