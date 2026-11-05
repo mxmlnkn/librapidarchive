@@ -88,7 +88,11 @@ private:
     {
         BitReader bitReader( m_bitReader );
         bitReader.seekTo( blockOffset );
-        bzip2::Block block( bitReader );
+        /* Keep the 135 KiB decoder state off the worker stack. Its address there depends on the caller and
+         * interacts with the hot buffers in the Huffman/MTF loop, which made parallel decoding several times
+         * slower with the -O3 build. */
+        auto blockHolder = std::make_unique<bzip2::Block>( bitReader );
+        auto& block = *blockHolder;
 
         BlockData result;
         result.encodedOffsetInBits = blockOffset;
