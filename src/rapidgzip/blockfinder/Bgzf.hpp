@@ -201,7 +201,7 @@ public:
             return m_currentBlockOffset;
         }
 
-        auto result = ( m_currentBlockOffset + HeaderBytes().size() ) * 8;
+        const auto result = ( m_currentBlockOffset + HeaderBytes().size() ) * 8;
 
         m_fileReader->seekTo( m_currentBlockOffset );
         HeaderBytes header;
@@ -214,14 +214,15 @@ public:
                 if ( fileSize && ( m_currentBlockOffset >= *fileSize ) ) {
                     m_currentBlockOffset = std::numeric_limits<size_t>::max();
                 }
-            } else {
-                if ( !m_fileReader->eof() ) {
-                    std::cerr << "Ignoring all junk data after invalid block offset "
-                              << m_currentBlockOffset << " B!\n";
-                }
-                std::cerr << "Failed to get Bgzf metadata!\n";
-                m_currentBlockOffset = std::numeric_limits<size_t>::max();
+                return result;
             }
+
+            if ( !m_fileReader->eof() ) {
+                std::cerr << "Ignoring all junk data after invalid block offset "
+                          << m_currentBlockOffset << " B!\n";
+            }
+            std::cerr << "Failed to get Bgzf metadata!\n";
+            m_currentBlockOffset = std::numeric_limits<size_t>::max();
         } else {
             if ( nBytesRead > 0 ) {
                 std::cerr << "Got partial header!\n";
@@ -229,7 +230,9 @@ public:
             m_currentBlockOffset = std::numeric_limits<size_t>::max();
         }
 
-        return result;
+        /* Do not report an offset for a block whose header could not be parsed. Otherwise, the block finder
+         * would insert an offset into junk data, and decoding it would fail even for a valid archive. */
+        return std::numeric_limits<size_t>::max();
     }
 
 private:

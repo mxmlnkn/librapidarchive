@@ -755,7 +755,8 @@ private:
             /* decodedSize */ blockInfo ? blockInfo->decodedSizeInBytes : std::optional<size_t>{},
             m_cancelThreads,
             chunkDataConfiguration,
-            /* untilOffsetIsExact */ m_isBgzfFile || blockInfo );
+            /* untilOffsetIsExact */ blockInfo.has_value()
+            || ( m_isBgzfFile && ( nextBlockOffset != std::numeric_limits<size_t>::max() ) ) );
     }
 
 public:
