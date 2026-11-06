@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <functional>
 #include <limits>
@@ -302,6 +303,7 @@ public:
           const StoppingPoint stoppingPoints = StoppingPoint::NONE )
     {
         size_t nBytesDecoded = 0;
+        bool loopWasInterrupted{ false };
 
         /* This loop is basically a state machine over m_currentPoint and will process different things
          * depending on m_currentPoint and after each processing step it needs to recheck for EOF!
@@ -319,12 +321,14 @@ public:
 
                 if ( !m_currentPoint.has_value() || ( *m_currentPoint == StoppingPoint::END_OF_BLOCK_HEADER ) ) {
                     if ( nBytesDecoded >= nBytesToRead ) {
+                        loopWasInterrupted = true;
                         break;
                     }
 
                     if ( nBytesDecodedInStep == 0 ) {
                         /* We did not advance after the readBlock call and did not even read any amount of bytes.
                          * Something went wrong with flushing. Break to avoid infinite loop. */
+                        loopWasInterrupted = true;
                         break;
                     }
                 }
@@ -364,12 +368,36 @@ public:
         #endif
 
             if ( m_currentPoint.has_value() && testFlags( *m_currentPoint, stoppingPoints ) ) {
+                loopWasInterrupted = true;
                 break;
             }
         }
 
         if ( !hasDataToFlush() && m_bitReader.eof() ) {
             m_atEndOfFile = true;
+
+            switch ( m_fileType )
+            {
+            case FileType::NONE:
+            case FileType::BGZF:
+            case FileType::GZIP:
+            case FileType::ZLIB:
+            case FileType::BZIP2:
+                /* Containers additionally require the footer. A never-started empty input is kept lenient
+                 * because existing callers use zero-sized files as empty streams. */
+                if ( !loopWasInterrupted && m_currentDeflateBlock.has_value()
+                     && ( !m_currentPoint.has_value() || ( *m_currentPoint != StoppingPoint::END_OF_STREAM ) ) ) {
+                    throw EndOfFileReached();
+                }
+                break;
+            case FileType::DEFLATE:
+                /* Raw deflate has no footer, so the end-of-block state is the only completion marker. */
+                if ( !loopWasInterrupted && m_currentDeflateBlock.has_value()
+                     && ( !m_currentDeflateBlock->eos() || !bufferHasBeenFlushed() ) ) {
+                    throw EndOfFileReached();
+                }
+                break;
+            }
         }
 
         m_currentPosition += nBytesDecoded;
@@ -440,6 +468,12 @@ private:
     void
     readHeader()
     {
+        const auto headerStart = m_bitReader.tell();
+        /* readHeader replaces m_currentDeflateBlock for each member but does not clear it after a footer.
+         * Its presence therefore means a previous member exists, so a failing header may be trailing zero padding,
+         * which GNU gzip accepts after a complete member. At the start of the file, a failing header is an error. */
+        const auto hasPreviousMember = m_currentDeflateBlock.has_value();
+
         switch ( m_fileType )
         {
         case FileType::NONE:
@@ -448,6 +482,10 @@ private:
         {
             auto [header, error] = gzip::readHeader( m_bitReader );
             if ( error != Error::NONE ) {
+                if ( hasPreviousMember && remainingInputIsZero( headerStart ) ) {
+                    m_atEndOfFile = true;
+                    return;
+                }
                 std::stringstream message;
                 message << "Encountered error: " << toString( error ) << " while trying to read gzip header!";
                 throw std::domain_error( std::move( message ).str() );
@@ -458,6 +496,10 @@ private:
         {
             auto [header, error] = zlib::readHeader( m_bitReader );
             if ( error != Error::NONE ) {
+                if ( hasPreviousMember && remainingInputIsZero( headerStart ) ) {
+                    m_atEndOfFile = true;
+                    return;
+                }
                 std::stringstream message;
                 message << "Encountered error: " << toString( error ) << " while trying to read zlib header!";
                 throw std::domain_error( std::move( message ).str() );
@@ -486,6 +528,40 @@ private:
     bufferHasBeenFlushed() const
     {
         return !m_offsetInLastBuffers.has_value();
+    }
+
+    /**
+     * @return Whether all bytes from @p offsetInBits up to the end of the file are zero.
+     *         It is used to accept trailing zero padding after a complete member like GNU gzip does.
+     * @note @p offsetInBits must be byte-aligned. Member boundaries are byte-aligned.
+     */
+    [[nodiscard]] bool
+    remainingInputIsZero( const size_t offsetInBits ) const
+    {
+        if ( !m_fileReader->seekable() || ( offsetInBits % CHAR_BIT != 0 ) ) {
+            return false;
+        }
+
+        if ( const auto fileSize = m_fileReader->size();
+             fileSize && ( offsetInBits / CHAR_BIT > *fileSize ) ) {
+            return false;
+        }
+
+        auto reader = m_fileReader->clone();
+        reader->seekTo( offsetInBits / CHAR_BIT );
+
+        std::array<char, 4_Ki> buffer{};
+        while ( true ) {
+            const auto nBytesRead = reader->read( buffer.data(), buffer.size() );
+            if ( nBytesRead == 0 ) {
+                return true;
+            }
+            for ( size_t i = 0; i < nBytesRead; ++i ) {
+                if ( buffer[i] != 0 ) {
+                    return false;
+                }
+            }
+        }
     }
 
     [[nodiscard]] bool

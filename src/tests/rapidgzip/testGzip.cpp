@@ -20,6 +20,7 @@
 #include <filereader/Standard.hpp>
 #include <rapidgzip/gzip/GzipReader.hpp>
 #include <rapidgzip/gzip/format.hpp>
+#include <rapidgzip/gzip/zlib.hpp>
 #include <rapidgzip/rapidgzip.hpp>
 
 
@@ -519,6 +520,74 @@ testCloning( const std::filesystem::path& encodedFilePath )
     REQUIRE_EQUAL( decompressed, cloneDecompressed );
 }
 
+[[nodiscard]] std::vector<char>
+decodeAllWithGzipReader( const std::vector<uint8_t>& encoded )
+{
+    GzipReader reader( std::make_unique<BufferViewFileReader>( encoded ) );
+    reader.setCRC32Enabled( true );
+
+    std::vector<char> result;
+    std::array<char, 4_Ki> buffer{};
+    size_t nBytesRead{ 0 };
+    do {
+        nBytesRead = reader.read( -1, buffer.data(), buffer.size() );
+        result.insert( result.end(), buffer.data(), buffer.data() + nBytesRead );
+    } while ( nBytesRead > 0 );
+    return result;
+}
+
+
+void
+testSerialDecoderTrailingZeroPadding( const std::filesystem::path& rootFolder )
+{
+    const auto encoded = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-32KiB" );
+
+    for ( const auto paddingSize : { 1U, 2U, 4U, 8U, 9U, 10U, 1000U } ) {
+        auto padded = encoded;
+        padded.insert( padded.end(), paddingSize, 0 );
+        std::vector<char> decoded;
+        try {
+            decoded = decodeAllWithGzipReader( padded );
+        } catch ( const std::exception& exception ) {
+            std::cerr << "Padding size " << paddingSize << " threw: " << exception.what() << "\n";
+            REQUIRE( false );
+        }
+        REQUIRE_EQUAL( decoded.size(), expected.size() );
+        REQUIRE( ( decoded.size() == expected.size() )
+                 && std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+    }
+}
+
+
+void
+testSerialDecoderRejectsTruncationAfterHeader( const std::filesystem::path& rootFolder )
+{
+    const auto encoded = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
+
+    /* A gzip member without a name or comment has a 10-byte header. Truncating it directly before the
+     * deflate stream must not be reported as a complete empty stream. */
+    const std::vector<std::byte> dataToCompress = { std::byte( 'A' ) };
+    const auto member = compressWithZlib( dataToCompress, CompressionStrategy::DEFAULT,
+                                          /* dictionary */ {}, ContainerFormat::GZIP );
+
+    std::vector<std::vector<uint8_t> > testCases;
+    testCases.emplace_back( member.begin(), member.begin() + 10 );
+    testCases.emplace_back( member.begin(), member.begin() + static_cast<std::ptrdiff_t>( member.size() / 2 ) );
+    testCases.emplace_back( encoded.begin(), encoded.begin() + static_cast<std::ptrdiff_t>( encoded.size() / 2 ) );
+
+    for ( const auto& truncated : testCases ) {
+        bool threw{ false };
+        try {
+            (void)decodeAllWithGzipReader( truncated );
+        } catch ( const std::exception& ) {
+            threw = true;
+        }
+        REQUIRE( threw );
+    }
+}
+
+
 void
 testFileTypeDetectionWithTruncatedHeader()
 {
@@ -605,6 +674,8 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testSerialDecoderZlibAdler32( testsFolder );
+    testSerialDecoderTrailingZeroPadding( testsFolder );
+    testSerialDecoderRejectsTruncationAfterHeader( testsFolder );
     testCloningAfterPartialRead( testsFolder / "base64-256KiB.gz", testsFolder / "base64-256KiB" );
     testSeekingChecksumState( testsFolder / "base64-256KiB.gz",
                               testsFolder / "base64-256KiB.gz.index",
