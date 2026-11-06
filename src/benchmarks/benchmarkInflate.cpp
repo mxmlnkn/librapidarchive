@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <cassert>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -192,7 +193,11 @@ benchmarkDecompressionOfOverlappingBackreferences()
         const auto distance = 2 + randomEngine() % 30;
         const auto remainingSize = randomData.size() - i;
         const auto length = std::min<size_t>( 4 + randomEngine() % 255, remainingSize );
-        std::memcpy( randomData.data() + i, randomData.data() + ( i - distance ), length );
+        /* The source and destination overlap when length > distance. memcpy is undefined in that case and
+         * memmove would copy the pre-existing bytes instead of the repeated LZ77 pattern. */
+        for ( size_t k = 0; k < length; ++k ) {
+            randomData[i + k] = randomData[i + k - distance];
+        }
         i += length;
     }
 
@@ -222,6 +227,7 @@ benchmarkDecompressionOfRandomBackreferences()
             continue;
         }
 
+        assert( length <= distance );
         std::memcpy( randomData.data() + i, randomData.data() + ( i - distance ), length );
         i += length;
     }
