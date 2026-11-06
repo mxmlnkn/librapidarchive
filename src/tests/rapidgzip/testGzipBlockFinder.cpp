@@ -18,9 +18,63 @@
 #include <rapidgzip/blockfinder/DynamicHuffman.hpp>
 #include <rapidgzip/blockfinder/PigzStringView.hpp>
 #include <rapidgzip/blockfinder/Uncompressed.hpp>
+#include <rapidgzip/GzipBlockFinder.hpp>
 
 
 using namespace rapidgzip;
+
+
+namespace
+{
+/**
+ * A seekable reader over in-memory data that deliberately reports no size, e.g., like a Python file object
+ * that supports seeking but has no reliable length.
+ */
+class UnknownSizeFileReader final :
+    public BufferViewFileReader
+{
+public:
+    explicit
+    UnknownSizeFileReader( std::vector<uint8_t> data ) :
+        BufferViewFileReader( data.data(), data.size() ),
+        m_data( std::move( data ) )
+    {}
+
+    [[nodiscard]] UniqueFileReader
+    cloneRaw() const override
+    {
+        return std::make_unique<UnknownSizeFileReader>( m_data );
+    }
+
+    [[nodiscard]] std::optional<size_t>
+    size() const override
+    {
+        return std::nullopt;
+    }
+
+private:
+    std::vector<uint8_t> m_data;
+};
+
+
+void
+testBgzfBlockFinderWithUnknownFileSize( const std::filesystem::path& path )
+{
+    const auto data = readFile<std::vector<uint8_t> >( path );
+    REQUIRE( data.size() > 18 );
+
+    GzipBlockFinder blockFinder( std::make_unique<UnknownSizeFileReader>( data ), /* spacing */ 4_Mi );
+    REQUIRE( blockFinder.get( 0, 0 ).first == std::optional<size_t>( 18U * CHAR_BIT ) );
+
+    /* Before the fix, requesting an index beyond the last found block made the Bgzf finder return its
+     * end-of-file sentinel, which was stored as a block offset and then returned forever. */
+    for ( size_t blockIndex = 1; blockIndex < 8; ++blockIndex ) {
+        const auto [offset, returnCode] = blockFinder.get( blockIndex, 0 );
+        REQUIRE( !offset );
+        REQUIRE( returnCode == BlockFinderInterface::GetReturnCode::FAILURE );
+    }
+}
+}  // namespace
 
 
 /** Requires at least 13 valid bits inside the lowest bits of @ref bits! */
@@ -246,6 +300,7 @@ main( int    argc,
     testDynamicHuffmanBlockFinder();
     testUncompressedBlockFinderAtStart();
     testPigzStringViewShortBoundary();
+    testBgzfBlockFinderWithUnknownFileSize( testsFolder / "base64-32KiB.bgz" );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 

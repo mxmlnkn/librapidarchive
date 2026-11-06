@@ -228,6 +228,12 @@ private:
     bool
     insertUnsafe( size_t blockOffset )
     {
+        /* The Bgzf finder returns this sentinel at EOF. A file with unknown size must not store it as a block
+         * offset because the finder would then keep returning it forever. */
+        if ( blockOffset == std::numeric_limits<size_t>::max() ) {
+            return false;
+        }
+
         const auto size = fileSize();
         if ( size.has_value() && ( blockOffset >= *size ) ) {
             return false;
@@ -250,6 +256,9 @@ private:
     {
         while ( blockIndex + m_batchFetchCount >= m_blockOffsets.size() ) {
             const auto nextOffset = m_bgzfBlockFinder->find();
+            if ( nextOffset == std::numeric_limits<size_t>::max() ) {
+                break;
+            }
             if ( nextOffset < m_blockOffsets.back() + m_spacingInBits ) {
                 continue;
             }
@@ -270,9 +279,10 @@ private:
             return { m_blockOffsets[blockIndex], GetReturnCode::SUCCESS };
         }
 
-        /* Size should be available at this point because EOF should be the only cause
-         * for gatherMoreBgzfBlocks not gathering up to the specified index. */
-        return { fileSize().value_or( std::numeric_limits<size_t>::max() ), GetReturnCode::FAILURE };
+        if ( const auto size = fileSize() ) {
+            return { *size, GetReturnCode::FAILURE };
+        }
+        return { std::nullopt, GetReturnCode::FAILURE };
     }
 
     /**
