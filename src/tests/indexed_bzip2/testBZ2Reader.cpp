@@ -12,6 +12,7 @@
 #include <core/DataGenerators.hpp>
 #include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
+#include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
 #include <indexed_bzip2/BZ2Reader.hpp>
 
@@ -294,9 +295,35 @@ testSeekBeforeOffsetCompletion( const std::string& decodedTestFilePath,
 }
 
 
+void
+testRunLengthOverflow()
+{
+    /* A syntactically valid block whose RUNA/RUNB run length wraps uint32_t. Two literals precede
+     * 31 RUNB symbols so that the run length is 2^32 - 2 and dbufCount + runLength wraps to zero,
+     * which used to bypass the block-size check and write gigabytes past the block buffer. */
+    const std::vector<uint8_t> compressed = {
+        0x42, 0x5a, 0x68, 0x31, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x60, 0x00, 0x20, 0x00, 0x21,
+        0x00, 0x82, 0x95, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xb0
+    };
+
+    BZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ) );
+    std::vector<char> buffer( 4_Ki );
+    std::string message;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        message = exception.what();
+    }
+    REQUIRE( message.find( "run length" ) != std::string::npos );
+}
+
+
 int
 main()
 {
+    testRunLengthOverflow();
+
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testBZ2Reader" );
 
     const auto decodedTestFilePath = tmpFolder.path() / "decoded";

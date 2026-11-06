@@ -745,6 +745,14 @@ Block::readBlockData()
              * the basic or 0/1 method (except all bits 0, which would use no
              * symbols, but a run of length 0 doesn't mean anything in this
              * context). Thus space is saved. */
+            /* The run length must fit into one block. Check in 64 bit because a crafted sequence of RUNA/RUNB symbols
+             * can wrap the 32-bit sum and bypass the block-size check at the end of the run, which would then write
+             * far past the block buffer. */
+            if ( static_cast<uint64_t>( hh ) + ( static_cast<uint64_t>( runPos ) << nextSym ) > bwdata.dbuf.size() ) {
+                std::stringstream msg;
+                msg << "[BZip2 block data] The run length exceeds the maximum block size " << bwdata.dbuf.size();
+                throw std::domain_error( std::move( msg ).str() );
+            }
             hh += runPos << nextSym;  // +runPos if RUNA; +2*runPos if RUNB
             runPos <<= 1U;
             continue;
@@ -756,9 +764,9 @@ Block::readBlockData()
          * literal used is the one at the head of the mtfSymbol array.) */
         if ( runPos != 0 ) {
             runPos = 0;
-            if ( dbufCount + hh > bwdata.dbuf.size() ) {
+            if ( static_cast<uint64_t>( dbufCount ) + hh > bwdata.dbuf.size() ) {
                 std::stringstream msg;
-                msg << "[BZip2 block data] dbufCount + hh " << dbufCount + hh
+                msg << "[BZip2 block data] dbufCount + hh " << static_cast<uint64_t>( dbufCount ) + hh
                     << " > " << bwdata.dbuf.size() << " dbufSize";
                 throw std::domain_error( std::move( msg ).str() );
             }
