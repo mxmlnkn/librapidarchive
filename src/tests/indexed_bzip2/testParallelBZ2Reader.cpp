@@ -27,6 +27,7 @@ testSimpleOpenAndClose( const std::string& bz2File )
     const auto t0 = std::chrono::high_resolution_clock::now();
     {
         ParallelBZ2Reader encodedFile( std::make_unique<StandardFileReader>( bz2File ) );
+        REQUIRE_EQUAL( encodedFile.tellCompressed(), 0U );
         const auto t1 = std::chrono::high_resolution_clock::now();
         const auto dt = std::chrono::duration_cast<std::chrono::duration<double> >( t1 - t0 ).count();
         REQUIRE( dt < 1 );
