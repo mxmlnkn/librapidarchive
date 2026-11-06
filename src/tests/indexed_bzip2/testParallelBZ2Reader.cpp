@@ -371,6 +371,96 @@ testTruncatedStreamWithoutBlocks()
 }
 
 
+void
+corruptStreamCRC( std::vector<uint8_t>& compressed )
+{
+    /* Find the EOS magic at its last occurrence and flip the first bit of the following stream CRC. */
+    size_t eosBitOffset{ std::numeric_limits<size_t>::max() };
+    uint64_t window{ 0 };
+    for ( size_t bit = 0; bit < compressed.size() * 8; ++bit ) {
+        window = ( ( window << 1U ) | ( ( compressed[bit / 8] >> ( 7 - bit % 8 ) ) & 1U ) )
+                 & ( ( uint64_t( 1 ) << bzip2::MAGIC_BITS_SIZE ) - 1U );
+        if ( ( bit + 1 >= bzip2::MAGIC_BITS_SIZE ) && ( window == bzip2::MAGIC_BITS_EOS ) ) {
+            eosBitOffset = bit + 1 - bzip2::MAGIC_BITS_SIZE;
+        }
+    }
+    REQUIRE( eosBitOffset != std::numeric_limits<size_t>::max() );
+
+    const auto crcBitOffset = eosBitOffset + bzip2::MAGIC_BITS_SIZE;
+    compressed[crcBitOffset / 8] ^= static_cast<uint8_t>( 1U << ( 7 - crcBitOffset % 8 ) );
+}
+
+
+void
+testStreamCRCVerification( const std::string& encodedTestFilePath )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+
+    auto corrupted = compressed;
+    corruptStreamCRC( corrupted );
+
+    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), /* parallelization */ 2 );
+    std::vector<char> buffer( 4_Ki );
+    std::string message;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        message = exception.what();
+    }
+    REQUIRE( message.find( "Stream CRC" ) != std::string::npos );
+}
+
+
+void
+testStreamCRCVerificationWithImportedOffsets( const std::string& encodedTestFilePath )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+
+    std::map<size_t, size_t> offsets;
+    {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+        offsets = reader.blockOffsets();
+    }
+
+    auto corrupted = compressed;
+    corruptStreamCRC( corrupted );
+
+    /* Reading the whole stream sequentially must still verify the stream CRC with imported offsets. */
+    {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), /* parallelization */ 2 );
+        reader.setBlockOffsets( offsets );
+        std::vector<char> buffer( 4_Ki );
+        std::string message;
+        try {
+            while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+        } catch ( const std::exception& exception ) {
+            message = exception.what();
+        }
+        REQUIRE( message.find( "Stream CRC" ) != std::string::npos );
+    }
+
+    /* Skipping blocks makes the stream CRC unverifiable, but a valid stream must not be rejected. */
+    {
+        REQUIRE( offsets.size() >= 3 );
+        const auto secondBlock = std::next( offsets.begin() );
+        const auto seekOffset = secondBlock->second + 1;
+
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+        reader.setBlockOffsets( offsets );
+        REQUIRE_EQUAL( reader.seek( static_cast<long long int>( seekOffset ) ), seekOffset );
+
+        std::vector<char> buffer( 4_Ki );
+        bool threw = false;
+        try {
+            while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+        } catch ( const std::exception& ) {
+            threw = true;
+        }
+        REQUIRE( !threw );
+    }
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -414,6 +504,8 @@ main( int    argc,
     {
         testSimpleOpenAndClose( encodedTestFilePath.string() );
         testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string() );
+        testStreamCRCVerification( encodedTestFilePath.string() );
+        testStreamCRCVerificationWithImportedOffsets( encodedTestFilePath.string() );
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
