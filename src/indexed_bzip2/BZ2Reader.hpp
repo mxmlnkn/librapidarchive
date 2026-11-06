@@ -236,7 +236,26 @@ public:
           const size_t        nBytesToRead = std::numeric_limits<size_t>::max() ) override
     {
         size_t nBytesDecoded = 0;
-        while ( ( nBytesDecoded < nBytesToRead ) && !m_bitReader.eof() && !eof() ) {
+        while ( ( nBytesDecoded < nBytesToRead ) && !eof() ) {
+            if ( m_bitReader.eof() ) {
+                /* An empty input has no header at all. Report EOF so that callers looping on read() == 0
+                 * while !eof() terminate. If input was consumed but no EOS block was found, the stream is
+                 * truncated and must not be reported as a successfully decoded empty stream. */
+                if ( m_bitReader.tell() != 0 ) {
+                    throw std::domain_error( "Truncated bzip2 stream: input ended before the EOS block." );
+                }
+
+                /* Model the empty file like the parallel reader and a valid empty archive: a finalized
+                 * block map whose single entry implies a decoded size of zero. This keeps tell() and
+                 * size() usable after EOF was reached. */
+                m_atEndOfFile = true;
+                if ( !m_blockToDataOffsetsComplete ) {
+                    m_blockToDataOffsets.emplace( 0, 0 );
+                    m_blockToDataOffsetsComplete = true;
+                }
+                break;
+            }
+
             /* The input may be a concatenation of multiple BZip2 files (like produced by pbzip2).
              * Therefore, iterate over those multiple files and decode them to the specified output. */
             if ( m_bitReader.tell() == 0 ) {

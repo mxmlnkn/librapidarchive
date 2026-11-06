@@ -192,6 +192,12 @@ public:
                 const auto dataBlockIndex = m_blockMap->dataBlockCount();
                 const auto encodedOffsetInBits = blockFinder().get( dataBlockIndex );
                 if ( !encodedOffsetInBits ) {
+                    /* The block finder only looks for data-block magic, so a file with a valid header and
+                     * only an EOS block has no blocks. Validate that case instead of reporting any input
+                     * without blocks, including a truncated header, as a successfully decoded empty stream. */
+                    if ( m_blockMap->dataBlockCount() == 0 ) {
+                        validateStreamWithoutBlocks();
+                    }
                     m_blockMap->finalize();
                     m_atEndOfFile = true;
                     break;
@@ -450,6 +456,31 @@ private:
         }
 
         return *m_blockFetcher;
+    }
+
+    /**
+     * Called when the block finder found no data blocks. An empty input is an empty archive, but any other
+     * input must at least consist of a valid stream header followed by an EOS block. Otherwise a truncated
+     * header would be reported as a successfully decoded empty stream.
+     */
+    void
+    validateStreamWithoutBlocks() const
+    {
+        const auto fileSize = m_bitReader.size();
+        if ( !fileSize ) {
+            throw std::logic_error( "The size of a seekable input must be known!" );
+        }
+        if ( *fileSize == 0 ) {
+            return;
+        }
+
+        BitReader bitReader( m_bitReader );
+        bitReader.seekTo( 0 );
+        bzip2::readBzip2Header( bitReader );
+        const auto magicBytes = bitReader.read( bzip2::MAGIC_BITS_SIZE );
+        if ( magicBytes != bzip2::MAGIC_BITS_EOS ) {
+            throw std::domain_error( "Truncated bzip2 stream: input ended before the EOS block." );
+        }
     }
 
     void

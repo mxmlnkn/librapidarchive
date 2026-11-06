@@ -296,6 +296,39 @@ testSeekBeforeOffsetCompletion( const std::string& decodedTestFilePath,
 
 
 void
+testEmptyInput()
+{
+    /* An empty input has no stream to decode and must report EOF, otherwise callers that loop on read() == 0
+     * while !eof() spin forever, which the CLI with --buffer-size does. */
+    const std::vector<uint8_t> compressed;
+    BZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ) );
+    std::vector<char> buffer( 16 );
+    REQUIRE_EQUAL( reader.read( buffer.data(), buffer.size() ), 0U );
+    REQUIRE( reader.eof() );
+    REQUIRE( reader.size().has_value() );
+    REQUIRE_EQUAL( reader.size().value(), 0U );
+    REQUIRE_EQUAL( reader.tell(), 0U );
+}
+
+
+void
+testHeaderOnlyInput()
+{
+    /* A header without any block is truncated and must not be mistaken for an empty archive. */
+    const std::vector<uint8_t> compressed = { 'B', 'Z', 'h', '9' };
+    BZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ) );
+    std::vector<char> buffer( 16 );
+    bool threw{ false };
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& ) {
+        threw = true;
+    }
+    REQUIRE( threw );
+}
+
+
+void
 testRunLengthOverflow()
 {
     /* A syntactically valid block whose RUNA/RUNB run length wraps uint32_t. Two literals precede
@@ -322,6 +355,8 @@ testRunLengthOverflow()
 int
 main()
 {
+    testEmptyInput();
+    testHeaderOnlyInput();
     testRunLengthOverflow();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testBZ2Reader" );

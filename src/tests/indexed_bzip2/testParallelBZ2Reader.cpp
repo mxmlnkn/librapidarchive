@@ -329,6 +329,47 @@ testRunLengthOverflow()
 }
 
 
+void
+testTruncatedStreamWithoutBlocks()
+{
+    const std::vector<std::vector<uint8_t> > truncated = {
+        { 'B', 'Z', 'h', '9' },
+        { 'B', 'Z', 'h', '9', 0x31 },
+        { 'B', 'Z', 'h', '9', 0x31, 0x41 },
+    };
+    for ( const auto& compressed : truncated ) {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+        std::vector<char> buffer( 16 );
+        bool threw{ false };
+        try {
+            while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+        } catch ( const std::exception& ) {
+            threw = true;
+        }
+        REQUIRE( threw );
+    }
+
+    /* A valid empty archive is a stream header followed by an EOS block and must still decode to nothing. */
+    const std::vector<uint8_t> validEmpty = {
+        0x42, 0x5a, 0x68, 0x39, 0x17, 0x72, 0x45, 0x38, 0x50, 0x90, 0x00, 0x00, 0x00, 0x00
+    };
+    {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( validEmpty ),
+                                  /* parallelization */ 2 );
+        std::vector<char> buffer( 16 );
+        REQUIRE_EQUAL( reader.read( buffer.data(), buffer.size() ), 0U );
+        REQUIRE( reader.eof() );
+    }
+
+    /* A completely empty input is accepted as an empty archive, matching the sequential reader. */
+    const std::vector<uint8_t> empty;
+    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( empty ), /* parallelization */ 2 );
+    std::vector<char> buffer( 16 );
+    REQUIRE_EQUAL( reader.read( buffer.data(), buffer.size() ), 0U );
+    REQUIRE( reader.eof() );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -352,6 +393,7 @@ main( int    argc,
     testMalformedBzip2( dataFolder, "bzip2-block-finder-false-positive.bz2" );
     testMalformedBzip2( dataFolder, "bzip2-invalid-huffman-code.bz2", "Invalid Huffman code" );
     testRunLengthOverflow();
+    testTruncatedStreamWithoutBlocks();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testParallelBZ2Reader" );
 
