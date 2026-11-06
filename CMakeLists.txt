@@ -35,6 +35,9 @@ option(LIBRAPIDARCHIVE_CODE_COVERAGE "Enable coverage reporting" OFF)
 option(LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB "Use the system-installed zlib library instead of compiling it from source" OFF)
 option(LIBRAPIDARCHIVE_USE_ZLIB_NG
        "Statically compile with zlib-ng instead of zlib. Will be ignored if LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=ON." ON)
+option(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION "Build bzip2 compression support for ibzip2" ON)
+option(LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2
+       "Use the system-installed libbz2 instead of the vendored copy. Ignored if compression is OFF." OFF)
 option(LIBRAPIDARCHIVE_WITH_RPMALLOC "Compile with rpmalloc for faster memory allocations" ON)
 option(LIBRAPIDARCHIVE_WITH_ISAL "Compile with ISA-l for more than twice as fast decompression than zlib" ON)
 option(LIBRAPIDARCHIVE_RUN_CLANG_TIDY "Runs clang-tidy while building targets" OFF)

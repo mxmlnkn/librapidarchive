@@ -19,6 +19,9 @@ include src/external/cxxopts/include/cxxopts.hpp
 include src/external/libsais/LICENSE
 include src/external/libsais/src/libsais.c
 include src/external/libsais/include/libsais.h
+include src/external/bzip2/COPYING
+recursive-include src/external/bzip2 *.c *.h
+include src/external/bzip2_version/bz_version.h
 include src/external/rpmalloc/LICENSE
 include src/external/rpmalloc/rpmalloc/malloc.c
 include src/external/rpmalloc/rpmalloc/rpmalloc.c

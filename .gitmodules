@@ -16,3 +16,6 @@
 [submodule "src/external/libsais"]
 	path = src/external/libsais
 	url = https://github.com/IlyaGrebnov/libsais.git
+[submodule "src/external/bzip2"]
+	path = src/external/bzip2
+	url = https://gitlab.com/bzip2/bzip2.git

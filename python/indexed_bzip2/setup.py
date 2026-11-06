@@ -25,14 +25,29 @@ withAbi3 = os.environ.get('INDEXED_BZIP2_ABI3', 'disable').lower() not in ('', '
 abi3Version = '0x030E0000'
 abi3WheelTag = 'cp314'
 
+bzip2_sources = [
+    'src/external/bzip2/blocksort.c',
+    'src/external/bzip2/huffman.c',
+    'src/external/bzip2/crctable.c',
+    'src/external/bzip2/randtable.c',
+    'src/external/bzip2/compress.c',
+    'src/external/bzip2/decompress.c',
+    'src/external/bzip2/bzlib.c',
+]
+
+define_macros = [('LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION', None)]
+if withAbi3:
+    define_macros.append(('Py_LIMITED_API', abi3Version))
+
 extensions = [
     Extension(
         # fmt: off
         name         = 'indexed_bzip2',
-        sources      = ['indexed_bzip2.pyx', 'src/external/libsais/src/libsais.c'],
-        include_dirs = ['src', 'src/external/cxxopts/include', 'src/external/libsais/include'],
+        sources      = ['indexed_bzip2.pyx', 'src/external/libsais/src/libsais.c'] + bzip2_sources,
+        include_dirs = ['src', 'src/external/cxxopts/include', 'src/external/libsais/include',
+                        'src/external/bzip2', 'src/external/bzip2_version'],
         language     = 'c++',
-        define_macros = [('Py_LIMITED_API', abi3Version)] if withAbi3 else [],
+        define_macros = define_macros,
         py_limited_api = withAbi3,
         # fmt: on
     ),

@@ -250,6 +250,18 @@ libraries = []
 libsais_sources = ['src/external/libsais/src/libsais.c']
 include_dirs += ['src/external/libsais/include']
 
+# Vendor libbz2 so that the ibzip2 CLI has compression support without a system dependency.
+bzip2_sources = [
+    'src/external/bzip2/blocksort.c',
+    'src/external/bzip2/huffman.c',
+    'src/external/bzip2/crctable.c',
+    'src/external/bzip2/randtable.c',
+    'src/external/bzip2/compress.c',
+    'src/external/bzip2/decompress.c',
+    'src/external/bzip2/bzlib.c',
+]
+include_dirs += ['src/external/bzip2', 'src/external/bzip2_version']
+
 isal_includes = [
     'src/external/isa-l/include',
     'src/external/isa-l/igzip',
@@ -284,10 +296,12 @@ extensions = [
     Extension(
         # fmt: off
         name         = 'rapidgzip',
-        sources      = ['rapidgzip.pyx'] + zlib_sources + isal_sources + rpmalloc_sources + libsais_sources,
+        sources      = ['rapidgzip.pyx'] + zlib_sources + isal_sources + rpmalloc_sources + libsais_sources
+                       + bzip2_sources,
         include_dirs = include_dirs,
         libraries    = libraries,
         language     = 'c++',
+        define_macros = [('LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION', None)],
         py_limited_api = withAbi3,
         # fmt: on
     ),

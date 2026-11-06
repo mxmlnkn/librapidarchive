@@ -67,7 +67,10 @@ The author's version can be found [here](<results/paper/Knespel, Brunst - 2023 -
 </div>
 
 This module provides:
-  - an `ibzip2` command line tool to decompress bzip2 files in parallel with a similar command line interface to `bzip2` so that it can be used as a replacement.
+  - an `ibzip2` command line tool to decompress bzip2 files in parallel and to compress them in
+    parallel with a similar command line interface to `bzip2` so that it can be used as a replacement.
+    `ibzip2 -z -P N --level 9 input` writes concatenated independent bzip2 streams, which GNU bzip2 and
+    `ibzip2` accept as one file.
   - an `ibzip2.open` Python method for reading and seeking inside bzip2 files using multiple threads for a speedup of **6** over the built-in bzip2 module using a 12-core processor.
 
 The parallel decompression capabilities are similar to [lbzip2](https://lbzip2.org/) but with a more permissive license and with support to be used as a library with random seeking capabilities similar to [seek-bzip2](https://github.com/galaxyproject/seek-bzip2).
