@@ -25,6 +25,7 @@
 #include <filereader/Standard.hpp>
 #include <indexed_bzip2/bzip2.hpp>
 #include <indexed_bzip2/BZ2Reader.hpp>
+#include <indexed_bzip2/Bzip2Compressor.hpp>
 #include <indexed_bzip2/ParallelBZ2Reader.hpp>
 
 #include "CLIHelper.hpp"
@@ -162,6 +163,10 @@ printIbzip2Help( const cxxopts::Options& options )
     << "Decompress a file in parallel:\n"
     << "  ibzip2 -d -P 0 file.bz2\n"
     << "\n"
+    << "Compress a file to bzip2 in parallel:\n"
+    << "  ibzip2 -z -P 0 file\n"
+    << "  ibzip2 -z -P 0 --level 9 -o file.bz2 file\n"
+    << "\n"
     << "Find and list the bzip2 block offsets to be used for another tool:\n"
     << "  ibzip2 -l blockoffsets.dat -- file.bz2\n"
     << "\n"
@@ -179,10 +184,10 @@ ibzip2CLI( int argc, char** argv )
      *       Parameters given to arguments with implicit values will be matched by the positional argument instead!
      */
     cxxopts::Options options( "ibzip2",
-                              "A bzip2 decompressor tool based on the indexed_bzip2 backend from ratarmount" );
+                              "A parallel bzip2 decompressor and compressor based on the indexed_bzip2 backend from ratarmount" );
     options.add_options( "Decompression" )
     ( "c,stdout", "Output to standard output. This is the default, when reading from standard input." )
-    ( "d,decompress", "Force decompression. Only for compatibility. No compression supported anyways." )
+    ( "d,decompress", "Force decompression." )
     ( "f,force", "Force overwriting existing output files. "
                  "Also forces decompression even when piped to /dev/null." )
     ( "i,input", "Input file. If none is given, data is read from standard input.",
@@ -202,11 +207,17 @@ ibzip2CLI( int argc, char** argv )
       cxxopts::value<unsigned int>()->default_value( "1" ) )
 
     ( "P,decoder-parallelism",
-      "Use the parallel decoder. "
-      "If an optional integer >= 1 is given, then that is the number of decoder threads to use. "
-      "Note that there might be further threads being started with non-decoding work. "
+      "Use the parallel decoder or compressor. "
+      "If an optional integer >= 1 is given, then that is the number of worker threads to use. "
+      "Note that there might be further threads being started with non-worker work. "
       "If 0 is given, then the parallelism will be determined automatically.",
       cxxopts::value<unsigned int>()->default_value( "0" ) );
+
+    options.add_options( "Compression" )
+    ( "z,compress", "Compress to bzip2. Each worker writes an independent bzip2 stream. "
+                    "The complete streams are concatenated in input order, which bzip2 tools accept." )
+    ( "level", "bzip2 block size / compression level in the range 1..9 (default 9).",
+      cxxopts::value<int>()->default_value( "9" ) );
 
     options.add_options( "Output" )
     ( "h,help", "Print this help message." )
@@ -279,6 +290,9 @@ ibzip2CLI( int argc, char** argv )
             << "# " << thirdparty::cxxopts::name << "\n\n"
             << thirdparty::cxxopts::url << "\n\n"
             << thirdparty::cxxopts::license << "\n\n"
+            << "# " << thirdparty::bzip2::name << "\n\n"
+            << thirdparty::bzip2::url << "\n\n"
+            << thirdparty::bzip2::license << "\n\n"
             << "# " << thirdparty::libsais::name << "\n\n"
             << thirdparty::libsais::url << "\n\n"
             << thirdparty::libsais::license << "\n";
@@ -298,6 +312,12 @@ ibzip2CLI( int argc, char** argv )
             << "    licenses:\n"
             << "      - license: Unlicense\n"
             << "        text: " << toYamlString( thirdparty::cxxopts::license ) << "\n"
+            << "  - package_name: " << thirdparty::bzip2::name << "\n"
+            << "    package_version: 1.0.8\n"
+            << "    license: bzip2-1.0.6\n"
+            << "    licenses:\n"
+            << "      - license: bzip2-1.0.6\n"
+            << "        text: " << toYamlString( thirdparty::bzip2::license ) << "\n"
             << "  - package_name: " << thirdparty::libsais::name << "\n"
             << "    package_version: 2.12.1\n"
             << "    license: Apache-2.0\n"
@@ -324,8 +344,13 @@ ibzip2CLI( int argc, char** argv )
         inputFilePath = parsedArgs["input"].as<std::string>();
     }
 
+    const auto compress = parsedArgs.count( "compress" ) > 0;
     auto outputFilePath = getFilePath( parsedArgs, "output" );
-    if ( ( parsedArgs.count( "stdout" ) == 0 ) && outputFilePath.empty() && !inputFilePath.empty() ) {
+    if ( compress ) {
+        if ( ( parsedArgs.count( "stdout" ) == 0 ) && outputFilePath.empty() && !inputFilePath.empty() ) {
+            outputFilePath = inputFilePath + ".bz2";
+        }
+    } else if ( ( parsedArgs.count( "stdout" ) == 0 ) && outputFilePath.empty() && !inputFilePath.empty() ) {
         const std::string& suffix = ".bz2";
         if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
             outputFilePath = std::string( inputFilePath.begin(),
@@ -343,9 +368,22 @@ ibzip2CLI( int argc, char** argv )
 
     const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
     const auto listOffsets = parsedArgs.count( "list-offsets" ) > 0;
-    const auto decompress = parsedArgs.count( "decompress" ) > 0;
+    const auto decompress = !compress && ( parsedArgs.count( "decompress" ) > 0 );
 
-    if ( decompress && ( outputFilePath != "/dev/null" ) && fileExists( outputFilePath ) && !force ) {
+    if ( compress
+         && ( ( parsedArgs.count( "decompress" ) > 0 ) || test || listCompressedOffsets || listOffsets ) ) {
+        std::cerr << "Compression cannot be combined with decompression, test, or offset listing options.\n";
+        return 1;
+    }
+#ifndef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+    if ( compress ) {
+        std::cerr << "This build does not have libbz2 compression support enabled!\n";
+        return 1;
+    }
+#endif
+
+    if ( ( decompress || compress ) && ( outputFilePath != "/dev/null" )
+         && fileExists( outputFilePath ) && !force ) {
         std::cerr << "Output file '" << outputFilePath << "' already exists! Use --force to overwrite.\n";
         return 1;
     }
@@ -367,6 +405,58 @@ ibzip2CLI( int argc, char** argv )
     }
 
     /* Actually do things as requested. */
+
+    if ( compress ) {
+        const auto level = parsedArgs["level"].as<int>();
+        if ( ( level < 1 ) || ( level > 9 ) ) {
+            std::cerr << "bzip2 compression level must be in the range 1..9!\n";
+            return 1;
+        }
+
+    #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+        auto inputFile = openFileOrStdin( inputFilePath );
+        if ( !inputFile ) {
+            std::cerr << "Could not open input file: " << inputFilePath << "!\n";
+            return 1;
+        }
+        auto outputFile = std::make_unique<OutputFile>( outputFilePath );
+        const auto outputFileDescriptor = outputFile->fd();
+
+        if ( verbose ) {
+            std::cerr << "Compress " << ( inputFilePath.empty() ? "<stdin>" : inputFilePath.c_str() ) << " -> ";
+            if ( outputFile->writingToStdout() ) {
+                std::cerr << "<stdout>";
+            } else {
+                std::cerr << outputFilePath;
+            }
+            std::cerr << " with " << decoderParallelism << " worker(s), level " << level << "\n";
+        }
+
+        try {
+            const auto tCompressionStart = now();
+            const auto statistics = indexed_bzip2::compressBzip2Parallel(
+                *inputFile, outputFileDescriptor, level, decoderParallelism );
+            const auto compressionDuration = duration( tCompressionStart );
+            outputFile->truncate( statistics.compressedBytes );
+            if ( verbose ) {
+                std::cerr << "Compressed " << statistics.uncompressedBytes << " B to "
+                          << statistics.compressedBytes << " B in " << compressionDuration << " s -> "
+                          << static_cast<double>( statistics.uncompressedBytes ) / 1e6 / compressionDuration
+                          << " MB/s input, ratio "
+                          << ( statistics.uncompressedBytes > 0
+                               ? static_cast<double>( statistics.compressedBytes ) / statistics.uncompressedBytes
+                               : 0.0 )
+                          << "\n";
+            }
+        } catch ( const indexed_bzip2::BrokenPipeException& ) {
+            return 128 + /* SIGPIPE */ 13;
+        } catch ( const std::exception& exception ) {
+            std::cerr << "Compression failed: " << exception.what() << "\n";
+            return 1;
+        }
+    #endif
+        return 0;
+    }
 
     if ( decompress || listOffsets ) {
         if ( verbose ) {

@@ -2,6 +2,7 @@
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include/cxxopts.hpp OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/zlib-ng/inflate.h OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/libsais/src/libsais.c OR
+   NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2/bzlib.c OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/rpmalloc/rpmalloc.h)
     find_package(Git REQUIRED)
 
@@ -157,6 +158,38 @@ target_sources(libsais PRIVATE
 )
 set_target_properties(libsais PROPERTIES C_STANDARD 11)
 set_target_properties(libsais PROPERTIES LINKER_LANGUAGE C)
+
+
+# bzip2 (compression backend for the ibzip2 CLI and the compressor test)
+
+if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
+    add_library(bzip2_compression INTERFACE)
+    target_compile_definitions(bzip2_compression INTERFACE LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
+
+    if(LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2)
+        # CMake 3.17, the minimum version required by this project, provides the BZip2::BZip2 target.
+        find_package(BZip2 REQUIRED)
+        target_link_libraries(bzip2_compression INTERFACE BZip2::BZip2)
+    else()
+        add_library(bzip2_vendored STATIC)
+        set(BZIP2_HOME "${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2")
+        target_include_directories(bzip2_vendored SYSTEM PUBLIC ${BZIP2_HOME}
+                                   ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2_version)
+        target_sources(bzip2_vendored PRIVATE
+            ${BZIP2_HOME}/blocksort.c
+            ${BZIP2_HOME}/huffman.c
+            ${BZIP2_HOME}/crctable.c
+            ${BZIP2_HOME}/randtable.c
+            ${BZIP2_HOME}/compress.c
+            ${BZIP2_HOME}/decompress.c
+            ${BZIP2_HOME}/bzlib.c
+            ${BZIP2_HOME}/bzlib.h
+        )
+        set_target_properties(bzip2_vendored PROPERTIES C_STANDARD 11)
+        set_target_properties(bzip2_vendored PROPERTIES LINKER_LANGUAGE C)
+        target_link_libraries(bzip2_compression INTERFACE bzip2_vendored)
+    endif()
+endif()
 
 
 # ISA-l
