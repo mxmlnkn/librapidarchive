@@ -1225,7 +1225,7 @@ Block<ENABLE_STATISTICS>::getDistance( gzip::BitReader& bitReader ) const
 
     if ( distance <= 3U ) {
         distance += 1U;
-    } else if ( distance <= 29U ) {
+    } else if ( LIKELY( distance <= 29U ) ) {
         const auto extraBitsCount = ( distance - 2U ) / 2U;
         const auto extraBits = bitReader.read( extraBitsCount );
         distance = distanceLUT[distance] + extraBits;
@@ -1246,7 +1246,7 @@ Block<ENABLE_STATISTICS>::read( gzip::BitReader& bitReader,
         return { {}, Error::NONE };
     }
 
-    if ( m_compressionType == CompressionType::RESERVED ) {
+    if ( UNLIKELY( m_compressionType == CompressionType::RESERVED ) ) {
         return { {}, Error::INVALID_COMPRESSION };
     }
 
