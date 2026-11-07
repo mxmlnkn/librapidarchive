@@ -404,6 +404,29 @@ testBlockCRCVerification()
 
 
 void
+testOversizedCodeLength()
+{
+    /* A Huffman code length of 21 exceeds MAX_HUFCODE_BITS. The stream is a valid prefix up to the
+     * first tree, where the 5-bit initial length is 21. The off-by-one check used to accept it and
+     * index past limit[] and base[]. */
+    const std::vector<uint8_t> compressed = {
+        0x42, 0x5a, 0x68, 0x31, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x40, 0x00, 0x20, 0x00, 0x2a,
+        0x80
+    };
+    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+    std::vector<char> buffer( 16 );
+    std::string message;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        message = exception.what();
+    }
+    REQUIRE( message.find( "start_huffman_length 21" ) != std::string::npos );
+}
+
+
+void
 corruptStreamCRC( std::vector<uint8_t>& compressed )
 {
     /* Find the EOS magic at its last occurrence and flip the first bit of the following stream CRC. */
@@ -547,6 +570,7 @@ main( int    argc,
     testMalformedBzip2( dataFolder, "bzip2-invalid-huffman-code.bz2", "Invalid Huffman code" );
     testRunLengthOverflow();
     testBlockCRCVerification();
+    testOversizedCodeLength();
     testTruncatedStreamWithoutBlocks();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testParallelBZ2Reader" );
