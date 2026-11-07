@@ -252,7 +252,7 @@ public:
     }
 
     /**
-     * First pass, read block's symbols into dbuf[dbufCount].
+     * First pass, read block's symbols into bwtData[bwtDataCount].
      *
      * This undoes three types of compression: huffman coding, run length encoding,
      * and move to front encoding.  We have to undo all those to know when we've
@@ -417,6 +417,10 @@ public:
         /* simply allocate the maximum block size so we won't run into problem when
          * block sizes changes (e.g. in pbzip2 file). MAX_BLOCK_SIZE is nothing in today's age anyways. */
         std::vector<uint32_t> dbuf = std::vector<uint32_t>( MAX_BLOCK_SIZE, 0 );
+
+        /* The symbol pass writes the BWT bytes into a contiguous byte buffer, which avoids 32-bit stores and
+         * strided writes into dbuf. prepare() copies them into dbuf before building the LF table. */
+        std::vector<uint8_t> bwtData = std::vector<uint8_t>( MAX_BLOCK_SIZE, 0 );
     };
 
 public:
@@ -700,7 +704,7 @@ Block::readBlockData()
 {
     // We've finished reading and digesting the block.  Now read this
     // block's huffman coded symbols from the file and undo the huffman coding
-    // and run length encoding, saving the result into dbuf[dbufCount++] = uc
+    // and run length encoding, saving the result into bwtData[bwtDataCount++] = uc
 
     bwdata.byteCount.fill( 0 );
     std::iota( mtfSymbol.begin(), mtfSymbol.end(), 0 );
@@ -709,9 +713,9 @@ Block::readBlockData()
     /** @note The loops inside this for-loop are all too short to be profiled.
      *        The overhead becomes disastrously large! It takes 190s to decode instead of 20s. */
     // Loop through compressed symbols.  This is the first "tight inner loop"
-    // that needs to be micro-optimized for speed.  (This one fills out dbuf[]
+    // that needs to be micro-optimized for speed.  (This one fills out bwtData[]
     // linearly, staying in cache more, so isn't as limited by DRAM access.)
-    uint32_t dbufCount = 0;
+    uint32_t bwtDataCount = 0;
     const auto* huffmanCoding = &huffmanCodings.front();
     for ( uint32_t hh = 0, runPos = 0, symCount = 0, selector = 0; ; ) {
         // Have we reached the end of this huffman group?
@@ -763,13 +767,13 @@ Block::readBlockData()
 
         /* When we hit the first non-run symbol after a run, we now know
          * how many times to repeat the last literal, so append that many
-         * copies to our buffer of decoded symbols (dbuf) now. (The last
+         * copies to our buffer of decoded symbols (bwtData) now. (The last
          * literal used is the one at the head of the mtfSymbol array.) */
         if ( runPos != 0 ) {
             runPos = 0;
-            if ( static_cast<uint64_t>( dbufCount ) + hh > MAX_BLOCK_SIZE ) {
+            if ( static_cast<uint64_t>( bwtDataCount ) + hh > MAX_BLOCK_SIZE ) {
                 std::stringstream msg;
-                msg << "[BZip2 block data] dbufCount + hh " << static_cast<uint64_t>( dbufCount ) + hh
+                msg << "[BZip2 block data] bwtDataCount + hh " << static_cast<uint64_t>( bwtDataCount ) + hh
                     << " > " << MAX_BLOCK_SIZE << " maximum block size";
                 throw std::domain_error( std::move( msg ).str() );
             }
@@ -777,7 +781,7 @@ Block::readBlockData()
             const auto uc = symbolToByte[mtfSymbol[0]];
             bwdata.byteCount[uc] += hh;
             while ( hh-- != 0 ) {
-                bwdata.dbuf[dbufCount++] = uc;
+                bwdata.bwtData[bwtDataCount++] = uc;
             }
         }
 
@@ -792,9 +796,10 @@ Block::readBlockData()
          * result can't be -1 or 0, because 0 and 1 are RUNA and RUNB.
          * Another instance of the first symbol in the mtf array, position 0,
          * would have been handled as part of a run.) */
-        if ( dbufCount >= MAX_BLOCK_SIZE ) {
+        if ( bwtDataCount >= MAX_BLOCK_SIZE ) {
             std::stringstream msg;
-            msg << "[BZip2 block data] dbufCount " << dbufCount << " >= " << MAX_BLOCK_SIZE << " maximum block size";
+            msg << "[BZip2 block data] bwtDataCount " << bwtDataCount
+                << " >= " << MAX_BLOCK_SIZE << " maximum block size";
             throw std::domain_error( std::move( msg ).str() );
         }
         const int ii = nextSym - 1;
@@ -803,14 +808,14 @@ Block::readBlockData()
         mtfSymbol[0] = uc;
         uc = symbolToByte[uc];
 
-        // We have our literal byte.  Save it into dbuf.
+        // We have our literal byte.  Save it into bwtData.
         bwdata.byteCount[uc]++;
-        bwdata.dbuf[dbufCount++] = uc;
+        bwdata.bwtData[bwtDataCount++] = uc;
     }
 
-    // Now we know what dbufCount is, do a better sanity check on origPtr.
-    bwdata.writeCount = dbufCount;
-    if ( bwdata.origPtr >= dbufCount ) {
+    // Now we know what bwtDataCount is, do a better sanity check on origPtr.
+    bwdata.writeCount = bwtDataCount;
+    if ( bwdata.origPtr >= bwtDataCount ) {
         std::stringstream msg;
         msg << "[BZip2 block data] origPtr error " << bwdata.origPtr;
         throw std::domain_error( std::move( msg ).str() );
@@ -829,6 +834,10 @@ Block::readBlockData()
 inline void
 Block::BurrowsWheelerTransformData::prepare()
 {
+    for ( uint32_t i = 0; i < writeCount; ++i ) {
+        dbuf[i] = bwtData[i];
+    }
+
     /**
      * Turn byteCount into cumulative occurrence counts of 0 to n-1.
      * @note This loop is fast because byteCount.size() is 256.
