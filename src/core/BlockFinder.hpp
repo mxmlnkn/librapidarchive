@@ -78,6 +78,12 @@ public:
         if ( m_blockFinder && m_blockFinder->joinable() ) {
             m_blockFinder->join();
         }
+        m_blockFinder.reset();
+        m_cancelThread = false;
+
+        if ( m_rawBlockFinder ) {
+            m_rawBlockFinder->stopThreads();
+        }
     }
 
     [[nodiscard]] size_t
@@ -185,6 +191,7 @@ private:
             lock.unlock();  // Unlock for a little while so that others can acquire the lock!
             const auto blockOffset = m_rawBlockFinder->find();
             if ( blockOffset == std::numeric_limits<size_t>::max() ) {
+                m_blockOffsets.finalize();
                 break;
             }
 
@@ -192,7 +199,7 @@ private:
             m_blockOffsets.push( blockOffset );
         }
 
-        m_blockOffsets.finalize();
+        /* Do not finalize on cancellation. A later startThreads() must be able to resume the finder. */
     }
 
 private:

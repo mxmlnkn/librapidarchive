@@ -79,6 +79,11 @@ public:
     virtual
     ~BitStringFinder() = default;
 
+    /** Stops internal worker threads. The sequential base finder has none. */
+    virtual void
+    stopThreads()
+    {}
+
     [[nodiscard]] bool
     seekable() const
     {

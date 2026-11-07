@@ -65,6 +65,12 @@ public:
 
     ~ParallelBitStringFinder() override = default;
 
+    void
+    stopThreads() override
+    {
+        m_threadPool.stop();
+    }
+
     /**
      * @return the next match and the requested bytes or std::numeric_limits<size_t>::max() if at end of file.
      */
