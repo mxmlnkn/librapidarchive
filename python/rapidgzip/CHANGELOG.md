@@ -1,3 +1,50 @@
+# Version 0.16.2 built on 2026-11-07
+
+## Features
+
+ - Verify zlib Adler-32 in both the parallel and the sequential readers.
+
+## Performance
+
+ - Use a compile-time peek count and a true-size lookup table for fixed-Huffman and distance decoding.
+ - Use a contiguous single-`memcpy` fast path for non-overlapping LZ matches,
+   including high-start sources that are still contiguous, instead of a per-byte copy loop.
+ - Use one chunk per worker for medium files.
+ - Release unused heap pages when the parallel reader is closed, so Python processes retain less memory after `close()`.
+
+## Fixes
+
+ - Reject truncated sequential `GzipReader` streams and accept trailing zero padding after a complete member
+   like GNU gzip.
+ - Reject bzip2 run lengths that overflow the block size.
+ - Distinguish empty from truncated bzip2 streams and verify the bzip2 stream CRC in the parallel reader.
+ - Validate parallel bzip2 block offsets and do not require the decoded block to end before the next candidate.
+ - Report a zero compressed offset from `ParallelBZ2Reader::tellCompressed` before the first read.
+ - Keep parallel gzip and bzip2 reading usable after joining the worker threads.
+ - Keep rethrown worker exceptions alive until the caller reads them.
+ - Fix CRC32 and ISIZE verification for streams with multiple members
+   and keep the checksum state consistent after failed reads and seeks.
+ - Fix `GzipReader::clone` keeping views into the original reader's window
+   and reset pending output and checksum state on `seek`.
+ - Fix seeking after the `BufferedFileReader` buffer advanced.
+   The buffer is now a cache, so large direct reads keep it and seeks back into its range reuse it.
+ - Report an unknown size for non-seekable streams such as pipes instead of 0,
+   and treat only regular files and block devices as seekable.
+ - Fix null-buffer `read(nullptr, n)` skips in `BufferViewFileReader`, `BufferedFileReader`, and `StandardFileReader`,
+   and do not skip beyond the requested amount in `StandardFileReader`.
+ - `BufferViewFileReader` now rejects seeks outside its in-memory range instead of silently clamping to the end.
+ - Reject invalid bzip2 selectors and Huffman codes with descriptive errors
+   instead of Debug assertions or `std::bad_optional_access`.
+ - Reject reads returning more data than requested from Python file-like objects
+   and require writable C-contiguous `readinto` buffers.
+ - Guard the cached Huffman decoders against empty alphabets and optionals from invalid codes.
+ - Lock `GzipBlockFinder::setBlockOffsets`, quiesce in-flight fetches before replacing offsets,
+   drop failed marker replacement futures instead of masking the original exception, and clear them with the caches.
+ - Return block decode errors from the CLI analyzer instead of silently ignoring them.
+ - Decode BGZF archives with an unknown file size.
+ - Stop BGZF block scanning at EOF for unknown file sizes.
+
+
 # Version 0.16.1 built on 2026-10-31
 
 ## Fixes
