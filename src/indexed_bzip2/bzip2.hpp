@@ -99,6 +99,9 @@ static constexpr size_t MAX_SYMBOLS = 258;  /* 256 literals + RUNA + RUNB */
 static constexpr uint16_t SYMBOL_RUNA = 0;
 static constexpr uint16_t SYMBOL_RUNB = 1;
 
+/* bzip2 levels 1-9 use blocks of at most 100000 to 900000 bytes before the BWT. */
+static constexpr size_t MAX_BLOCK_SIZE = 900000;
+
 
 constexpr auto MAGIC_BITS_BLOCK = 0x314159265359ULL;  /* bcd(pi) */
 constexpr auto MAGIC_BITS_EOS = 0x177245385090ULL;  /* bcd(sqrt(pi)) */
@@ -411,9 +414,9 @@ public:
         uint32_t dataCRC = 0xFFFFFFFFL;  /* CRC of block as calculated by us */
         uint32_t headerCRC = 0;  /* what the block data CRC should be */
 
-        /* simply allocate the maximum of 900kB for the internal block size so we won't run into problem when
-         * block sizes changes (e.g. in pbzip2 file). 900kB is nothing in today's age anyways. */
-        std::vector<uint32_t> dbuf = std::vector<uint32_t>( 900000, 0 );
+        /* simply allocate the maximum block size so we won't run into problem when
+         * block sizes changes (e.g. in pbzip2 file). MAX_BLOCK_SIZE is nothing in today's age anyways. */
+        std::vector<uint32_t> dbuf = std::vector<uint32_t>( MAX_BLOCK_SIZE, 0 );
     };
 
 public:
@@ -512,10 +515,10 @@ Block::readBlockHeader()
     }
 
     bwdata.origPtr = getBits<24>();
-    if ( bwdata.origPtr > bwdata.dbuf.size() ) {
+    if ( bwdata.origPtr > MAX_BLOCK_SIZE ) {
         std::stringstream msg;
-        msg << "[BZip2 block header] origPtr " << bwdata.origPtr << " is larger than buffer size: "
-            << bwdata.dbuf.size();
+        msg << "[BZip2 block header] origPtr " << bwdata.origPtr << " is larger than the maximum block size: "
+            << MAX_BLOCK_SIZE;
         throw std::logic_error( std::move( msg ).str() );
     }
 
@@ -748,9 +751,9 @@ Block::readBlockData()
             /* The run length must fit into one block. Check in 64 bit because a crafted sequence of RUNA/RUNB symbols
              * can wrap the 32-bit sum and bypass the block-size check at the end of the run, which would then write
              * far past the block buffer. */
-            if ( static_cast<uint64_t>( hh ) + ( static_cast<uint64_t>( runPos ) << nextSym ) > bwdata.dbuf.size() ) {
+            if ( static_cast<uint64_t>( hh ) + ( static_cast<uint64_t>( runPos ) << nextSym ) > MAX_BLOCK_SIZE ) {
                 std::stringstream msg;
-                msg << "[BZip2 block data] The run length exceeds the maximum block size " << bwdata.dbuf.size();
+                msg << "[BZip2 block data] The run length exceeds the maximum block size " << MAX_BLOCK_SIZE;
                 throw std::domain_error( std::move( msg ).str() );
             }
             hh += runPos << nextSym;  // +runPos if RUNA; +2*runPos if RUNB
@@ -764,10 +767,10 @@ Block::readBlockData()
          * literal used is the one at the head of the mtfSymbol array.) */
         if ( runPos != 0 ) {
             runPos = 0;
-            if ( static_cast<uint64_t>( dbufCount ) + hh > bwdata.dbuf.size() ) {
+            if ( static_cast<uint64_t>( dbufCount ) + hh > MAX_BLOCK_SIZE ) {
                 std::stringstream msg;
                 msg << "[BZip2 block data] dbufCount + hh " << static_cast<uint64_t>( dbufCount ) + hh
-                    << " > " << bwdata.dbuf.size() << " dbufSize";
+                    << " > " << MAX_BLOCK_SIZE << " maximum block size";
                 throw std::domain_error( std::move( msg ).str() );
             }
 
@@ -789,9 +792,9 @@ Block::readBlockData()
          * result can't be -1 or 0, because 0 and 1 are RUNA and RUNB.
          * Another instance of the first symbol in the mtf array, position 0,
          * would have been handled as part of a run.) */
-        if ( dbufCount >= bwdata.dbuf.size() ) {
+        if ( dbufCount >= MAX_BLOCK_SIZE ) {
             std::stringstream msg;
-            msg << "[BZip2 block data] dbufCount " << dbufCount << " > " << bwdata.dbuf.size() << " dbufSize";
+            msg << "[BZip2 block data] dbufCount " << dbufCount << " >= " << MAX_BLOCK_SIZE << " maximum block size";
             throw std::domain_error( std::move( msg ).str() );
         }
         const int ii = nextSym - 1;
