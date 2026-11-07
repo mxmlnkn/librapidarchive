@@ -105,6 +105,8 @@ cdef class _IndexedBzip2File():
         elif isinstance(file, basestring) and hasattr(file, 'encode'):
             # Note that BytesIO also is an instance of basestring but fortunately has no encode method!
             self.bz2reader = new BZ2Reader(<string>file.encode())
+        elif isinstance(file, os.PathLike):
+            self.bz2reader = new BZ2Reader(<string>bytes(file))
         else:
             raise Exception("Expected file name string, file descriptor integer, or file-like object for BZ2Reader!")
 
@@ -203,6 +205,8 @@ cdef class _IndexedBzip2FileParallel():
         elif isinstance(file, basestring) and hasattr(file, 'encode'):
             # Note that BytesIO also is an instance of basestring but fortunately has no encode method!
             self.bz2reader = new ParallelBZ2Reader(<string>file.encode(), <int>parallelization)
+        elif isinstance(file, os.PathLike):
+            self.bz2reader = new ParallelBZ2Reader(<string>bytes(file), <int>parallelization)
         else:
             raise Exception("Expected file name string, file descriptor integer, "
                             "or file-like object for ParallelBZ2Reader!")

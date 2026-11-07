@@ -561,6 +561,9 @@ if __name__ == '__main__':
         print("  Test opening with IndexedBzip2File")
         test(lambda name: IndexedBzip2File(name, parallelization=parallelization))
 
+        print("  Test opening with IndexedBzip2File and a path-like object")
+        test(lambda name: IndexedBzip2File(Path(name), parallelization=parallelization))
+
         print("  Test opening with indexed_bzip2.open")
         test(lambda name: indexed_bzip2.open(name, parallelization=parallelization))
 
