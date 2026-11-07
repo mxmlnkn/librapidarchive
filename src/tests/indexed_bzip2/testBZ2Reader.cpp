@@ -352,12 +352,45 @@ testRunLengthOverflow()
 }
 
 
+void
+testBlockCRCVerification()
+{
+    /* bzip2 -c of the single byte 'A'. The stored big-endian block CRC follows the 48-bit block magic. */
+    const std::vector<uint8_t> compressed = {
+        0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x81, 0xb0,
+        0x2d, 0x8b, 0x00, 0x00, 0x00, 0x04, 0x00, 0x20, 0x00, 0x20, 0x00, 0x21,
+        0x18, 0x46, 0x82, 0xee, 0x48, 0xa7, 0x0a, 0x12, 0x10, 0x36, 0x05, 0xb1,
+        0x60
+    };
+    {
+        BZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ) );
+        std::vector<char> buffer( 1 );
+        REQUIRE_EQUAL( reader.read( buffer.data(), buffer.size() ), buffer.size() );
+        REQUIRE_EQUAL( buffer.front(), 'A' );
+    }
+
+    /* A mismatching block CRC must be rejected after the block has been fully decoded. */
+    auto corrupted = compressed;
+    corrupted[13] ^= uint8_t( 1U << 0U );
+    BZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ) );
+    std::vector<char> buffer( 16 );
+    std::string message;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        message = exception.what();
+    }
+    REQUIRE( message.find( "CRC" ) != std::string::npos );
+}
+
+
 int
 main()
 {
     testEmptyInput();
     testHeaderOnlyInput();
     testRunLengthOverflow();
+    testBlockCRCVerification();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testBZ2Reader" );
 
