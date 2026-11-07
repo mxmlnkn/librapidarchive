@@ -639,6 +639,20 @@ protected:
         m_threadPool.stop();
     }
 
+public:
+    /**
+     * Drains outstanding prefetches and caches, then stops and joins all worker threads. Queued tasks therefore
+     * run before the pool is stopped. The rest of the state is kept so that a later read continues from the same
+     * block map and finder state. This is intended for use before forking. The pool restarts on the next submit.
+     */
+    virtual void
+    joinThreads()
+    {
+        clearCache();
+        m_threadPool.stop();
+    }
+
+protected:
     template<class T_Functor, std::enable_if_t<std::is_invocable_v<T_Functor>, void>* = nullptr>
     std::future<decltype( std::declval<T_Functor>()() )>
     submitTaskWithHighPriority( T_Functor task )

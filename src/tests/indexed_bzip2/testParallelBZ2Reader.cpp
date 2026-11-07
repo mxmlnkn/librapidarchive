@@ -461,6 +461,36 @@ testStreamCRCVerificationWithImportedOffsets( const std::string& encodedTestFile
 }
 
 
+void
+testJoinThreadsMidStream( const std::string& decodedTestFilePath,
+                          const std::string& encodedTestFilePath )
+{
+    const auto expected = readFile<std::vector<char> >( decodedTestFilePath );
+
+    for ( const auto joinAfterReads : { 0U, 1U, 2U, 5U } ) {
+        ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( encodedTestFilePath ),
+                                  /* parallelization */ 4 );
+
+        std::vector<char> decoded;
+        std::vector<char> buffer( 4_Ki );
+        for ( size_t readCount = 0; ; ++readCount ) {
+            const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+            if ( nBytesRead == 0 ) {
+                break;
+            }
+            decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+            if ( readCount == joinAfterReads ) {
+                reader.joinThreads();
+            }
+        }
+
+        REQUIRE_EQUAL( decoded.size(), expected.size() );
+        REQUIRE( ( decoded.size() == expected.size() )
+                 && std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+    }
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -506,6 +536,7 @@ main( int    argc,
         testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string() );
         testStreamCRCVerification( encodedTestFilePath.string() );
         testStreamCRCVerificationWithImportedOffsets( encodedTestFilePath.string() );
+        testJoinThreadsMidStream( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!

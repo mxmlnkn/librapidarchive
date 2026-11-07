@@ -1305,8 +1305,9 @@ public:
     void
     joinThreads()
     {
-        m_chunkFetcher.reset();
-        m_blockFinder.reset();
+        if ( m_chunkFetcher ) {
+            m_chunkFetcher->joinThreads();
+        }
     }
 
     /**

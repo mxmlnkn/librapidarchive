@@ -438,8 +438,12 @@ public:
     void
     joinThreads()
     {
-        m_blockFetcher = {};
-        m_blockFinder = {};
+        if ( m_blockFetcher ) {
+            m_blockFetcher->joinThreads();
+        }
+        if ( m_blockFinder ) {
+            m_blockFinder->stopThreads();
+        }
     }
 
 private:

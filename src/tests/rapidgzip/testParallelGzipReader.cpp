@@ -1174,6 +1174,38 @@ testClearCacheWithInFlightMarkerReplacements()
 }
 
 
+void
+testJoinThreadsMidStream( const std::filesystem::path& rootFolder )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
+    const auto expected = readFile<std::vector<char> >( rootFolder / "base64-256KiB" );
+
+    for ( const auto joinAfterReads : { 0U, 1U, 2U, 5U } ) {
+        ParallelGzipReader<ChunkData> reader(
+            std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 4, /* chunk size */ 16_Ki );
+        reader.setCRC32Enabled( true );
+
+        std::vector<char> decoded;
+        std::array<char, 4_Ki> buffer{};
+        for ( size_t readCount = 0; ; ++readCount ) {
+            const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+            if ( nBytesRead == 0 ) {
+                break;
+            }
+            decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+            if ( readCount == joinAfterReads ) {
+                /* Joining and then continuing used to fail because the recreated fetcher restarted at block 0. */
+                reader.joinThreads();
+            }
+        }
+
+        REQUIRE_EQUAL( decoded.size(), expected.size() );
+        REQUIRE( ( decoded.size() == expected.size() )
+                 && std::equal( decoded.begin(), decoded.end(), expected.begin() ) );
+    }
+}
+
+
 [[nodiscard]] std::vector<char>
 createGzipIndex( const std::vector<uint8_t>& data,
                  const size_t                chunkSize )
@@ -1766,6 +1798,7 @@ main( int    argc,
     testPrefetchingAfterSplit();
     testCachedChunkReuseAfterSplit();
     testClearCacheWithInFlightMarkerReplacements();
+    testJoinThreadsMidStream( rootFolder );
     testParallelDecoderNano();
 
     const auto tmpFolder = createTemporaryDirectory( "rapidgzip.testParallelGzipReader" );
