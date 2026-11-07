@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -21,6 +22,7 @@
 #include <core/VectorView.hpp>
 #include <filereader/BitReader.hpp>
 #include <huffman/HuffmanCodingShortBitsCached.hpp>
+#include <libsais.h>
 
 
 /**
@@ -470,6 +472,9 @@ public:
         [[nodiscard]] constexpr bool
         hasData() const noexcept
         {
+            if ( inverseBWT ) {
+                return ( inverseBWT->position < writeCount ) || ( inverseBWT->repeatCount > 0 );
+            }
             return ( writeCount > 0 ) || ( symbolRepeatCount > 0 );
         }
 
@@ -492,15 +497,30 @@ public:
         uint8_t symbolToRepeat{ 0 };
         uint8_t symbolRepeatCount{ 0 };
 
+        /* libsais inverts the whole block linearly. Its output is still run-length encoded, so one run may
+         * span several decodeBlock calls. The presence of this state selects the libsais path. */
+        struct InverseBWTData
+        {
+            size_t position{ 0 };
+            size_t repeatCount{ 0 };
+            uint8_t repeatByte{ 0 };
+        };
+
+        std::optional<InverseBWTData> inverseBWT;
+
         uint32_t dataCRC = 0xFFFFFFFFL;  /* CRC of block as calculated by us */
         uint32_t headerCRC = 0;  /* what the block data CRC should be */
 
-        /* simply allocate the maximum block size so we won't run into problem when
-         * block sizes changes (e.g. in pbzip2 file). MAX_BLOCK_SIZE is nothing in today's age anyways. */
-        std::vector<uint32_t> dbuf = std::vector<uint32_t>( MAX_BLOCK_SIZE, 0 );
+        /**
+         * Simply allocate the maximum block size so we won't run into problem when block sizes changes
+         * (e.g. in pbzip2 file). MAX_BLOCK_SIZE is nothing in today's age anyways.
+         * The extra element is required because libsais_unbwt_cyclic uses this buffer as its n + 1 element
+         * temporary P array when the inverse BWT is computed.
+         */
+        std::vector<uint32_t> dbuf = std::vector<uint32_t>( MAX_BLOCK_SIZE + 1, 0 );
 
-        /* The symbol pass writes the BWT bytes into a contiguous byte buffer, which avoids 32-bit stores and
-         * strided writes into dbuf. prepare() copies them into dbuf before building the LF table. */
+        /* BWT input bytes. libsais inverts them in place into the run-length encoded output; the classic
+         * chase fallback copies them into dbuf first. */
         std::vector<uint8_t> bwtData = std::vector<uint8_t>( MAX_BLOCK_SIZE, 0 );
     };
 
@@ -915,6 +935,36 @@ Block::readBlockData()
 inline void
 Block::BurrowsWheelerTransformData::prepare()
 {
+    dataCRC = 0xFFFFFFFFL;
+    symbolRepeatCount = 0;
+    inverseBWT.reset();
+
+    if ( writeCount == 0 ) {
+        return;
+    }
+
+    /* libsais builds a bi-gram LF table and decodes several chains in parallel, which hides most of the
+     * dependent-load latency of the classic one-step chase. The frequency table is already available from
+     * the symbol decoding pass. */
+    std::array<int32_t, 256> frequencies{};
+    for ( size_t i = 0; i < byteCount.size(); ++i ) {
+        frequencies[i] = static_cast<int32_t>( byteCount[i] );
+    }
+
+    /* libsais requires n + 1 int32 elements of temporary space, which dbuf provides. Inverting in place
+     * removes the separate output buffer. On error, bwtData is still the unmodified input because libsais
+     * validates and allocates all of its tables before writing, so the chase fallback below stays valid. */
+    assert( dbuf.size() >= writeCount + 1 );
+    const auto error = libsais_unbwt_cyclic(
+        bwtData.data(), bwtData.data(), reinterpret_cast<int32_t*>( dbuf.data() ),
+        static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) );
+    if ( error == 0 ) {
+        inverseBWT.emplace();
+        std::vector<uint32_t>().swap( dbuf );
+        return;
+    }
+
+    /* Fall back to the classic one-step LF build if libsais cannot allocate its temporary tables. */
     for ( uint32_t i = 0; i < writeCount; ++i ) {
         dbuf[i] = bwtData[i];
     }
@@ -939,20 +989,14 @@ Block::BurrowsWheelerTransformData::prepare()
         byteCount[uc]++;
     }
 
-    dataCRC = 0xFFFFFFFFL;
-
     /* Decode first byte by hand to initialize "previous" byte. Note that it
      * doesn't get output, and if the first three characters are identical
      * it doesn't qualify as a run (hence uc=255, which will either wrap
      * to 1 or get reset). */
-    if ( writeCount > 0 ) {
-        writePos = dbuf[origPtr];
-        writeCurrent = static_cast<uint8_t>( writePos & 0xFFU );
-        writePos >>= 8U;
-        writeRun = -1;
-    }
-
-    symbolRepeatCount = 0;
+    writePos = dbuf[origPtr];
+    writeCurrent = static_cast<uint8_t>( writePos & 0xFFU );
+    writePos >>= 8U;
+    writeRun = -1;
 }
 
 
@@ -965,48 +1009,86 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
     }
 
     size_t nBytesDecoded = 0;
+    uint32_t crc = dataCRC;
 
-    const auto writeRepeatedSymbols =
-        [&, this] ()
-        {
-            while ( ( symbolRepeatCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
-                --symbolRepeatCount;
-                outputBuffer[nBytesDecoded++] = static_cast<char>( symbolToRepeat );
-                dataCRC = updateCRC32( dataCRC, symbolToRepeat );
+    if ( inverseBWT ) {
+        auto& state = *inverseBWT;
+        while ( nBytesDecoded < nMaxBytesToDecode ) {
+            if ( state.repeatCount > 0 ) {
+                const auto nBytesToRepeat = std::min( state.repeatCount, nMaxBytesToDecode - nBytesDecoded );
+                for ( size_t i = 0; i < nBytesToRepeat; ++i ) {
+                    outputBuffer[nBytesDecoded++] = static_cast<char>( state.repeatByte );
+                    crc = updateCRC32( crc, state.repeatByte );
+                }
+                state.repeatCount -= nBytesToRepeat;
+                continue;
             }
-        };
 
-    writeRepeatedSymbols();
+            if ( state.position >= writeCount ) {
+                break;
+            }
 
-    while ( ( writeCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
-        writeCount--;
-
-        // Follow sequence vector to undo Burrows-Wheeler transform.
-        const auto previous = writeCurrent;
-        writePos = dbuf[writePos];
-        writeCurrent = static_cast<uint8_t>( writePos & 0xFFU );
-        writePos >>= 8U;
-
-        /* Whenever we see 3 consecutive copies of the same byte, the 4th is a repeat count */
-        if ( writeRun < 3 ) {
-            outputBuffer[nBytesDecoded++] = static_cast<char>( writeCurrent );
-            dataCRC = updateCRC32( dataCRC, writeCurrent );
-            if ( writeCurrent != previous ) {
-                writeRun = 0;
+            const auto byte = bwtData[state.position];
+            /* Four identical bytes are followed by a count of additional copies. */
+            if ( ( state.position + 4 < writeCount )
+                 && ( bwtData[state.position + 1] == byte )
+                 && ( bwtData[state.position + 2] == byte )
+                 && ( bwtData[state.position + 3] == byte ) ) {
+                state.repeatByte = byte;
+                state.repeatCount = 4 + bwtData[state.position + 4];
+                state.position += 5;
             } else {
-                ++writeRun;
+                outputBuffer[nBytesDecoded++] = static_cast<char>( byte );
+                crc = updateCRC32( crc, byte );
+                ++state.position;
             }
-        } else {
-            symbolToRepeat = previous;
-            symbolRepeatCount = writeCurrent;
-            writeRepeatedSymbols();
-            writeCurrent = -1;
-            writeRun = 0;
+        }
+    } else {
+        const auto writeRepeatedSymbols =
+            [&, this] ()
+            {
+                while ( ( symbolRepeatCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
+                    --symbolRepeatCount;
+                    outputBuffer[nBytesDecoded++] = static_cast<char>( symbolToRepeat );
+                    crc = updateCRC32( crc, symbolToRepeat );
+                }
+            };
+
+        writeRepeatedSymbols();
+
+        while ( ( writeCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
+            writeCount--;
+
+            // Follow sequence vector to undo Burrows-Wheeler transform.
+            const auto previous = writeCurrent;
+            writePos = dbuf[writePos];
+            writeCurrent = static_cast<uint8_t>( writePos & 0xFFU );
+            writePos >>= 8U;
+
+            /* Whenever we see 3 consecutive copies of the same byte, the 4th is a repeat count */
+            if ( writeRun < 3 ) {
+                outputBuffer[nBytesDecoded++] = static_cast<char>( writeCurrent );
+                crc = updateCRC32( crc, writeCurrent );
+                if ( writeCurrent != previous ) {
+                    writeRun = 0;
+                } else {
+                    ++writeRun;
+                }
+            } else {
+                symbolToRepeat = previous;
+                symbolRepeatCount = writeCurrent;
+                writeRepeatedSymbols();
+                writeCurrent = -1;
+                writeRun = 0;
+            }
         }
     }
 
+    dataCRC = crc;
+
     /* decompression of this block completed successfully */
-    if ( ( writeCount == 0 ) && ( symbolRepeatCount == 0 ) ) {
+    if ( ( inverseBWT && ( inverseBWT->position >= writeCount ) && ( inverseBWT->repeatCount == 0 ) )
+         || ( !inverseBWT && ( writeCount == 0 ) && ( symbolRepeatCount == 0 ) ) ) {
         dataCRC = ~dataCRC;
         if ( dataCRC != headerCRC ) {
             std::stringstream msg;

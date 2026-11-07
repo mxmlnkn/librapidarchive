@@ -415,7 +415,10 @@ rapidgzipCLI( int                  argc,
             << thirdparty::zlib::license
             << "# " << thirdparty::zlib_ng::name << "\n\n"
             << thirdparty::zlib_ng::url << "\n\n"
-            << thirdparty::zlib_ng::license;
+            << thirdparty::zlib_ng::license << "\n\n"
+            << "# " << thirdparty::libsais::name << "\n\n"
+            << thirdparty::libsais::url << "\n\n"
+            << thirdparty::libsais::license;
         return 0;
     }
 
@@ -455,7 +458,13 @@ rapidgzipCLI( int                  argc,
             << "    license: Zlib\n"
             << "    licenses:\n"
             << "      - license: Zlib\n"
-            << "        text: " << toYamlString( thirdparty::zlib::license ) << "\n";
+            << "        text: " << toYamlString( thirdparty::zlib::license ) << "\n"
+            << "  - package_name: " << thirdparty::libsais::name << "\n"
+            << "    package_version: 2.12.1\n"
+            << "    license: Apache-2.0\n"
+            << "    licenses:\n"
+            << "      - license: Apache-2.0\n"
+            << "        text: " << toYamlString( thirdparty::libsais::license ) << "\n";
         return 0;
     }
 

@@ -42,6 +42,7 @@ about:
   license_file:
    - LICENSE-APACHE
    - LICENSE-MIT
+   - src/external/libsais/LICENSE
   summary: {{ data.get('description') }}
 
 extra:

@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.17)
 # CMake 3.17 added LibArchive::LibArchive target to FindLibArchive
 
-project("Indexed BZip2/Gzip Decoder" CXX)
+# libsais and the vendored bzip2 are C sources. Do not rely on zlib-ng, ISA-L, or rpmalloc
+# enabling C as a side effect because each of them can be disabled.
+project("Indexed BZip2/Gzip Decoder" C CXX)
 
 option(LIBRAPIDARCHIVE_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(LIBRAPIDARCHIVE_BUILD_TESTS "Build tests" ON)

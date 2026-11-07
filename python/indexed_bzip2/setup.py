@@ -29,8 +29,8 @@ extensions = [
     Extension(
         # fmt: off
         name         = 'indexed_bzip2',
-        sources      = ['indexed_bzip2.pyx'],
-        include_dirs = ['src', 'src/external/cxxopts/include'],
+        sources      = ['indexed_bzip2.pyx', 'src/external/libsais/src/libsais.c'],
+        include_dirs = ['src', 'src/external/cxxopts/include', 'src/external/libsais/include'],
         language     = 'c++',
         define_macros = [('Py_LIMITED_API', abi3Version)] if withAbi3 else [],
         py_limited_api = withAbi3,
