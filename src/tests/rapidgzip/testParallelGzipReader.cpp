@@ -1757,6 +1757,44 @@ testBgzfSeekWithImportedMidMemberIndex( const std::filesystem::path& rootFolder 
     REQUIRE( std::equal( decoded.begin(), decoded.end(), expected.begin() + 100000 ) );
 }
 
+
+class UnknownSizeFileReader final :
+    public BufferViewFileReader
+{
+public:
+    explicit
+    UnknownSizeFileReader( std::vector<uint8_t> data ) :
+        BufferViewFileReader( data.data(), data.size() ),
+        m_data( std::move( data ) )
+    {}
+
+    [[nodiscard]] UniqueFileReader
+    cloneRaw() const override
+    {
+        return std::make_unique<UnknownSizeFileReader>( m_data );
+    }
+
+    [[nodiscard]] std::optional<size_t>
+    size() const override
+    {
+        return std::nullopt;
+    }
+
+private:
+    std::vector<uint8_t> m_data;
+};
+
+
+void
+testBgzfWithUnknownFileSize( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.bgz" );
+    const auto expected = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB" );
+
+    testParallelDecoder( std::make_unique<UnknownSizeFileReader>( member ),
+                         std::make_unique<BufferViewFileReader>( expected ) );
+}
+
 int
 main( int    argc,
       char** argv )
@@ -1839,6 +1877,8 @@ main( int    argc,
         testParallelDecoder( rootFolder / ( "random-128KiB" + extension ) );
         testParallelDecoder( rootFolder / ( "zeros" + extension ) );
     }
+
+    testBgzfWithUnknownFileSize( rootFolder );
 
     for ( const auto* const indexSuffix : { ".index", ".gztool.index", ".gztool.with-lines.index" } ) {
         testParallelDecoder( rootFolder / "base64-256KiB.gz",

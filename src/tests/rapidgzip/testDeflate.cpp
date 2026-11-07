@@ -280,6 +280,34 @@ testAnalyzeTruncatedGzip()
 }
 
 
+void
+testInvalidDeflateErrors()
+{
+    /* BFINAL=1, BTYPE=3 (reserved). readHeader sets the compression type and returns
+     * INVALID_COMPRESSION. read must return the same error instead of throwing std::domain_error. */
+    {
+        const std::vector<uint8_t> data{ 0b00000111 };
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( data ) );
+        deflate::Block<false> block;
+        REQUIRE( block.readHeader( bitReader ) == Error::INVALID_COMPRESSION );
+        REQUIRE( block.read( bitReader, 1024 ).second == Error::INVALID_COMPRESSION );
+    }
+
+    /* A fixed Huffman block with length symbol 257 and reserved distance symbol 30. Decoding the length
+     * symbol then reads the reserved distance code, which must return EXCEEDED_DISTANCE_RANGE instead of
+     * throwing std::logic_error. */
+    {
+        const std::vector<uint8_t> data{ 3, 62 };
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( data ) );
+        deflate::Block<false> block;
+        REQUIRE( block.readHeader( bitReader ) == Error::NONE );
+        const auto [view, error] = block.read( bitReader, 1024 );
+        REQUIRE( error == Error::EXCEEDED_DISTANCE_RANGE );
+        REQUIRE( view.size() == 0U );
+    }
+}
+
+
 int
 main()
 {
@@ -288,6 +316,7 @@ main()
     testFixedHuffmanCoding();
     testTruncatedStoredBlock();
     testAnalyzeTruncatedGzip();
+    testInvalidDeflateErrors();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
