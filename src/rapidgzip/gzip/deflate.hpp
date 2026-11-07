@@ -1194,7 +1194,7 @@ Block<ENABLE_STATISTICS>::getDistance( gzip::BitReader& bitReader ) const
         const auto extraBits = bitReader.read( extraBitsCount );
         distance = distanceLUT[distance] + extraBits;
     } else {
-        throw std::logic_error( "Invalid distance codes encountered!" );
+        return { 0, Error::EXCEEDED_DISTANCE_RANGE };
     }
 
     return { distance, Error::NONE };
@@ -1211,7 +1211,7 @@ Block<ENABLE_STATISTICS>::read( gzip::BitReader& bitReader,
     }
 
     if ( m_compressionType == CompressionType::RESERVED ) {
-        throw std::domain_error( "Invalid deflate compression type!" );
+        return { {}, Error::INVALID_COMPRESSION };
     }
 
     if constexpr ( ENABLE_STATISTICS ) {
