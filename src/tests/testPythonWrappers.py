@@ -332,11 +332,20 @@ def openThroughGlobalFile(name, module):
     return module.open(openedFileForInterfaceTest, parallelization=parallelization)
 
 
-import indexed_bzip2
-from indexed_bzip2 import IndexedBzip2File
-
 import rapidgzip
 from rapidgzip import RapidgzipFile
+
+try:
+    import indexed_bzip2
+    from indexed_bzip2 import IndexedBzip2File
+except ImportError:
+    # The rapidgzip repository does not install the standalone indexed_bzip2 extension. The rapidgzip
+    # module exposes the same bzip2 classes, so use them when explicitly requested. Requiring the
+    # environment variable keeps the librapidarchive tests strict about the standalone package.
+    if os.environ.get('RAPIDGZIP_TEST_USE_RAPIDGZIP_BZIP2') != '1':
+        raise
+    indexed_bzip2 = rapidgzip
+    IndexedBzip2File = rapidgzip.IndexedBzip2File
 
 
 class FileWrapper:
