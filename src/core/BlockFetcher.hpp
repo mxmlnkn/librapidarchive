@@ -565,10 +565,18 @@ private:
                 }
             }
 
+            /* The next block offset is used as an upper bound while decoding. The last block of a finalized
+             * input has no next data block, and waiting for one would prevent it from ever being prefetched.
+             * Decoding a last block without a bound is already done for on-demand requests, so prefetch it
+             * with the same bound. This matters for inputs with only one or two data blocks, where otherwise
+             * the second block cannot be decoded in parallel with the first one. */
+            const auto isLastKnownBlock =
+                m_blockFinder->finalized() && ( blockIndexToPrefetch + 1 >= m_blockFinder->size() );
+
             /* Do not prefetch already cached/prefetched blocks or block indexes which are not yet in the block map. */
             if ( !prefetchBlockOffset.has_value()
                  || ( prefetchGetReturnCode == GetReturnCode::FAILURE )
-                 || !nextPrefetchBlockOffset.has_value()
+                 || ( !nextPrefetchBlockOffset.has_value() && !isLastKnownBlock )
                  || isInCacheOrQueue( *prefetchBlockOffset )
                  || ( getPartitionOffsetFromOffset
                       && isInCacheOrQueue( getPartitionOffsetFromOffset( *prefetchBlockOffset ) ) )
@@ -588,7 +596,9 @@ private:
 
             ++m_statistics.prefetchCount;
             auto prefetchedFuture = m_threadPool.submit(
-                [this, offset = *prefetchBlockOffset, nextOffset = *nextPrefetchBlockOffset] () {
+                [this, offset = *prefetchBlockOffset,
+                 nextOffset = nextPrefetchBlockOffset ? *nextPrefetchBlockOffset
+                                                      : std::numeric_limits<size_t>::max()] () {
                     return decodeAndMeasureBlock( offset, nextOffset );
                 }, /* priority */ 0 );
             const auto [_, wasInserted] = m_prefetching.emplace( *prefetchBlockOffset, std::move( prefetchedFuture ) );
