@@ -1,3 +1,6 @@
+# cython: annotation_typing=False
+# Cython must not interpret the Python annotations below as C type declarations; they are
+# documentation for the public API and must stay Python annotations.
 """
 Cython wrapper for the ParallelGzipReader C++ class.
 """
@@ -20,10 +23,17 @@ import enum
 import io
 import os
 import sys
-from typing import IO
+from typing import Any, Dict, IO, Optional, Union
 
 ctypedef (unsigned long long int) size_t
 ctypedef (long long int) lli
+
+# File arguments accept file names, file descriptors, and binary file objects.
+FileOrPath = Union[int, str, bytes, os.PathLike, IO[bytes]]
+# readinto requires a writable, C-contiguous buffer.
+WritableBuffer = Union[bytearray, memoryview]
+# Index files are file names or binary file objects.
+IndexFile = Union[str, os.PathLike, IO[bytes]]
 
 # We need to ensure that zlib.h is the very first import, or else ZLIB_SYMBOL_PREFIX will wreak havoc because
 # the defines for 'crc32' will also replace stuff such as footer.crc32 but not the declaration!
@@ -31,7 +41,7 @@ cdef extern from "zlib.h":
     pass
 
 
-def _isFileObject(file):
+def _isFileObject(file: Any) -> bool:
     return (
         hasattr(file, 'read') and callable(getattr(file, 'read'))
         and hasattr(file, 'seek') and callable(getattr(file, 'seek'))
@@ -39,7 +49,7 @@ def _isFileObject(file):
         and hasattr(file, 'seekable') and callable(getattr(file, 'seekable'))
     )
 
-def _hasValidFileno(file):
+def _hasValidFileno(file: Any) -> bool:
     if not hasattr(file, 'fileno'):
         return False
 
@@ -100,7 +110,7 @@ cdef extern from "indexed_bzip2/ParallelBZ2Reader.hpp":
 cdef class _IndexedBzip2File():
     cdef BZ2Reader* bz2reader
 
-    def __cinit__(self, file):
+    def __cinit__(self, file: FileOrPath):
         """
         file : can be a file path, a file descriptor, or a file object
                with suitable read, seekable, seek, tell methods.
@@ -132,17 +142,17 @@ cdef class _IndexedBzip2File():
     def __dealloc__(self):
         del self.bz2reader
 
-    def close(self):
+    def close(self) -> None:
         if self.bz2reader != NULL and not self.bz2reader.closed():
             self.bz2reader.close()
 
-    def closed(self):
+    def closed(self) -> bool:
         return self.bz2reader == NULL or self.bz2reader.closed()
 
-    def seekable(self):
+    def seekable(self) -> bool:
         return self.bz2reader != NULL and self.bz2reader.seekable()
 
-    def readinto(self, bytes_like):
+    def readinto(self, bytes_like: WritableBuffer) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
 
@@ -157,44 +167,44 @@ cdef class _IndexedBzip2File():
 
         return bytes_count
 
-    def seek(self, offset, whence = io.SEEK_SET):
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.seek(offset, whence)
 
-    def tell(self):
+    def tell(self) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.tell()
 
-    def size(self):
+    def size(self) -> Optional[int]:
         """Return the uncompressed size in bytes, or None if it is not known yet."""
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         result = self.bz2reader.size()
         return result.value() if result.has_value() else None
 
-    def tell_compressed(self):
+    def tell_compressed(self) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.tellCompressed()
 
-    def block_offsets_complete(self):
+    def block_offsets_complete(self) -> bool:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.blockOffsetsComplete()
 
-    def block_offsets(self):
+    def block_offsets(self) -> Dict[int, int]:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return <dict>self.bz2reader.blockOffsets()
 
-    def available_block_offsets(self):
+    def available_block_offsets(self) -> Dict[int, int]:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return <dict>self.bz2reader.availableBlockOffsets()
 
-    def set_block_offsets(self, offsets):
+    def set_block_offsets(self, offsets: Dict[int, int]) -> None:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.setBlockOffsets(offsets)
@@ -203,7 +213,7 @@ cdef class _IndexedBzip2File():
 cdef class _IndexedBzip2FileParallel():
     cdef ParallelBZ2Reader* bz2reader
 
-    def __cinit__(self, file, parallelization):
+    def __cinit__(self, file: FileOrPath, parallelization: int):
         """
         file : can be a file path, a file descriptor, or a file object
                with suitable read, seekable, seek, tell methods.
@@ -235,19 +245,19 @@ cdef class _IndexedBzip2FileParallel():
         self.close()
         del self.bz2reader
 
-    def close(self):
+    def close(self) -> None:
         if self.bz2reader != NULL and not self.bz2reader.closed():
             self.bz2reader.close()
 
-    def closed(self):
+    def closed(self) -> bool:
         return self.bz2reader == NULL or self.bz2reader.closed()
 
-    def seekable(self):
+    def seekable(self) -> bool:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader != NULL and self.bz2reader.seekable()
 
-    def readinto(self, bytes_like):
+    def readinto(self, bytes_like: WritableBuffer) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
 
@@ -262,49 +272,49 @@ cdef class _IndexedBzip2FileParallel():
 
         return bytes_count
 
-    def seek(self, offset, whence = io.SEEK_SET):
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.seek(offset, whence)
 
-    def tell(self):
+    def tell(self) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.tell()
 
-    def size(self):
+    def size(self) -> Optional[int]:
         """Return the uncompressed size in bytes, or None if it is not known yet."""
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         result = self.bz2reader.size()
         return result.value() if result.has_value() else None
 
-    def tell_compressed(self):
+    def tell_compressed(self) -> int:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.tellCompressed()
 
-    def block_offsets_complete(self):
+    def block_offsets_complete(self) -> bool:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.blockOffsetsComplete()
 
-    def block_offsets(self):
+    def block_offsets(self) -> Dict[int, int]:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return <dict>self.bz2reader.blockOffsets()
 
-    def available_block_offsets(self):
+    def available_block_offsets(self) -> Dict[int, int]:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return <dict>self.bz2reader.availableBlockOffsets()
 
-    def set_block_offsets(self, offsets):
+    def set_block_offsets(self, offsets: Dict[int, int]) -> None:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.setBlockOffsets(offsets)
 
-    def join_threads(self):
+    def join_threads(self) -> None:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.joinThreads()
@@ -312,7 +322,7 @@ cdef class _IndexedBzip2FileParallel():
 # Extra class because cdefs are not visible from outside but cdef class can't inherit from io.BufferedIOBase
 
 class IndexedBzip2FileRaw(io.RawIOBase):
-    def __init__(self, filename, parallelization = 1):
+    def __init__(self, filename: FileOrPath, parallelization: int = 1) -> None:
         self.bz2reader = _IndexedBzip2File(filename) if parallelization == 1 \
                          else _IndexedBzip2FileParallel(filename, parallelization)
         self.name = filename
@@ -328,18 +338,18 @@ class IndexedBzip2FileRaw(io.RawIOBase):
 
         # IOBase provides sane default implementations for read, readline, readlines, readall, ...
 
-    def close(self):
+    def close(self) -> None:
         if self.closed:
             return
         super().close()
         self.bz2reader.close()
 
-    def readable(self):
+    def readable(self) -> bool:
         return True
 
 
 class IndexedBzip2File(io.BufferedReader):
-    def __init__(self, filename, parallelization = 1):
+    def __init__(self, filename: FileOrPath, parallelization: int = 1) -> None:
         fobj = IndexedBzip2FileRaw(filename, parallelization)
         self.bz2reader = fobj.bz2reader
 
@@ -424,12 +434,12 @@ cdef class _RapidgzipFile():
 
     def __cinit__(
         self,
-        file,
+        file: FileOrPath,
         *,  # Force named arguments
-        parallelization,
-        chunk_size = 4 * 1024 * 1024,
-        io_read_method = IOReadMethod.PREAD,
-        verbose = False,
+        parallelization: int,
+        chunk_size: int = 4 * 1024 * 1024,
+        io_read_method: IOReadMethod = IOReadMethod.PREAD,
+        verbose: bool = False,
     ):
         """
         file : can be a file path, a file descriptor, or a file object
@@ -485,17 +495,17 @@ cdef class _RapidgzipFile():
             del self.gzipReader
             self.gzipReader = NULL
 
-    def close(self):
+    def close(self) -> None:
         if self.gzipReader != NULL and not self.gzipReader.closed():
             self.gzipReader.close()
 
-    def closed(self):
+    def closed(self) -> bool:
         return self.gzipReader == NULL or self.gzipReader.closed()
 
-    def seekable(self):
+    def seekable(self) -> bool:
         return self.gzipReader != NULL and self.gzipReader.seekable()
 
-    def readinto(self, bytes_like):
+    def readinto(self, bytes_like: WritableBuffer) -> int:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
 
@@ -511,44 +521,44 @@ cdef class _RapidgzipFile():
 
         return bytes_count
 
-    def seek(self, offset, whence = io.SEEK_SET):
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         return self.gzipReader.seek(offset, whence)
 
-    def tell(self):
+    def tell(self) -> int:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         return self.gzipReader.tell()
 
-    def size(self):
+    def size(self) -> Optional[int]:
         """Return the uncompressed size in bytes, or None if it is not known yet."""
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         result = self.gzipReader.size()
         return result.value() if result.has_value() else None
 
-    def tell_compressed(self):
+    def tell_compressed(self) -> int:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         return self.gzipReader.tellCompressed()
 
-    def block_offsets_complete(self):
+    def block_offsets_complete(self) -> bool:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         return self.gzipReader.blockOffsetsComplete()
 
-    def block_offsets(self):
+    def block_offsets(self) -> Dict[int, int]:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         return self.gzipReader.blockOffsets()
 
-    def available_block_offsets(self):
+    def available_block_offsets(self) -> Dict[int, int]:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
         return self.gzipReader.availableBlockOffsets()
 
-    def import_index(self, file):
+    def import_index(self, file: IndexFile) -> None:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
 
@@ -557,7 +567,7 @@ cdef class _RapidgzipFile():
                 return self.gzipReader.importIndex(<PyObject*>fileObject)
         return self.gzipReader.importIndex(<PyObject*>file)
 
-    def export_index(self, file, index_format = IndexFormat.INDEXED_GZIP):
+    def export_index(self, file: IndexFile, index_format: IndexFormat = IndexFormat.INDEXED_GZIP) -> None:
         if not self.gzipReader:
             raise Exception("Invalid file object!")
 
@@ -566,11 +576,11 @@ cdef class _RapidgzipFile():
                 return self.gzipReader.exportIndex(<PyObject*>fileObject, index_format)
         return self.gzipReader.exportIndex(<PyObject*>file, index_format)
 
-    def join_threads(self):
+    def join_threads(self) -> None:
         if self.gzipReader:
             return self.gzipReader.joinThreads()
 
-    def readall(self):
+    def readall(self) -> Optional[bytes]:
         if not self.gzipReader:
             return None
 
@@ -597,15 +607,15 @@ cdef class _RapidgzipFile():
             return result
         return result[:offset]
 
-    def file_type(self):
+    def file_type(self) -> Optional[str]:
         if self.gzipReader:
             return self.gzipReader.fileTypeAsString().decode()
 
-    def set_deflate_stream_crc32s(self, crc32s):
+    def set_deflate_stream_crc32s(self, crc32s: Dict[int, int]) -> None:
         if self.gzipReader:
             self.gzipReader.setDeflateStreamCRC32s(crc32s)
 
-    def add_deflate_stream_crc32(self, end_of_stream_offset_in_bytes, crc32):
+    def add_deflate_stream_crc32(self, end_of_stream_offset_in_bytes: int, crc32: int) -> None:
         if self.gzipReader:
             self.gzipReader.addDeflateStreamCRC32(end_of_stream_offset_in_bytes, crc32)
 
@@ -619,13 +629,13 @@ cdef class _RapidgzipFile():
 class RapidgzipFile(io.RawIOBase):
     def __init__(
         self,
-        filename,
-        parallelization = 0,
+        filename: FileOrPath,
+        parallelization: int = 0,
         *,  # Force named arguments
-        chunk_size = 4 * 1024 * 1024,
-        io_read_method = IOReadMethod.PREAD,
-        verbose = False,
-    ):
+        chunk_size: int = 4 * 1024 * 1024,
+        io_read_method: IOReadMethod = IOReadMethod.PREAD,
+        verbose: bool = False,
+    ) -> None:
         self.gzipReader = _RapidgzipFile(
             filename,
             parallelization=parallelization,
@@ -659,14 +669,14 @@ class RapidgzipFile(io.RawIOBase):
 
         # IOBase provides sane default implementations for read, readline, readlines, ...
 
-    def read(self, size = -1):
+    def read(self, size: Optional[int] = -1) -> bytes:
         if size is None:
             size = -1
         if size < 0:
             return self.readall()
         return super().read(size)
 
-    def readall(self):
+    def readall(self) -> Optional[bytes]:
         # io.RawIOBase.readall uses io.DEFAULT_BUFFER_SIZE (8 KiB) chunks. See
         # https://github.com/python/cpython/issues/85624. Preallocate the known size instead.
         result = self.gzipReader.readall()
@@ -683,16 +693,16 @@ class RapidgzipFile(io.RawIOBase):
             chunks.append(bytes(buffer[:nBytesRead]))
         return b''.join(chunks)
 
-    def close(self):
+    def close(self) -> None:
         if self.closed:
             return
         super().close()
         self.gzipReader.close()
 
-    def readable(self):
+    def readable(self) -> bool:
         return True
 
-    def peek(self, size=0):
+    def peek(self, size: int = 0) -> bytes:
         oldOffset = self.tell()
         try:
             result = self.read(size)
@@ -701,7 +711,7 @@ class RapidgzipFile(io.RawIOBase):
         return result
 
 
-def open(filename, parallelization = 0, verbose = False):
+def open(filename: FileOrPath, parallelization: int = 0, verbose: bool = False) -> RapidgzipFile:
     """
     filename: can be a file path, a file descriptor, or a file object
               with suitable read, seekable, seek, and tell methods.
@@ -709,7 +719,7 @@ def open(filename, parallelization = 0, verbose = False):
     return RapidgzipFile(filename, parallelization=parallelization, verbose=verbose)
 
 
-def determineFileType(fileOrPath: Union[int, bytes, str, os.PathLike, IO[bytes]]):
+def determineFileType(fileOrPath: FileOrPath) -> str:
     if isinstance(fileOrPath, (int, bytes, str, os.PathLike)):
         with builtins.open(fileOrPath, "rb") as file:
             return determineFileTypeAsString(<PyObject*>file).decode()
@@ -718,7 +728,7 @@ def determineFileType(fileOrPath: Union[int, bytes, str, os.PathLike, IO[bytes]]
     raise ValueError("Expected file name string, file descriptor integer, or file-like object!")
 
 
-def cli():
+def cli() -> None:
     args = sys.argv
     cdef char** cargs = <char**> malloc(len(args) * sizeof(char*))
     cdef vector[Py_buffer] buffers
@@ -736,7 +746,7 @@ def cli():
             PyBuffer_Release(&buffer)
 
 
-def ibzip2_cli():
+def ibzip2_cli() -> None:
     args = sys.argv
     cdef char** cargs = <char**> malloc(len(args) * sizeof(char*))
     cdef vector[Py_buffer] buffers
