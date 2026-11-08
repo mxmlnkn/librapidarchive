@@ -546,6 +546,53 @@ testJoinThreadsMidStream( const std::string& decodedTestFilePath,
 }
 
 
+void
+testExactDecodedSize( const std::filesystem::path& tmpFolder )
+{
+    /* Runs at and around the RLE1 boundaries. A run of 4..255 identical bytes is stored as the four
+     * bytes followed by a count byte and decodes to 4 + count bytes. Shorter runs stay literals, and
+     * runs of 256 or more are split. The exact-size scan must agree with decodeBlock for all of them,
+     * otherwise the preallocated output buffer is either too small or exposes uninitialized bytes. */
+    std::vector<char> expected;
+    const std::vector<size_t> runLengths{ 1, 2, 3, 4, 5, 254, 255, 256, 259, 260, 516, 517 };
+    for ( size_t repeat = 0; repeat < 400; ++repeat ) {
+        for ( const auto runLength : runLengths ) {
+            expected.insert( expected.end(), runLength, 'A' );
+            expected.emplace_back( 'B' );
+        }
+    }
+
+    const auto decodedPath = tmpFolder / "exact-size-decoded";
+    const auto encodedPath = tmpFolder / "exact-size.bz2";
+    {
+        std::ofstream file( decodedPath, std::ios::binary );
+        file.write( expected.data(), static_cast<std::streamsize>( expected.size() ) );
+    }
+
+    const auto command = "bzip2 -9 -c -- '" + decodedPath.string() + "' > '" + encodedPath.string() + "'";
+    if ( std::system( command.c_str() ) != 0 ) {
+        std::cerr << "Failed to compress exact-size test file\n";
+        REQUIRE( false );
+        return;
+    }
+
+    for ( const auto parallelization : { 1U, 2U, 8U } ) {
+        ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( encodedPath.string() ), parallelization );
+
+        std::vector<char> decoded;
+        std::vector<char> buffer( 4_Ki );
+        while ( const auto nBytesRead = reader.read( buffer.data(), buffer.size() ) ) {
+            decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+        }
+
+        REQUIRE_EQUAL( decoded.size(), expected.size() );
+        REQUIRE( std::equal( decoded.begin(), decoded.end(), expected.begin(), expected.end() ) );
+        REQUIRE( reader.size().has_value() );
+        REQUIRE_EQUAL( *reader.size(), expected.size() );
+    }
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -574,6 +621,8 @@ main( int    argc,
     testTruncatedStreamWithoutBlocks();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testParallelBZ2Reader" );
+
+    testExactDecodedSize( tmpFolder.path() );
 
     const auto decodedTestFilePath = tmpFolder.path() / "decoded";
     createRandomTextFile( decodedTestFilePath.string(), 2_Mi );

@@ -485,6 +485,16 @@ public:
         return bwdata.headerCRC;
     }
 
+    /**
+     * Scan the RLE1-encoded BWT output once to determine the exact decoded size of this block.
+     * This is only valid after readBlockData(), which produces the RLE1-encoded output.
+     */
+    [[nodiscard]] size_t
+    decodedSize() const noexcept
+    {
+        return bwdata.decodedSize();
+    }
+
 private:
     template<uint8_t nBits>
     [[nodiscard]] uint32_t
@@ -547,6 +557,60 @@ public:
                 return ( inverseBWT->position < writeCount ) || ( inverseBWT->repeatCount > 0 );
             }
             return ( writeCount > 0 ) || ( symbolRepeatCount > 0 );
+        }
+
+        /**
+         * @return The number of bytes that decodeBlock will produce, i.e., the result of expanding the
+         *         RLE1 runs in bwtData. A run consists of four identical bytes followed by a count byte
+         *         and decodes to 4 + count bytes. Runs shorter than five bytes at the end are literals.
+         */
+        [[nodiscard]] size_t
+        decodedSize() const noexcept
+        {
+            size_t decodedSize = 0;
+            uint32_t position = 0;
+
+        #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+            /* Test four shifted 16-byte windows at once to find the next run start. Positions before it
+             * are literals, which avoids one branch and comparison per byte for literal-heavy blocks. */
+            while ( position + 20 <= writeCount ) {
+                const auto* const source = bwtData.get() + position;
+                const auto v0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source ) );
+                const auto v1 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 1 ) );
+                const auto v2 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 2 ) );
+                const auto v3 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 3 ) );
+                const auto equal = _mm_and_si128( _mm_and_si128( _mm_cmpeq_epi8( v0, v1 ),
+                                                                 _mm_cmpeq_epi8( v0, v2 ) ),
+                                                  _mm_cmpeq_epi8( v0, v3 ) );
+                const auto runStartMask = static_cast<uint32_t>( _mm_movemask_epi8( equal ) );
+                if ( runStartMask == 0 ) {
+                    decodedSize += 16;
+                    position += 16;
+                    continue;
+                }
+
+                const auto literalCount = static_cast<uint32_t>( rapidgzip::trailingZeroCount( runStartMask ) );
+                decodedSize += literalCount;
+                position += literalCount;
+                decodedSize += 4 + bwtData[position + 4];
+                position += 5;
+            }
+        #endif
+
+            for ( ; position < writeCount; ) {
+                const auto byte = bwtData[position];
+                if ( ( position + 4 < writeCount )
+                     && ( bwtData[position + 1] == byte )
+                     && ( bwtData[position + 2] == byte )
+                     && ( bwtData[position + 3] == byte ) ) {
+                    decodedSize += 4 + bwtData[position + 4];
+                    position += 5;
+                } else {
+                    ++decodedSize;
+                    ++position;
+                }
+            }
+            return decodedSize;
         }
 
     private:

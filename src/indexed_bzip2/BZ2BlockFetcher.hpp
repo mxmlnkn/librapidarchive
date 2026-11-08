@@ -63,9 +63,11 @@ public:
                      std::shared_ptr<typename BaseType::BlockFinder> blockFinder,
                      size_t                                          parallelization ) :
         BaseType( std::move( blockFinder ), parallelization ),
-        m_bitReader( bitReader ),
-        m_blockSize100k( bzip2::readBzip2Header( bitReader ) )
-    {}
+        m_bitReader( bitReader )
+    {
+        /* Validate and consume the stream header so that the block offsets found later are meaningful. */
+        bzip2::readBzip2Header( bitReader );
+    }
 
     ~BZ2BlockFetcher() override
     {
@@ -170,26 +172,26 @@ private:
 
         block.readBlockData();
 
+        /* A block may expand to tens of MiB (a run of 4 + count bytes can represent up to 255 input
+         * bytes), so the size cannot be derived from the block size in the stream header. Scanning the
+         * RLE1 output once is much cheaper than repeatedly growing the output buffer, which copied and
+         * value-initialized several times the final size. */
+        const auto decodedSize = block.decodedSize();
+        result.data.resize( decodedSize );
+
         size_t decodedDataSize = 0;
         do
         {
-            /* Increase buffer for next batch. Unfortunately we can't find the perfect size beforehand because
-             * we don't know the amount of decoded bytes in the block. */
-            /** @todo We do have that information after the block index has been built! */
-            if ( result.data.empty() ) {
-                /* Just a guess to avoid reallocations at smaller sizes. Must be >= 255 though because the decodeBlock
-                 * method might return up to 255 copies caused by the runtime length decoding! */
-                result.data.resize( m_blockSize100k * 100'000 + 255 );
-            } else {
-                result.data.resize( result.data.size() * 2 );
-            }
-
             decodedDataSize += block.read(
-                result.data.size() - 255U - decodedDataSize,
+                result.data.size() - decodedDataSize,
                 reinterpret_cast<char*>( result.data.data() ) + decodedDataSize
             );
         }
-        while ( !block.eob() );
+        while ( !block.eob() && ( decodedDataSize < result.data.size() ) );
+
+        if ( !block.eob() ) {
+            throw std::logic_error( "[BZip2 block data] Decoded size does not match the RLE1 scan!" );
+        }
 
         result.data.resize( decodedDataSize );
         result.encodedSizeInBits = block.encodedSizeInBits;
@@ -208,7 +210,6 @@ private:
 private:
     /* Variables required by decodeBlock and which therefore should be either const or locked. */
     const BitReader m_bitReader;
-    uint8_t m_blockSize100k;
     const std::shared_ptr<rapidgzip::ReusableBufferPool<uint8_t> > m_bufferPool{
         std::make_shared<rapidgzip::ReusableBufferPool<uint8_t> >()
     };
