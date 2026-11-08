@@ -56,6 +56,34 @@ def supportsFlag(compiler, flag):
 # https://github.com/cython/cython/blob/master/docs/src/tutorial/appendix.rst#python-38
 class Build(build_ext):
     def build_extensions(self):
+        oldCompile = self.compiler.compile
+
+        def newCompile(sources, *args, **kwargs):
+            cSources = [source for source in sources if source.endswith('.c')]
+            cppSources = [source for source in sources if not source.endswith('.c')]
+            if not cSources:
+                return oldCompile(sources, *args, **kwargs)
+
+            cppCompileArgs = [
+                '-fconstexpr-ops-limit=99000100',
+                '-fconstexpr-steps=99000100',
+                '-std=c++17',
+                '/std:c++17',
+            ]
+            cppPostArgs = kwargs.get('extra_postargs', [])
+            cPostArgs = [argument for argument in cppPostArgs if argument not in cppCompileArgs]
+
+            objects = oldCompile(cppSources, *args, **kwargs) if cppSources else []
+            if 'extra_postargs' in kwargs:
+                kwargs['extra_postargs'] = cPostArgs
+            for cSource in cSources:
+                objects.extend(oldCompile([cSource], *args, **kwargs))
+            if 'extra_postargs' in kwargs:
+                kwargs['extra_postargs'] = cppPostArgs
+            return objects
+
+        self.compiler.compile = newCompile
+
         for ext in self.extensions:
             ext.extra_compile_args = [
                 '-std=c++17',

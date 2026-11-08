@@ -174,6 +174,16 @@ updateCRC32SliceByN( uint32_t       crc,
 }
 
 
+[[nodiscard]] inline uint32_t
+updateCRC32( uint32_t    crc,
+             const char* data,
+             size_t      size ) noexcept
+{
+    return updateCRC32SliceByN<BZIP2_CRC_SLICES>(
+        crc, reinterpret_cast<const uint8_t*>( data ), size );
+}
+
+
 /* Constants for huffman coding */
 static constexpr uint32_t MAX_GROUPS = 6;
 static constexpr int GROUP_SIZE = 50;       /* 64 would have been more efficient */
@@ -959,7 +969,7 @@ Block::BurrowsWheelerTransformData::prepare()
         bwtData.data(), bwtData.data(), reinterpret_cast<int32_t*>( dbuf.data() ),
         static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) );
     if ( error == 0 ) {
-        inverseBWT.emplace();
+        inverseBWT = InverseBWTData{};
         std::vector<uint32_t>().swap( dbuf );
         return;
     }
@@ -1018,7 +1028,6 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 const auto nBytesToRepeat = std::min( state.repeatCount, nMaxBytesToDecode - nBytesDecoded );
                 for ( size_t i = 0; i < nBytesToRepeat; ++i ) {
                     outputBuffer[nBytesDecoded++] = static_cast<char>( state.repeatByte );
-                    crc = updateCRC32( crc, state.repeatByte );
                 }
                 state.repeatCount -= nBytesToRepeat;
                 continue;
@@ -1039,7 +1048,6 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 state.position += 5;
             } else {
                 outputBuffer[nBytesDecoded++] = static_cast<char>( byte );
-                crc = updateCRC32( crc, byte );
                 ++state.position;
             }
         }
@@ -1050,7 +1058,6 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 while ( ( symbolRepeatCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
                     --symbolRepeatCount;
                     outputBuffer[nBytesDecoded++] = static_cast<char>( symbolToRepeat );
-                    crc = updateCRC32( crc, symbolToRepeat );
                 }
             };
 
@@ -1068,7 +1075,6 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
             /* Whenever we see 3 consecutive copies of the same byte, the 4th is a repeat count */
             if ( writeRun < 3 ) {
                 outputBuffer[nBytesDecoded++] = static_cast<char>( writeCurrent );
-                crc = updateCRC32( crc, writeCurrent );
                 if ( writeCurrent != previous ) {
                     writeRun = 0;
                 } else {
@@ -1084,6 +1090,9 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
         }
     }
 
+    /* The bytes of this call are contiguous in outputBuffer, so the CRC can be computed in one slicing
+     * pass after the run expansion instead of interleaved with it. */
+    crc = updateCRC32( crc, outputBuffer, nBytesDecoded );
     dataCRC = crc;
 
     /* decompression of this block completed successfully */
