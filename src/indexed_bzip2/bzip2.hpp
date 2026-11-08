@@ -205,6 +205,62 @@ using BitReader = rapidgzip::BitReader<true, uint64_t>;
 
 
 /**
+ * bzip2's Move-to-Front (MTF) list for the block data. Eight symbols are packed into one 64-bit word, with the
+ * symbol at list position p stored in byte p % 8 of word p / 8. This avoids the variable-length memmove that
+ * otherwise dominates the literal path for alphabets with a uniform MTF index distribution such as base64.
+ */
+using PackedMTF = std::array<uint64_t, 256 / 8>;
+
+
+[[nodiscard]] constexpr PackedMTF
+createPackedMTF() noexcept
+{
+    PackedMTF result{};
+    for ( size_t word = 0; word < result.size(); ++word ) {
+        uint64_t value = 0;
+        for ( size_t byte = 0; byte < 8; ++byte ) {
+            value |= static_cast<uint64_t>( word * 8 + byte ) << ( byte * 8 );
+        }
+        result[word] = value;
+    }
+    return result;
+}
+
+
+/**
+ * @return the symbol byte that is now at the front of the list.
+ *
+ * The packed representation stores the list in the same byte order as a plain array, so the first 64 positions
+ * can be updated as four 16-byte vectors. For alphabets with a uniform MTF index (base64 after BWT, for example),
+ * the scalar word loop exits a data-dependent number of times and therefore mispredicts on almost every literal.
+ * The vector path shifts all 64 positions unconditionally and blends with a byte mask, which removes that branch
+ * at the cost of some extra work for small indices.
+ */
+[[nodiscard]] forceinline uint8_t
+moveToFront( PackedMTF&   mtf,
+             const size_t position ) noexcept
+{
+
+    const auto wordIndex = position >> 3;  // equivalent to division by sizeof( PackedMTF::value_type )
+    const auto shift = static_cast<uint32_t>( ( position & 7U ) * 8U );
+    uint64_t previous = ( mtf[wordIndex] >> shift ) & 0xFFU;
+
+    for ( size_t i = 0; i < wordIndex; ++i ) {
+        const auto current = mtf[i];
+        mtf[i] = ( current << 8U ) | previous;
+        previous = current >> 56U;
+    }
+
+    const auto current = mtf[wordIndex];
+    /* 0x100 << 56 overflows to zero for unsigned, which would give the correct all-ones mask,
+     * but spell it out so that the shift is never out of range. */
+    const auto mask = shift == 56U ? ~uint64_t( 0 ) : ( ( uint64_t( 0x100 ) << shift ) - 1U );
+    mtf[wordIndex] = ( current & ~mask ) | ( ( ( current << 8U ) | previous ) & mask );
+    return static_cast<uint8_t>( mtf.front() );
+}
+
+
+/**
  * @return 1..9 representing the bzip2 block size of 100k to 900k
  */
 inline uint8_t
@@ -554,7 +610,10 @@ private:
      * back to the corresponding bytes.
      */
     std::array<uint8_t, 256> symbolToByte{};
+    /** Used for the selectors, which are decoded before the block data. */
     std::array<uint8_t, 256> mtfSymbol{};
+    /** Used for the block data, which has a much larger and less skewed index distribution. */
+    PackedMTF mtfPacked{};
     unsigned int symbolCount{ 0 };
     /**
      * Every GROUP_SIZE many symbols we switch huffman coding tables.
@@ -818,7 +877,8 @@ Block::readBlockData()
     // and run length encoding, saving the result into bwtData[bwtDataCount++] = uc
 
     bwdata.byteCount.fill( 0 );
-    std::iota( mtfSymbol.begin(), mtfSymbol.end(), 0 );
+    static constexpr auto PACKED_MTF_INITIAL = createPackedMTF();
+    mtfPacked = PACKED_MTF_INITIAL;
 
     const auto t0 = rapidgzip::now();
     /** @note The loops inside this for-loop are all too short to be profiled.
@@ -889,7 +949,7 @@ Block::readBlockData()
                 throw std::domain_error( std::move( msg ).str() );
             }
 
-            const auto uc = symbolToByte[mtfSymbol[0]];
+            const auto uc = symbolToByte[mtfPacked[0] & 0xFFU];
             bwdata.byteCount[uc] += hh;
             while ( hh-- != 0 ) {
                 bwdata.bwtData[bwtDataCount++] = uc;
@@ -913,11 +973,7 @@ Block::readBlockData()
                 << " >= " << MAX_BLOCK_SIZE << " maximum block size";
             throw std::domain_error( std::move( msg ).str() );
         }
-        const int ii = nextSym - 1;
-        auto uc = mtfSymbol[ii];
-        std::memmove( mtfSymbol.data() + 1, mtfSymbol.data(), ii );
-        mtfSymbol[0] = uc;
-        uc = symbolToByte[uc];
+        const auto uc = symbolToByte[moveToFront( mtfPacked, nextSym - 1 )];
 
         // We have our literal byte.  Save it into bwtData.
         bwdata.byteCount[uc]++;
