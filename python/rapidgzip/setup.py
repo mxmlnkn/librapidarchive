@@ -63,6 +63,7 @@ def getDependencyOption(key, default='enable'):
 withCxxopts = getDependencyOption('CXXOPTS')
 withIsal = getDependencyOption('ISAL')
 withRpmalloc = getDependencyOption('RPMALLOC')
+withRpmallocStatistics = getDependencyOption('RPMALLOC_STATISTICS', default='disable')
 withZlibng = getDependencyOption('ZLIB')
 
 # rpmalloc 2.0.2 does not support 32-bit builds.
@@ -98,6 +99,7 @@ print("Final rapidgzip build configuration:")
 print(f"  isal: {withIsal}")
 print(f"  zlib-ng: {withZlibng}")
 print(f"  rpmalloc: {withRpmalloc}")
+print(f"  rpmalloc statistics: {withRpmallocStatistics}")
 print(f"  cxxopts: {withCxxopts}")
 print(f"  abi3: {withAbi3}")
 
@@ -367,6 +369,8 @@ class Build(build_ext):
                             kwargs['extra_postargs'] = postArgs + [
                                 argument.replace('c++17', 'c17') for argument in cppPostArgs if 'c++17' in argument
                             ]
+                            if withRpmallocStatistics == 'enable':
+                                kwargs['extra_postargs'].append('-DENABLE_STATISTICS=1')
                         else:
                             kwargs['extra_postargs'] = postArgs
                     objects.extend(oldCompile([cSource], *args, **kwargs))
@@ -430,6 +434,8 @@ class Build(build_ext):
             defines["ZLIB_COMPAT"] = None
         if withAbi3:
             defines["Py_LIMITED_API"] = abi3Version
+        if withRpmallocStatistics == 'enable':
+            defines["LIBRAPIDARCHIVE_RPMALLOC_STATISTICS"] = None
 
         for ext in self.extensions:
             ext.extra_compile_args = [

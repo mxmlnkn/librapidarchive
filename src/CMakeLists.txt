@@ -42,7 +42,10 @@ if(LIBRAPIDARCHIVE_WITH_RPMALLOC)
 
     option(ENABLE_RPMALLOC_STATISTICS "Enables statistics for rpmalloc" OFF)
     if (ENABLE_RPMALLOC_STATISTICS)
+        # ENABLE_STATISTICS is an rpmalloc-internal name and collides with the project's own template
+        # parameter, so keep it private to rpmalloc.c. The unique project define selects the dump in FasterVector.
         target_compile_definitions(rpmalloc PRIVATE -DENABLE_STATISTICS=1)
+        target_compile_definitions(rpmalloc PUBLIC -DLIBRAPIDARCHIVE_RPMALLOC_STATISTICS=1)
     endif()
 endif()
 
