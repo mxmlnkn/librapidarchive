@@ -13,7 +13,7 @@
 
 </div>
 
-This repository contains the code for the [`indexed_bzip2`](python/indexed_bzip2) and [`rapidgzip`](https://github.com/mxmlnkn/rapidgzip) Python modules.
+This repository contains the code for the [`indexed_bzip2`](python/indexed_bzip2) / `ibzip2` and [`rapidgzip`](https://github.com/mxmlnkn/rapidgzip) Python modules.
 Both are built upon the same basic architecture to enable block-parallel decoding based on prefetching and caching.
 
 <div align="center">
@@ -53,7 +53,7 @@ The author's version can be found [here](<results/paper/Knespel, Brunst - 2023 -
 
 <div align="center">
 
-# indexed_bzip2
+# indexed_bzip2 / ibzip2
 
 [![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/master/python/indexed_bzip2/CHANGELOG.md)
 [![PyPI version](https://badge.fury.io/py/indexed-bzip2.svg)](https://badge.fury.io/py/indexed-bzip2)
