@@ -14,6 +14,12 @@ option(LIBRAPIDARCHIVE_USE_ZLIB_NG
 option(LIBRAPIDARCHIVE_WITH_RPMALLOC "Compile with rpmalloc for faster memory allocations" ON)
 option(LIBRAPIDARCHIVE_WITH_ISAL "Compile with ISA-l for more than twice as fast decompression than zlib" ON)
 option(LIBRAPIDARCHIVE_RUN_CLANG_TIDY "Runs clang-tidy while building targets" OFF)
+set(LIBRAPIDARCHIVE_BZIP2_CRC_SLICES "8" CACHE STRING
+    "Number of bytes per bzip2 CRC slicing iteration. Must be 1, 4, or 8.")
+if(NOT LIBRAPIDARCHIVE_BZIP2_CRC_SLICES MATCHES "^(1|4|8)$")
+    message(FATAL_ERROR "LIBRAPIDARCHIVE_BZIP2_CRC_SLICES must be 1, 4, or 8, not "
+                        "'${LIBRAPIDARCHIVE_BZIP2_CRC_SLICES}'.")
+endif()
 
 if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
     set(LIBRAPIDARCHIVE_WITH_RPMALLOC OFF)

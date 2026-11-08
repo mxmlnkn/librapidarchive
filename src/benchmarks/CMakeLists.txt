@@ -69,6 +69,10 @@ add_executable(benchmarkBzip2)
 target_sources(benchmarkBzip2 PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkBzip2.cpp)
 target_link_libraries(benchmarkBzip2 PRIVATE indexed_bzip2_parallel)
 
+add_executable(benchmarkBzip2CRC)
+target_sources(benchmarkBzip2CRC PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkBzip2CRC.cpp)
+target_link_libraries(benchmarkBzip2CRC PRIVATE indexed_bzip2)
+
 add_executable(benchmarkGzipDecode)
 target_sources(benchmarkGzipDecode PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkGzipDecode.cpp)
 target_link_libraries(benchmarkGzipDecode PRIVATE librapidgzip)

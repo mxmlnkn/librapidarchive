@@ -7,6 +7,8 @@ target_sources(indexed_bzip2 INTERFACE
 )
 target_link_libraries(indexed_bzip2 INTERFACE core libhuffman)
 target_compile_features(indexed_bzip2 INTERFACE cxx_std_17)
+target_compile_definitions(indexed_bzip2 INTERFACE
+    LIBRAPIDARCHIVE_BZIP2_CRC_SLICES=${LIBRAPIDARCHIVE_BZIP2_CRC_SLICES})
 
 
 add_library(indexed_bzip2_parallel INTERFACE)
@@ -20,3 +22,5 @@ target_sources(indexed_bzip2_parallel INTERFACE
 )
 target_link_libraries(indexed_bzip2_parallel INTERFACE core libhuffman Threads::Threads)
 target_compile_features(indexed_bzip2_parallel INTERFACE cxx_std_17)
+target_compile_definitions(indexed_bzip2_parallel INTERFACE
+    LIBRAPIDARCHIVE_BZIP2_CRC_SLICES=${LIBRAPIDARCHIVE_BZIP2_CRC_SLICES})

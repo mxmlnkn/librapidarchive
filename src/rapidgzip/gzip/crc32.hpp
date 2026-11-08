@@ -63,10 +63,10 @@ static constexpr size_t MAX_CRC32_SLICE_SIZE = 64;
  * @note LUT[n + 1] contains the CRC32 of a byte steam consisting of n zero-bytes.
  * Size: 64 * 256 * 32 bit = 64 KiB
  */
-alignas( 8 ) static constexpr std::array<std::array<uint32_t, 256>, MAX_CRC32_SLICE_SIZE> CRC32_SLICE_BY_N_LUT =
+alignas( 8 ) static constexpr std::array<CRC32LookupTable, MAX_CRC32_SLICE_SIZE> CRC32_SLICE_BY_N_LUT =
     [] ()
     {
-        std::array<std::array<uint32_t, 256>, MAX_CRC32_SLICE_SIZE> lut{};
+        std::array<CRC32LookupTable, MAX_CRC32_SLICE_SIZE> lut{};
         lut[0] = CRC32_TABLE;
         for ( size_t i = 0; i < lut[0].size(); ++i ) {
             for ( size_t j = 1; j < lut.size(); ++j ) {
