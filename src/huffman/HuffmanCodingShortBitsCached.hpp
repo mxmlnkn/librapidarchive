@@ -36,6 +36,11 @@ public:
     using BitCount = typename BaseType::BitCount;
     using CodeLengthFrequencies = typename BaseType::CodeLengthFrequencies;
 
+    /** Cache entries store the code length in the upper 16 bits and the symbol in the lower 16 bits. */
+    static constexpr uint32_t ENTRY_LENGTH_SHIFT = 16;
+    static constexpr uint32_t SYMBOL_MASK = 0xFFFFU;
+    static constexpr uint32_t INVALID_SYMBOL = 0xFFFFFFFFU;
+
 public:
     [[nodiscard]] constexpr Error
     initializeFromLengths( const VectorView<BitCount>& codeLengths )
@@ -53,7 +58,7 @@ public:
         if ( m_needsToBeZeroed ) {
             // Works constexpr
             for ( size_t symbol = 0; symbol < m_codeCache.size(); ++symbol ) {
-                m_codeCache[symbol].length = 0;
+                m_codeCache[symbol] = 0;
             }
         }
 
@@ -77,16 +82,16 @@ public:
                 assert( maximumPaddedCode < m_codeCache.size() );
                 const auto increment = static_cast<HuffmanCode>( HuffmanCode( 1 ) << length );
                 for ( auto paddedCode = reversedCode; paddedCode <= maximumPaddedCode; paddedCode += increment ) {
-                    m_codeCache[paddedCode].length = length;
-                    m_codeCache[paddedCode].symbol = static_cast<Symbol>( symbol );
+                    m_codeCache[paddedCode] = ( static_cast<uint32_t>( length ) << ENTRY_LENGTH_SHIFT )
+                                              | static_cast<uint32_t>( symbol );
                 }
             } else {
                 const auto maximumPaddedCode = static_cast<HuffmanCode>(
                     ( code << fillerBitCount ) | nLowestBitsSet<HuffmanCode>( fillerBitCount ) );
                 assert( maximumPaddedCode < m_codeCache.size() );
                 for ( auto paddedCode = code << fillerBitCount; paddedCode <= maximumPaddedCode; ++paddedCode ) {
-                    m_codeCache[paddedCode].length = length;
-                    m_codeCache[paddedCode].symbol = static_cast<Symbol>( symbol );
+                    m_codeCache[paddedCode] = ( static_cast<uint32_t>( length ) << ENTRY_LENGTH_SHIFT )
+                                              | static_cast<uint32_t>( symbol );
                 }
             }
         }
@@ -113,16 +118,44 @@ public:
             const auto index = LUT_BITS_COUNT == m_lutBitsCount
                                ? static_cast<HuffmanCode>( bitReader.template peek<LUT_BITS_COUNT>() )
                                : static_cast<HuffmanCode>( bitReader.peek( m_lutBitsCount ) );
-            const auto [length, symbol] = m_codeCache[index];
+            const auto entry = m_codeCache[index];
+            const auto length = static_cast<BitCount>( entry >> ENTRY_LENGTH_SHIFT );
             if ( length == 0 ) {
                 return decodeLong( bitReader );
             }
             bitReader.seekAfterPeek( length );
-            return symbol;
+            return static_cast<Symbol>( entry & SYMBOL_MASK );
         } catch ( const EndOfFileReached& ) {
             /* Should only happen at the end of the file and probably not even there
              * because the bzip2 footer (EOS block) should be longer than the peek length. */
             return BaseType::decode( bitReader );
+        }
+    }
+
+    /** Hot-path variant of @ref decode that returns @ref INVALID_SYMBOL instead of an @ref std::optional. */
+    template<typename BitReader>
+    [[nodiscard]] forceinline uint32_t
+    decodePacked( BitReader& bitReader ) const
+    {
+        if ( UNLIKELY( m_lutBitsCount == 0 ) ) [[unlikely]] {
+            return INVALID_SYMBOL;
+        }
+
+        try {
+            const auto index = LUT_BITS_COUNT == m_lutBitsCount
+                               ? static_cast<HuffmanCode>( bitReader.template peek<LUT_BITS_COUNT>() )
+                               : static_cast<HuffmanCode>( bitReader.peek( m_lutBitsCount ) );
+            const auto entry = m_codeCache[index];
+            const auto length = entry >> ENTRY_LENGTH_SHIFT;
+            if ( UNLIKELY( length == 0 ) ) [[unlikely]] {
+                const auto result = decodeLong( bitReader );
+                return result ? static_cast<uint32_t>( *result ) : INVALID_SYMBOL;
+            }
+            bitReader.seekAfterPeek( length );
+            return entry & SYMBOL_MASK;
+        } catch ( const EndOfFileReached& ) {
+            const auto result = BaseType::decode( bitReader );
+            return result ? static_cast<uint32_t>( *result ) : INVALID_SYMBOL;
         }
     }
 
@@ -163,21 +196,13 @@ private:
     }
 
 private:
-    struct CacheEntry
-    {
-        uint8_t length{ 0 };  // ceil(log2 MAX_CODE_LENGTH(20)) = 5 bits would suffice
-        Symbol symbol{ 0 };
-    };
-    static_assert( sizeof( CacheEntry ) == 2 * sizeof( Symbol ), "CacheEntry is larger than assumed!" );
-
     /**
-     * sizeof(CacheEntry) = 4 B for Symbol=uint16_t.
      * Total m_codeCache sizes for varying LUT_BITS_COUNT:
      *  - 10 bits -> 4 KiB
      *  - 11 bits -> 8 KiB
      *  - 12 bits -> 16 KiB
      */
-    alignas( 64 ) std::array<CacheEntry, ( 1UL << LUT_BITS_COUNT )> m_codeCache{};
+    alignas( 64 ) std::array<uint32_t, ( 1UL << LUT_BITS_COUNT )> m_codeCache{};
 
     uint8_t m_lutBitsCount{ LUT_BITS_COUNT };
     uint8_t m_bitsToReadAtOnce{ LUT_BITS_COUNT };

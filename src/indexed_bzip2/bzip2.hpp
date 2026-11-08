@@ -1010,6 +1010,7 @@ Block::readBlockData()
     // linearly, staying in cache more, so isn't as limited by DRAM access.)
     uint32_t bwtDataCount = 0;
     const auto* huffmanCoding = &huffmanCodings.front();
+    auto& reader = *m_bitReader;
     for ( uint32_t hh = 0, runPos = 0, symCount = 0, selector = 0; ; ) {
         // Have we reached the end of this huffman group?
         if ( symCount-- == 0 ) {
@@ -1024,11 +1025,10 @@ Block::readBlockData()
             selector++;
         }
 
-        const auto nextSymbol = huffmanCoding->decode( *m_bitReader );
-        if ( UNLIKELY( !nextSymbol ) ) [[unlikely]] {
+        const auto nextSym = huffmanCoding->decodePacked( reader );
+        if ( UNLIKELY( nextSym == HuffmanCoding::INVALID_SYMBOL ) ) [[unlikely]] {
             throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
         }
-        const auto nextSym = *nextSymbol;
 
         // If this is a repeated run, loop collecting data
         if ( nextSym <= SYMBOL_RUNB ) {
