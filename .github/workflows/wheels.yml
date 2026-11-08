@@ -24,6 +24,7 @@ jobs:
         - windows-latest
         archs: [auto64]
         manylinux-image: [manylinux_2_28]
+        abi3: [false, true]
         # One runner per architecture is enough because MACOSX_DEPLOYMENT_TARGET pins the wheel tag. Building
         # on a newer macOS runner therefore does not raise the minimum supported macOS version, and using two
         # runners per architecture would only produce competing wheels with identical file names.
@@ -39,6 +40,11 @@ jobs:
         - os: ubuntu-24.04
           manylinux-image: manylinux_2_28
           archs: auto32
+          abi3: false
+        - os: ubuntu-24.04
+          manylinux-image: manylinux_2_28
+          archs: auto32
+          abi3: true
 
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
@@ -72,9 +78,10 @@ jobs:
       #  -> fails because it is 404 now :( This means I have to drop Python 3.8 support.
       run: |
         python3 -m pip install --upgrade pip
-        python3 -m pip install --upgrade-strategy eager --upgrade cython twine check-wheel-contents cibuildwheel~=4.3 build
+        python3 -m pip install --upgrade-strategy eager --upgrade cython twine check-wheel-contents abi3audit cibuildwheel~=4.3 build
 
     - name: Build Tarball
+      if: "!matrix.abi3"
       working-directory: python/indexed_bzip2
       run: python3 -m build --sdist
 
@@ -82,12 +89,18 @@ jobs:
       env:
         CIBW_ARCHS: ${{ matrix.archs }}
         CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux-image }}
-        CIBW_ENABLE: "pypy"
+        CIBW_BUILD: ${{ matrix.abi3 && 'cp314-*' || '*' }}
+        CIBW_ENABLE: ${{ matrix.abi3 && '' || 'pypy' }}
+        CIBW_ENVIRONMENT: ${{ matrix.abi3 && 'INDEXED_BZIP2_ABI3=enable' || '' }}
       run: python -m cibuildwheel --output-dir dist python/indexed_bzip2
 
     - name: Check Distributions
       shell: bash
-      run: twine check --strict dist/* python/indexed_bzip2/dist/*
+      run: |
+        twine check --strict dist/*
+        if [[ -d python/indexed_bzip2/dist ]]; then
+          twine check --strict python/indexed_bzip2/dist/*
+        fi
 
     # delvewheel produces Windows wheels with Root-Is-Purelib: false and a .data/platlib directory,
     # which check-wheel-contents rejects as an invalid wheel even though pip installs it.
@@ -99,100 +112,33 @@ jobs:
         # Ignore W003,W009,W010, which fail on musllinux.
         check-wheel-contents --no-config --ignore W003,W009,W010 dist/*.whl
 
+    - name: Audit ABI3 wheels
+      if: matrix.abi3
+      shell: bash
+      run: abi3audit --strict dist/*.whl
+
+    - name: Install Wheel
+      if: matrix.archs != 'auto32'
+      run: |
+        python3 -m pip install --no-index --no-deps --find-links dist indexed_bzip2
+        python3 -c "import indexed_bzip2; print( indexed_bzip2.__version__ )"
+
     - uses: actions/upload-artifact@v7
       with:
-        name: wheels-${{ matrix.os }}-${{ matrix.archs }}-${{ matrix.manylinux-image }}
+        name: wheels${{ matrix.abi3 && '-abi3' || '' }}-${{ matrix.os }}-${{ matrix.archs }}
         path: "dist/*.whl"
         if-no-files-found: error
 
     - uses: actions/upload-artifact@v7
       # Only one out of the OS matrix needs to upload the tarball.
-      if: matrix.os == 'ubuntu-24.04' && matrix.archs == 'auto64' && matrix.manylinux-image == 'manylinux_2_28'
+      if: matrix.abi3 == false && matrix.os == 'ubuntu-24.04' && matrix.archs == 'auto64' && matrix.manylinux-image == 'manylinux_2_28'
       with:
         name: indexed_bzip2-tarball
         path: "python/indexed_bzip2/dist/*.tar.gz"
         if-no-files-found: error
 
-  Build-ABI3-Wheels:
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-        - macos-26
-        - macos-26-intel
-        - ubuntu-24.04-arm
-        - ubuntu-24.04
-        - windows-latest
-        archs: [auto64]
-        manylinux-image: [manylinux_2_28]
-        include:
-        - os: ubuntu-24.04
-          manylinux-image: manylinux_2_28
-          archs: auto32
-
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "13.0"
-
-    steps:
-    - uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-        submodules: recursive
-
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.14'
-
-    - name: Install Dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install --upgrade-strategy eager --upgrade cython twine check-wheel-contents abi3audit cibuildwheel~=4.3 build
-
-    - name: Build ABI3 Wheels
-      env:
-        CIBW_ARCHS: ${{ matrix.archs }}
-        CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.manylinux-image }}
-        # One wheel per platform covers all CPython versions >= 3.14.
-        CIBW_BUILD: "cp314-*"
-        # CIBW_ENVIRONMENT is required so that the variable also reaches the Linux container.
-        CIBW_ENVIRONMENT: "INDEXED_BZIP2_ABI3=enable"
-      run: python -m cibuildwheel --output-dir dist-abi3 python/indexed_bzip2
-
-    - name: Check distributions
-      shell: bash
-      run: twine check --strict dist-abi3/*
-
-    # delvewheel produces Windows wheels with Root-Is-Purelib: false and a .data/platlib directory,
-    # which check-wheel-contents rejects as an invalid wheel even though pip installs it.
-    - name: Check Wheel Contents
-      if: "!startsWith(matrix.os, 'windows')"
-      shell: bash
-      run: |
-        # auditwheel adds an <package>.libs/ directory to repaired wheels.
-        # Ignore W003,W009,W010, which fail on musllinux.
-        check-wheel-contents --no-config --ignore W003,W009,W010 dist-abi3/*.whl
-
-    - name: Audit ABI3 wheels
-      shell: bash
-      run: abi3audit --strict dist-abi3/*.whl
-
-    - name: Install ABI3 wheel
-      if: matrix.archs != 'auto32'
-      run: |
-        python3 -m pip install --no-index --no-deps --find-links dist-abi3 indexed_bzip2
-        python3 -c "import indexed_bzip2; print( indexed_bzip2.__version__ )"
-
-    - uses: actions/upload-artifact@v7
-      with:
-        name: wheels-abi3-${{ matrix.os }}-${{ matrix.archs }}-${{ matrix.manylinux-image }}
-        path: "dist-abi3/*.whl"
-        if-no-files-found: error
-
   Publish:
-    needs: [Build-Wheels, Build-ABI3-Wheels]
+    needs: [Build-Wheels]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     # Configure this environment under the PyPI project's trusted publishers:
