@@ -311,6 +311,18 @@ class IndexedBzip2FileRaw(io.RawIOBase):
 
         # IOBase provides sane default implementations for read, readline, readlines, readall, ...
 
+    def readall(self):
+        # io.RawIOBase.readall uses io.DEFAULT_BUFFER_SIZE (8 KiB) chunks, which is far too small for the
+        # bzip2 block decoder. See https://github.com/python/cpython/issues/85624. Use a large buffer instead.
+        chunks = []
+        buffer = bytearray(4 * 1024 * 1024)
+        while True:
+            nBytesRead = self.readinto(buffer)
+            if not nBytesRead:
+                break
+            chunks.append(bytes(buffer[:nBytesRead]))
+        return b''.join(chunks)
+
     def close(self):
         if self.closed:
             return

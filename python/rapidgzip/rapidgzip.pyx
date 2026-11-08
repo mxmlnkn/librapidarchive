@@ -12,6 +12,7 @@ from libcpp.optional cimport optional
 from libcpp.vector cimport vector
 from libcpp cimport bool
 from cpython.buffer cimport PyObject_GetBuffer, PyBuffer_Release, PyBUF_ANY_CONTIGUOUS, PyBUF_SIMPLE, PyBUF_WRITABLE, PyBUF_C_CONTIGUOUS
+from cpython.bytes cimport PyBytes_FromStringAndSize, PyBytes_AS_STRING
 from cpython.ref cimport PyObject
 
 import builtins
@@ -565,6 +566,33 @@ cdef class _RapidgzipFile():
         if self.gzipReader:
             return self.gzipReader.joinThreads()
 
+    def readall(self):
+        if not self.gzipReader:
+            return None
+
+        cdef optional[size_t] totalSize = self.gzipReader.size()
+        if not totalSize:
+            return None
+
+        cdef size_t current = self.gzipReader.tell()
+        cdef size_t remaining = totalSize.value() - current if current < totalSize.value() else 0
+        if remaining == 0:
+            return b''
+
+        result = PyBytes_FromStringAndSize(NULL, remaining)
+        cdef char* data = PyBytes_AS_STRING(result)
+        cdef size_t offset = 0
+        cdef size_t nBytesRead = 0
+        while offset < remaining:
+            nBytesRead = self.gzipReader.read(-1, data + offset, remaining - offset)
+            if nBytesRead == 0:
+                break
+            offset += nBytesRead
+
+        if offset == remaining:
+            return result
+        return result[:offset]
+
     def file_type(self):
         if self.gzipReader:
             return self.gzipReader.fileTypeAsString().decode()
@@ -625,7 +653,31 @@ class RapidgzipFile(io.RawIOBase):
         self.set_deflate_stream_crc32s = self.gzipReader.set_deflate_stream_crc32s
         self.add_deflate_stream_crc32 = self.gzipReader.add_deflate_stream_crc32
 
-        # IOBase provides sane default implementations for read, readline, readlines, readall, ...
+        # IOBase provides sane default implementations for read, readline, readlines, ...
+
+    def read(self, size = -1):
+        if size is None:
+            size = -1
+        if size < 0:
+            return self.readall()
+        return super().read(size)
+
+    def readall(self):
+        # io.RawIOBase.readall uses io.DEFAULT_BUFFER_SIZE (8 KiB) chunks. See
+        # https://github.com/python/cpython/issues/85624. Preallocate the known size instead.
+        result = self.gzipReader.readall()
+        if result is not None:
+            return result
+
+        # The size is unknown, e.g., for a pipe. Avoid RawIOBase.readall's 8 KiB chunk size.
+        chunks = []
+        buffer = bytearray(4 * 1024 * 1024)
+        while True:
+            nBytesRead = self.readinto(buffer)
+            if not nBytesRead:
+                break
+            chunks.append(bytes(buffer[:nBytesRead]))
+        return b''.join(chunks)
 
     def close(self):
         if self.closed:
