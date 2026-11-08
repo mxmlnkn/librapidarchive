@@ -93,7 +93,7 @@ add_compile_options(
 )
 
 # I had some issues with the per-target enabling of C++20 not working on Windows -.-. This works.
-if(${LIBRAPIDARCHIVE_BUILD_TEST} OR ${SLIBRAPIDARCHIVE_BUILD_BENCHMARKS})
+if(LIBRAPIDARCHIVE_BUILD_TESTS OR LIBRAPIDARCHIVE_BUILD_BENCHMARKS)
     add_compile_options("$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/std:c++20>")
 endif()
 
