@@ -168,10 +168,11 @@ cdef class _IndexedBzip2File():
         return self.bz2reader.tell()
 
     def size(self):
+        """Return the uncompressed size in bytes, or None if it is not known yet."""
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         result = self.bz2reader.size()
-        return result.value_or( 0 )
+        return result.value() if result.has_value() else None
 
     def tell_compressed(self):
         if not self.bz2reader:
@@ -272,10 +273,11 @@ cdef class _IndexedBzip2FileParallel():
         return self.bz2reader.tell()
 
     def size(self):
+        """Return the uncompressed size in bytes, or None if it is not known yet."""
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         result = self.bz2reader.size()
-        return result.value_or( 0 )
+        return result.value() if result.has_value() else None
 
     def tell_compressed(self):
         if not self.bz2reader:
@@ -520,9 +522,11 @@ cdef class _RapidgzipFile():
         return self.gzipReader.tell()
 
     def size(self):
+        """Return the uncompressed size in bytes, or None if it is not known yet."""
         if not self.gzipReader:
             raise Exception("Invalid file object!")
-        return self.gzipReader.size().value_or( 0 )
+        result = self.gzipReader.size()
+        return result.value() if result.has_value() else None
 
     def tell_compressed(self):
         if not self.gzipReader:
