@@ -1154,7 +1154,6 @@ Block::readBlockData()
     // that needs to be micro-optimized for speed.  (This one fills out bwtData[]
     // linearly, staying in cache more, so isn't as limited by DRAM access.)
     uint32_t bwtDataCount = 0;
-    const auto* huffmanCoding = &huffmanCodings.front();
     auto& reader = *m_bitReader;
 
     /* The weight of the next RUNA/RUNB symbol. It starts at one after every literal, so each run
@@ -1175,11 +1174,33 @@ Block::readBlockData()
                 }
             }
         };
-    for ( uint32_t symCount = 0, selector = 0; ; ) {
-        // Have we reached the end of this huffman group?
-        if ( symCount-- == 0 ) {
-            // Determine which huffman coding group to use.
-            symCount = GROUP_SIZE - 1;
+
+    // Determine which huffman coding group to use.
+    uint32_t selector = 0;
+    if ( selector >= selectorsCount ) {
+        std::stringstream msg;
+        msg << "[BZip2 block data] selector " << selector << " out of maximum range " << selectorsCount;
+        throw std::domain_error( std::move( msg ).str() );
+    }
+    const auto* huffmanCoding = &huffmanCodings[selectors[selector]];
+    selector++;
+
+    auto nextSym = huffmanCoding->decodePacked( reader );
+    if ( UNLIKELY( nextSym == HuffmanCoding::INVALID_SYMBOL ) ) [[unlikely]] {
+        throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
+    }
+
+    uint32_t symbolsInGroup = GROUP_SIZE;
+    while ( true ) {
+        // Is this the terminating symbol?
+        if ( nextSym > symbolCount ) {
+            break;
+        }
+
+        /* Select the group of the successor before decoding it, then decode the successor before consuming
+         * the current symbol. The successor's bit-reader and Huffman LUT loads then overlap the 64-byte
+         * move-to-front store of the current literal instead of waiting behind it. */
+        if ( --symbolsInGroup == 0 ) {
             if ( selector >= selectorsCount ) {
                 std::stringstream msg;
                 msg << "[BZip2 block data] selector " << selector << " out of maximum range " << selectorsCount;
@@ -1187,19 +1208,21 @@ Block::readBlockData()
             }
             huffmanCoding = &huffmanCodings[selectors[selector]];
             selector++;
+            symbolsInGroup = GROUP_SIZE;
         }
 
-        const auto nextSym = huffmanCoding->decodePacked( reader );
+        const auto currentSym = nextSym;
+        nextSym = huffmanCoding->decodePacked( reader );
         if ( UNLIKELY( nextSym == HuffmanCoding::INVALID_SYMBOL ) ) [[unlikely]] {
             throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
         }
 
         // If this is a repeated run, emit this symbol's share immediately.
-        if ( nextSym <= SYMBOL_RUNB ) {
+        if ( currentSym <= SYMBOL_RUNB ) {
             /* The run length must fit into one block. Check in 64 bit because a crafted sequence of
              * RUNA/RUNB symbols can wrap the 32-bit sum and bypass the block-size check, which would
              * then write far past the block buffer. */
-            const auto count = static_cast<uint64_t>( runWeight ) << nextSym;
+            const auto count = static_cast<uint64_t>( runWeight ) << currentSym;
             if ( static_cast<uint64_t>( bwtDataCount ) + count > MAX_BLOCK_SIZE ) {
                 std::stringstream msg;
                 msg << "[BZip2 block data] The run length exceeds the maximum block size " << MAX_BLOCK_SIZE;
@@ -1208,11 +1231,6 @@ Block::readBlockData()
             appendRunBytes( symbolToByte[mtfPacked[0] & 0xFFU], static_cast<uint32_t>( count ) );
             runWeight <<= 1U;
             continue;
-        }
-
-        // Is this the terminating symbol?
-        if ( nextSym > symbolCount ) {
-            break;
         }
 
         /* At this point, the symbol we just decoded indicates a new literal
@@ -1227,7 +1245,7 @@ Block::readBlockData()
                 << " >= " << MAX_BLOCK_SIZE << " maximum block size";
             throw std::domain_error( std::move( msg ).str() );
         }
-        const auto uc = symbolToByte[moveToFront( mtfPacked, nextSym - 1 )];
+        const auto uc = symbolToByte[moveToFront( mtfPacked, currentSym - 1 )];
 
         // We have our literal byte.  Save it into bwtData.
         bwdata.byteCount[uc]++;
