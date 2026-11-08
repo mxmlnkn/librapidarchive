@@ -51,18 +51,19 @@ To use the parallel implementation you need to specify a `parallelization` argum
 
 # Performance comparison with bz2 module
 
-Results for an AMD Ryzen 3900X 12-core (24 virtual cores) processor and with `bz2FilePath='CTU-13-Dataset.tar.bz2'`, which is a 2GB bz2 compressed archive.
+Results for an AMD Ryzen 3900X 12-core (24 virtual cores) processor and with
+`bz2FilePath='CTU-13-Dataset.tar.bz2'`, a 2 GB bz2 compressed archive, decompressing to 74.3 GiB, a compression ratio of 39.92.
 
-| Module                                  | Runtime / s | Bandwidth / (MB/s) | Speedup |
-|-----------------------------------------|-------------|--------------------|---------|
-| bz2                                     | 386         |  5.2               | 1       |
-| indexed_bzip2 with parallelization = 0  |  60         | 33.2               | 6.4     |
-| indexed_bzip2 with parallelization = 1  | 472         |  4.2               | 0.8     |
-| indexed_bzip2 with parallelization = 2  | 265         |  7.6               | 1.5     |
-| indexed_bzip2 with parallelization = 6  |  99         | 20.2               | 3.9     |
-| indexed_bzip2 with parallelization = 12 |  64         | 31.4               | 6.1     |
-| indexed_bzip2 with parallelization = 24 |  63         | 31.8               | 6.1     |
-| indexed_bzip2 with parallelization = 32 |  63         | 31.7               | 6.1     |
+| Module                                  | Runtime / s | Compressed / (MB/s) | Decompressed / (MB/s) | Speedup |
+|-----------------------------------------|-------------|--------------------:|----------------------:|---------|
+| bz2                                     | 386         |  5.2                | 207                   | 1       |
+| indexed_bzip2 with parallelization = 0  |  60         | 33.2                | 1329                  | 6.4     |
+| indexed_bzip2 with parallelization = 1  | 472         |  4.2                | 169                   | 0.8     |
+| indexed_bzip2 with parallelization = 2  | 265         |  7.6                | 301                   | 1.5     |
+| indexed_bzip2 with parallelization = 6  |  99         | 20.2                | 806                   | 3.9     |
+| indexed_bzip2 with parallelization = 12 |  64         | 31.4                | 1246                  | 6.1     |
+| indexed_bzip2 with parallelization = 24 |  63         | 31.8                | 1266                  | 6.1     |
+| indexed_bzip2 with parallelization = 32 |  63         | 31.7                | 1266                  | 6.1     |
 
 
 The speedup of `indexed_bzip2` over the `bz2` module with `parallelization = 0` is **6**.

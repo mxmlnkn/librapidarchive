@@ -72,13 +72,13 @@ This module provides:
 
 The parallel decompression capabilities are similar to [lbzip2](https://lbzip2.org/) but with a more permissive license and with support to be used as a library with random seeking capabilities similar to [seek-bzip2](https://github.com/galaxyproject/seek-bzip2).
 
-| Module                                  | Runtime / s | Bandwidth / (MB/s) | Speedup |
-|-----------------------------------------|-------------|--------------------|---------|
-| bz2                                     | 386         |  5.2               | 1       |
-| indexed_bzip2 with parallelization = 1  | 472         |  4.2               | 0.8     |
-| indexed_bzip2 with parallelization = 2  | 265         |  7.6               | 1.5     |
-| indexed_bzip2 with parallelization = 12 |  64         | 31.4               | 6.1     |
-| indexed_bzip2 with parallelization = 24 |  63         | 31.8               | 6.1     |
+| Module                                  | Runtime / s | Compressed / (MB/s) | Decompressed / (MB/s) | Speedup |
+|-----------------------------------------|-------------|--------------------:|----------------------:|---------|
+| bz2                                     | 386         |  5.2                | 207                   | 1       |
+| indexed_bzip2 with parallelization = 1  | 472         |  4.2                | 169                   | 0.8     |
+| indexed_bzip2 with parallelization = 2  | 265         |  7.6                | 301                   | 1.5     |
+| indexed_bzip2 with parallelization = 12 |  64         | 31.4                | 1246                  | 6.1     |
+| indexed_bzip2 with parallelization = 24 |  63         | 31.8                | 1266                  | 6.1     |
 
 [**See here for the extended Readme.**](python/indexed_bzip2#readme)
 
