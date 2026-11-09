@@ -450,10 +450,10 @@ public:
     Block&
     operator=( const Block& ) = delete;
 
-    Block( Block&& ) = default;
+    Block( Block&& ) = delete;
 
     Block&
-    operator=( Block&& ) = default;
+    operator=( Block&& ) = delete;
 
     explicit
     Block( BitReader& bitReader )
@@ -606,6 +606,17 @@ private:
 public:
     struct BurrowsWheelerTransformData
     {
+        BurrowsWheelerTransformData() = default;
+        BurrowsWheelerTransformData( const BurrowsWheelerTransformData& ) = delete;
+        BurrowsWheelerTransformData& operator=( const BurrowsWheelerTransformData& ) = delete;
+
+        ~BurrowsWheelerTransformData()
+        {
+            if ( unbwtContext != nullptr ) {
+                libsais_unbwt_free_ctx( unbwtContext );
+            }
+        }
+
         friend Block;
 
     public:
@@ -729,6 +740,10 @@ public:
         };
 
         std::optional<InverseBWTData> inverseBWT;
+
+        /* libsais allocates ~1 MB of inverse-BWT tables per call. Keep one context per Block/worker so that
+         * the tables and their pages are reused across blocks instead of being allocated and trimmed. */
+        void* unbwtContext{ nullptr };
 
         uint32_t dataCRC = 0xFFFFFFFFL;  /* CRC of block as calculated by us */
         uint32_t headerCRC = 0;  /* what the block data CRC should be */
@@ -1188,7 +1203,14 @@ Block::BurrowsWheelerTransformData::prepare()
     /* dbuf has MAX_BLOCK_SIZE + 1 elements; libsais needs n + 1. The symbol pass bounds writeCount, but
      * keep the capacity assertion. */
     assert( writeCount <= MAX_BLOCK_SIZE );
-    const auto error = libsais_unbwt_cyclic(
+    if ( unbwtContext == nullptr ) {
+        unbwtContext = libsais_unbwt_create_ctx();
+    }
+    const auto error = unbwtContext != nullptr
+                       ? libsais_unbwt_cyclic_ctx(
+        unbwtContext, bwtData.get(), bwtData.get(), reinterpret_cast<int32_t*>( dbuf.get() ),
+        static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) )
+                       : libsais_unbwt_cyclic(
         bwtData.get(), bwtData.get(), reinterpret_cast<int32_t*>( dbuf.get() ),
         static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) );
     if ( error == 0 ) {
