@@ -265,6 +265,63 @@ private:
 };
 
 
+struct CLIResult
+{
+    int exitCode{ 1 };
+    std::string out;
+    std::string err;
+};
+
+
+template<typename EntryPoint>
+CLIResult
+callCLI( const std::string&              programName,
+         EntryPoint                      entryPoint,
+         const std::vector<std::string>& arguments,
+         const bool                      expectSuccess = true )
+{
+    std::vector<const char*> rawArguments;
+    rawArguments.reserve( arguments.size() + 1 );
+    rawArguments.emplace_back( programName.c_str() );
+    for ( const auto& argument : arguments ) {
+        rawArguments.emplace_back( argument.c_str() );
+    }
+
+    StreamInterceptor coutInterceptor{ std::cout };
+    StreamInterceptor cerrInterceptor{ std::cerr };
+
+    CLIResult result;
+    std::optional<std::string> caughtException;
+    try {
+        result.exitCode = entryPoint( static_cast<int>( rawArguments.size() ), rawArguments.data() );
+    } catch ( const std::exception& exception ) {
+        caughtException = exception.what();
+    } catch ( ... ) {
+        caughtException = "Caught exception that is not derived from std::exception!";
+    }
+    result.out = coutInterceptor.str();
+    result.err = cerrInterceptor.str();
+    coutInterceptor.close();
+    cerrInterceptor.close();
+
+    if ( caughtException ) {
+        std::cerr << "Caught exception: " << *caughtException << "\n";
+    }
+
+    if ( expectSuccess && ( result.exitCode != 0 ) ) {
+        std::cerr << "=== command line ===\n\n";
+        for ( const auto& argument : arguments ) {
+            std::cerr << argument << " ";
+        }
+        std::cerr << "\n\n";
+        std::cerr << "=== stdout ===\n\n" << result.out << "\n\n";
+        std::cerr << "=== stderr ===\n\n" << result.err << "\n\n";
+        REQUIRE_EQUAL( result.exitCode, 0 );
+    }
+    return result;
+}
+
+
 /* error: 'std::filesystem::path' is unavailable: introduced in macOS 10.15.
  * Fortunately, this is only needed for the tests, so the incomplete std::filesystem support
  * is not a problem for building the manylinux wheels on the pre 10.15 macOS kernel.

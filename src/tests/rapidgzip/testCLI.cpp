@@ -56,18 +56,6 @@ createRandomWords( const size_t fileSize )
 }
 
 
-int
-callRapidgzip( const std::vector<std::string>& arguments )
-{
-    std::vector<const char*> rawArguments;
-    rawArguments.reserve( arguments.size() + 1 );
-    rawArguments.emplace_back( "./rapidgzip" );
-    std::transform( arguments.begin(), arguments.end(), std::back_inserter( rawArguments ),
-                    [] ( const auto& string ) { return string.data(); } );
-    return rapidgzipCLI( rawArguments.size(), rawArguments.data() );
-}
-
-
 void
 testCLI( const std::vector<std::string>& arguments,
          const std::filesystem::path&    outputFile,
@@ -82,41 +70,9 @@ testCLI( const std::vector<std::string>& arguments,
         std::filesystem::remove( outputFile );
     }
 
-    std::string coutIntercept;
-    std::string cerrIntercept;
-    StreamInterceptor coutInterceptor{ std::cout };
-    StreamInterceptor cerrInterceptor{ std::cerr };
-
-    std::optional<std::string> caughtException;
-    int exitCode = 1;
-    try {
-        exitCode = callRapidgzip( arguments );
-    } catch ( const std::exception& exception ) {
-        caughtException = exception.what();
-    } catch ( ... ) {
-        std::cerr << "Caught exception that is not derived from std::exception!\n";
-    }
-
-    coutIntercept = coutInterceptor.str();
-    cerrIntercept = cerrInterceptor.str();
-    coutInterceptor.close();
-    cerrInterceptor.close();
-
-    if ( caughtException ) {
-        REQUIRE( !caughtException.has_value() );
-        std::cerr << "Caught exception: " << *caughtException << "\n";
-    } else {
-        REQUIRE_EQUAL( exitCode, 0 );
-    }
-    if ( exitCode != 0 ) {
-        std::cerr << "=== command line ==\n\n";
-        for ( const auto& argument : arguments ) {
-            std::cerr << argument << " ";
-        }
-        std::cerr << "\n\n";
-        std::cerr << "=== stdout ===\n\n" << coutIntercept << "\n\n";
-        std::cerr << "=== stderr ===\n\n" << cerrIntercept << "\n\n";
-    }
+    const auto result = callCLI( "./rapidgzip", rapidgzipCLI, arguments );
+    const auto& coutIntercept = result.out;
+    const auto& cerrIntercept = result.err;
 
     if ( expectOutputFile ) {
         REQUIRE( std::filesystem::is_regular_file( outputFile ) );
@@ -309,8 +265,9 @@ testCLI()
     }
 
     /* Create index for import tests. */
-    callRapidgzip( { "--export-index"s, indexFilePath, compressedFilePath } );
-    callRapidgzip( { "--export-index"s, indexFilePath + ".gztool", "--index-format"s, "gztool"s, compressedFilePath } );
+    callCLI( "./rapidgzip", rapidgzipCLI, { "--export-index"s, indexFilePath, compressedFilePath } );
+    callCLI( "./rapidgzip", rapidgzipCLI,
+             { "--export-index"s, indexFilePath + ".gztool", "--index-format"s, "gztool"s, compressedFilePath } );
 
     const auto testWithoutFile =
         [&] ( const std::vector<std::string>& arguments ) { testCLI( arguments, filePath, decompressed ); };
