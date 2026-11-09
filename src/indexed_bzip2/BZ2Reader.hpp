@@ -35,7 +35,9 @@ public:
     using BitReader = bzip2::BitReader;
 
 public:
-    static constexpr size_t IOBUF_SIZE = 4096;
+    /* Large enough to decode a 900k block in a few calls instead of about 220 at the old 4 KiB,
+     * which removes per-call RLE-scan tails and CRC dispatch without a multi-megabyte footprint. */
+    static constexpr size_t IOBUF_SIZE = 64UL << 10U;
 
 public:
     explicit
