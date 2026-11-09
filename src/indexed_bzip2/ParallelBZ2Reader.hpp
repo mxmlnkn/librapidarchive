@@ -482,6 +482,7 @@ private:
         }
 
         m_blockFetcher = std::make_unique<BlockFetcher>( m_bitReader, m_blockFinder, m_fetcherParallelization );
+        m_blockFetcher->setShowProfileOnDestruction( m_showProfileOnDestruction );
 
         if ( !m_blockFetcher ) {
             throw std::logic_error( "Block fetcher should have been initialized!" );

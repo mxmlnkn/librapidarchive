@@ -1,17 +1,17 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <sstream>
 #include <utility>
-#include <vector>
 
 #include <core/BlockFetcher.hpp>
 #include <core/BlockFinder.hpp>
 #include <core/ParallelBitStringFinder.hpp>
+#include <core/ReusableVector.hpp>
 
 #include "bzip2.hpp"
 
@@ -31,7 +31,13 @@ struct BlockHeaderData
 struct BlockData :
     public BlockHeaderData
 {
-    std::vector<uint8_t> data;
+    explicit
+    BlockData( std::shared_ptr<rapidgzip::ReusableBufferPool<uint8_t> > bufferPool = {} ) :
+        data( std::move( bufferPool ) )
+    {}
+
+public:
+    rapidgzip::ReusableVector<uint8_t> data;
     uint32_t calculatedCRC{ 0xFFFFFFFFL };
 
     /** Header of the block that follows this one, parsed by the worker to keep it off the consumer thread. */
@@ -64,6 +70,27 @@ public:
     ~BZ2BlockFetcher() override
     {
         this->stopThreadPool();
+    }
+
+    void
+    setStatisticsEnabled( bool enabled )
+    {
+        BaseType::setStatisticsEnabled( enabled );
+        m_bufferPool->setStatisticsEnabled( enabled );
+    }
+
+    [[nodiscard]] bool
+    statisticsEnabled() const
+    {
+        return BaseType::statisticsEnabled();
+    }
+
+    void
+    setShowProfileOnDestruction( bool show )
+    {
+        BaseType::setShowProfileOnDestruction( show );
+        m_bufferPool->setShowProfileOnDestruction( show );
+        this->setStatisticsEnabled( show );
     }
 
     /**
@@ -122,7 +149,7 @@ private:
         auto blockHolder = std::make_unique<bzip2::Block>( bitReader );
         auto& block = *blockHolder;
 
-        BlockData result;
+        BlockData result( m_bufferPool );
         result.encodedOffsetInBits = blockOffset;
         result.isEndOfStreamBlock = block.eos();
         result.isEndOfFile = block.eof();
@@ -176,5 +203,8 @@ private:
     /* Variables required by decodeBlock and which therefore should be either const or locked. */
     const BitReader m_bitReader;
     uint8_t m_blockSize100k;
+    const std::shared_ptr<rapidgzip::ReusableBufferPool<uint8_t> > m_bufferPool{
+        std::make_shared<rapidgzip::ReusableBufferPool<uint8_t> >()
+    };
 };
 }  // namespace indexed_bzip2
