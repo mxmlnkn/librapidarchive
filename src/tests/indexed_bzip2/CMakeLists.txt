@@ -18,7 +18,7 @@ addIndexedBzip2Test(testParallelBZ2Reader)
 endif()
 
 addIndexedBzip2Test(testCrc32)
-
+addIndexedBzip2Test(testMoveToFront)
 if(TARGET bzip2_compression)
     add_executable(testBzip2Compressor)
     target_sources(testBzip2Compressor PRIVATE ${CMAKE_CURRENT_LIST_DIR}/testBzip2Compressor.cpp)

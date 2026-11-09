@@ -234,6 +234,73 @@ moveToFront( PackedMTF&   mtf,
                                         _mm_andnot_si128( mask3, in3 ) ) );
         return head;
     }
+
+    /* Positions 64 to 255 previously used the scalar word loop below, which carries one byte through
+     * up to 31 words. The packed list is 256 bytes, so the same 64-byte shift can be applied to whole
+     * 64-byte chunks and only the chunk containing the selected position needs the prefix mask. */
+    if ( position < mtf.size() * sizeof( uint64_t ) ) {
+        auto* const data = reinterpret_cast<uint8_t*>( mtf.data() );
+        const auto head = data[position];
+        const auto fullChunks = position / 64;
+        auto carry = head;
+
+        const auto shiftFullChunk =
+            [] ( uint8_t* const chunk, const uint8_t incomingByte ) noexcept
+            {
+                const auto in0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk ) );
+                const auto in1 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk + sizeof( __m128i ) ) );
+                const auto in2 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk + 2 * sizeof( __m128i ) ) );
+                const auto in3 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk + 3 * sizeof( __m128i ) ) );
+                _mm_storeu_si128( reinterpret_cast<__m128i*>( chunk ),
+                                  _mm_or_si128( _mm_slli_si128( in0, 1 ), _mm_cvtsi32_si128( incomingByte ) ) );
+                _mm_storeu_si128(
+                    reinterpret_cast<__m128i*>( chunk + sizeof( __m128i ) ),
+                    _mm_or_si128( _mm_slli_si128( in1, 1 ), _mm_srli_si128( in0, sizeof( __m128i ) - 1 ) ) );
+                _mm_storeu_si128(
+                    reinterpret_cast<__m128i*>( chunk + 2 * sizeof( __m128i ) ),
+                    _mm_or_si128( _mm_slli_si128( in2, 1 ), _mm_srli_si128( in1, sizeof( __m128i ) - 1 ) ) );
+                _mm_storeu_si128(
+                    reinterpret_cast<__m128i*>( chunk + 3 * sizeof( __m128i ) ),
+                    _mm_or_si128( _mm_slli_si128( in3, 1 ), _mm_srli_si128( in2, sizeof( __m128i ) - 1 ) ) );
+                return static_cast<uint8_t>(
+                    _mm_cvtsi128_si32( _mm_srli_si128( in3, sizeof( __m128i ) - 1 ) ) );
+            };
+
+        for ( size_t chunk = 0; chunk < fullChunks; ++chunk ) {
+            carry = shiftFullChunk( data + chunk * 64, carry );
+        }
+
+        /* The chunk containing the selected position is shifted up to and including that position. */
+        auto* const chunk = data + fullChunks * 64;
+        const auto in0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk ) );
+        const auto in1 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk + sizeof( __m128i ) ) );
+        const auto in2 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk + 2 * sizeof( __m128i ) ) );
+        const auto in3 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( chunk + 3 * sizeof( __m128i ) ) );
+        auto out0 = _mm_slli_si128( in0, 1 );
+        out0 = _mm_or_si128( out0, _mm_cvtsi32_si128( carry ) );
+        const auto out1 = _mm_or_si128( _mm_slli_si128( in1, 1 ), _mm_srli_si128( in0, sizeof( __m128i ) - 1 ) );
+        const auto out2 = _mm_or_si128( _mm_slli_si128( in2, 1 ), _mm_srli_si128( in1, sizeof( __m128i ) - 1 ) );
+        const auto out3 = _mm_or_si128( _mm_slli_si128( in3, 1 ), _mm_srli_si128( in2, sizeof( __m128i ) - 1 ) );
+
+        const auto limit = _mm_set1_epi8( static_cast<char>( ( position % 64 ) + 1 ) );
+        const auto index0 = _mm_setr_epi8( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
+        const auto index1 = _mm_setr_epi8( 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 );
+        const auto index2 = _mm_setr_epi8( 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47 );
+        const auto index3 = _mm_setr_epi8( 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63 );
+        const auto mask0 = _mm_cmpgt_epi8( limit, index0 );
+        const auto mask1 = _mm_cmpgt_epi8( limit, index1 );
+        const auto mask2 = _mm_cmpgt_epi8( limit, index2 );
+        const auto mask3 = _mm_cmpgt_epi8( limit, index3 );
+        _mm_storeu_si128( reinterpret_cast<__m128i*>( chunk ),
+                          _mm_or_si128( _mm_and_si128( mask0, out0 ), _mm_andnot_si128( mask0, in0 ) ) );
+        _mm_storeu_si128( reinterpret_cast<__m128i*>( chunk + sizeof( __m128i ) ),
+                          _mm_or_si128( _mm_and_si128( mask1, out1 ), _mm_andnot_si128( mask1, in1 ) ) );
+        _mm_storeu_si128( reinterpret_cast<__m128i*>( chunk + 2 * sizeof( __m128i ) ),
+                          _mm_or_si128( _mm_and_si128( mask2, out2 ), _mm_andnot_si128( mask2, in2 ) ) );
+        _mm_storeu_si128( reinterpret_cast<__m128i*>( chunk + 3 * sizeof( __m128i ) ),
+                          _mm_or_si128( _mm_and_si128( mask3, out3 ), _mm_andnot_si128( mask3, in3 ) ) );
+        return head;
+    }
 #endif
 
     const auto wordIndex = position >> 3;  // equivalent to division by sizeof( PackedMTF::value_type )
