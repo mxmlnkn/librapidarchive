@@ -17,6 +17,8 @@ addIndexedBzip2Test(testBZ2Reader)
 addIndexedBzip2Test(testParallelBZ2Reader)
 endif()
 
+addIndexedBzip2Test(testCrc32)
+
 add_executable(testRunAB)
 target_sources(testRunAB PRIVATE ${CMAKE_CURRENT_LIST_DIR}/testRunAB.cpp)
 target_link_libraries(testRunAB PRIVATE core)
