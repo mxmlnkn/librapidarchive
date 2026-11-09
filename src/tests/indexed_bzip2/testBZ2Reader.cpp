@@ -15,6 +15,7 @@
 #include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
 #include <indexed_bzip2/BZ2Reader.hpp>
+#include <indexed_bzip2/IndexFileFormat.hpp>
 
 
 using namespace rapidgzip;
@@ -255,6 +256,39 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
 
 
 void
+testIndexImportExport( const std::string& decodedTestFilePath,
+                       const std::string& encodedTestFilePath )
+{
+    BZ2Reader original( std::make_unique<StandardFileReader>( encodedTestFilePath ) );
+    const auto expectedOffsets = original.blockOffsets();
+
+    std::vector<char> indexData;
+    original.exportIndex( [&indexData] ( const void* buffer, uint64_t size )
+                          {
+                              const auto* const bytes = reinterpret_cast<const char*>( buffer );
+                              indexData.insert( indexData.end(), bytes, bytes + size );
+                          } );
+    REQUIRE( !indexData.empty() );
+    REQUIRE( std::find( indexData.begin(), indexData.end(), ',' ) != indexData.end() );
+
+    const auto indexCopy = indexData;
+    REQUIRE( readBzip2Index( std::make_unique<BufferViewFileReader>( indexCopy ) ) == expectedOffsets );
+
+    BZ2Reader imported( std::make_unique<StandardFileReader>( encodedTestFilePath ) );
+    imported.importIndex( std::make_unique<BufferViewFileReader>( indexData ) );
+    REQUIRE( imported.availableBlockOffsets() == expectedOffsets );
+    REQUIRE( imported.blockOffsets() == expectedOffsets );
+
+    std::vector<char> decoded;
+    std::vector<char> buffer( 64_Ki );
+    while ( const auto nBytesRead = imported.read( -1, buffer.data(), buffer.size() ) ) {
+        decoded.insert( decoded.end(), buffer.begin(), buffer.begin() + nBytesRead );
+    }
+    REQUIRE( decoded == readFile<std::vector<char> >( decodedTestFilePath ) );
+}
+
+
+void
 testSeekBeforeOffsetCompletion( const std::string& decodedTestFilePath,
                                 const std::string& encodedTestFilePath )
 {
@@ -438,6 +472,7 @@ main()
 
         /* This test works because any seeking back triggers the completion of the block offset map! */
         testSeekBeforeOffsetCompletion( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testIndexImportExport( decodedTestFilePath.string(), encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
          * @see https://stackoverflow.com/questions/222175/why-destructor-is-not-called-on-exception */
