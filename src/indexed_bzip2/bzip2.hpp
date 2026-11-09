@@ -735,14 +735,14 @@ public:
          * The extra element is required because libsais_unbwt_cyclic uses this buffer as its n + 1 element
          * temporary P array when the inverse BWT is computed.
          */
-        /* Allocated once per reader or worker. Keep the zero-initialization in this commit so that the
-         * allocation and reuse change can be reviewed and measured in isolation. */
-        std::unique_ptr<uint32_t[]> dbuf{ new uint32_t[MAX_BLOCK_SIZE + 1]() };
+        /* Not zero-initialized: the symbol pass and libsais overwrite every element that is read. The buffers
+         * are allocated once per reader or worker, so this saves a one-time 4.5 MiB of zeroing at startup. */
+        std::unique_ptr<uint32_t[]> dbuf{ new uint32_t[MAX_BLOCK_SIZE + 1] };
 
         /* BWT input bytes. libsais inverts them in place into the run-length encoded output; the classic
-         * chase fallback copies them into dbuf first. Zero-initialized for this commit; the next commit
-         * removes the redundant initialization. */
-        std::unique_ptr<uint8_t[]> bwtData{ new uint8_t[MAX_BLOCK_SIZE]() };
+         * chase fallback copies them into dbuf first. Not zero-initialized because the symbol pass and
+         * libsais overwrite every element that is read. */
+        std::unique_ptr<uint8_t[]> bwtData{ new uint8_t[MAX_BLOCK_SIZE] };
     };
 
 public:
