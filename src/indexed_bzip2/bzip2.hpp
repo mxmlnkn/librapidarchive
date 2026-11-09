@@ -516,9 +516,19 @@ public:
     operator=( Block&& ) = default;
 
     explicit
-    Block( BitReader& bitReader ) :
-        m_bitReader( &bitReader )
+    Block( BitReader& bitReader )
     {
+        reset( bitReader );
+    }
+
+    /**
+     * Reinitialize this block for a new block header while keeping the allocated BWT buffers. This avoids
+     * allocating and freeing the multi-megabyte buffers for every bzip2 block.
+     */
+    void
+    reset( BitReader& bitReader )
+    {
+        m_bitReader = &bitReader;
         readBlockHeader();
     }
 
@@ -671,6 +681,26 @@ public:
         void
         prepare();
 
+        /**
+         * Reset the per-block state while retaining the allocated dbuf and bwtData buffers for reuse.
+         * The header and symbol pass of the next block overwrite everything that is read.
+         */
+        void
+        resetState()
+        {
+            origPtr = 0;
+            byteCount.fill( 0 );
+            writePos = 0;
+            writeRun = 0;
+            writeCount = 0;
+            writeCurrent = 0;
+            symbolToRepeat = 0;
+            symbolRepeatCount = 0;
+            inverseBWT.reset();
+            dataCRC = 0xFFFFFFFFL;
+            headerCRC = 0;
+        }
+
     private:
         uint32_t origPtr = 0;
         std::array<uint32_t, 256> byteCount{};
@@ -705,11 +735,14 @@ public:
          * The extra element is required because libsais_unbwt_cyclic uses this buffer as its n + 1 element
          * temporary P array when the inverse BWT is computed.
          */
-        std::vector<uint32_t> dbuf = std::vector<uint32_t>( MAX_BLOCK_SIZE + 1, 0 );
+        /* Allocated once per reader or worker. Keep the zero-initialization in this commit so that the
+         * allocation and reuse change can be reviewed and measured in isolation. */
+        std::unique_ptr<uint32_t[]> dbuf{ new uint32_t[MAX_BLOCK_SIZE + 1]() };
 
         /* BWT input bytes. libsais inverts them in place into the run-length encoded output; the classic
-         * chase fallback copies them into dbuf first. */
-        std::vector<uint8_t> bwtData = std::vector<uint8_t>( MAX_BLOCK_SIZE, 0 );
+         * chase fallback copies them into dbuf first. Zero-initialized for this commit; the next commit
+         * removes the redundant initialization. */
+        std::unique_ptr<uint8_t[]> bwtData{ new uint8_t[MAX_BLOCK_SIZE]() };
     };
 
 public:
@@ -779,6 +812,12 @@ inline void
 Block::readBlockHeader()
 {
     const auto tReadBlockHeader = rapidgzip::now();
+
+    /* A Block may be reused for many headers. Reset the per-block state and timing while keeping the
+     * expensive buffers allocated. */
+    statistics = {};
+    bwdata.resetState();
+    m_atEndOfFile = false;
 
     encodedOffsetInBits = bitReader().tell();
     encodedSizeInBits = 0;
@@ -1142,13 +1181,16 @@ Block::BurrowsWheelerTransformData::prepare()
     /* libsais requires n + 1 int32 elements of temporary space, which dbuf provides. Inverting in place
      * removes the separate output buffer. On error, bwtData is still the unmodified input because libsais
      * validates and allocates all of its tables before writing, so the chase fallback below stays valid. */
-    assert( dbuf.size() >= writeCount + 1 );
+    /* dbuf has MAX_BLOCK_SIZE + 1 elements; libsais needs n + 1. The symbol pass bounds writeCount, but
+     * keep the capacity assertion. */
+    assert( writeCount <= MAX_BLOCK_SIZE );
     const auto error = libsais_unbwt_cyclic(
-        bwtData.data(), bwtData.data(), reinterpret_cast<int32_t*>( dbuf.data() ),
+        bwtData.get(), bwtData.get(), reinterpret_cast<int32_t*>( dbuf.get() ),
         static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) );
     if ( error == 0 ) {
         inverseBWT = InverseBWTData{};
-        std::vector<uint32_t>().swap( dbuf );
+        /* Keep dbuf allocated. The next block reuses it as libsais temporary space, which avoids a
+         * multi-megabyte allocation and page-fault storm for every block. */
         return;
     }
 
@@ -1222,7 +1264,7 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
             bool handledRun = false;
             while ( ( nBytesDecoded + sizeof( __m128i ) <= nMaxBytesToDecode )
                     && ( state.position + 20 <= writeCount ) ) {
-                const auto* const source = bwtData.data() + state.position;
+                const auto* const source = bwtData.get() + state.position;
                 /* Simply load from byte-shifted offsets instead of load + shift to avoid instruction dependencies
                  * and to effectively load 16 + 3 bytes as we need to compare 4 subsequent bytes for each position. */
                 const auto v0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source ) );

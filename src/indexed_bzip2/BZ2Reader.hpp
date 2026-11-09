@@ -307,7 +307,11 @@ private:
     decodeStream( const WriteFunctor& writeFunctor,
                   size_t              nMaxBytesToDecode = std::numeric_limits<size_t>::max() );
 
-    BlockHeader
+    /**
+     * Read the next block header into @ref m_lastHeader in place so that the multi-megabyte BWT buffers
+     * are retained across blocks.
+     */
+    void
     readBlockHeader( size_t offsetBits );
 
 protected:
@@ -396,7 +400,7 @@ BZ2Reader::seek( long long int offset,
     const auto nBytesSeekInBlock = positiveOffset - blockOffset->second;
 
     m_statistics.merge( m_lastHeader.statistics );
-    m_lastHeader = readBlockHeader( blockOffset->first );
+    readBlockHeader( blockOffset->first );
     m_lastHeader.readBlockData();
     /* no decodeBzip2 necessary because we only seek inside one block! */
     const auto nBytesDecoded = decodeStream( {}, nBytesSeekInBlock );
@@ -412,7 +416,7 @@ BZ2Reader::seek( long long int offset,
 }
 
 
-inline BZ2Reader::BlockHeader
+inline void
 BZ2Reader::readBlockHeader( size_t offsetBits )
 {
     /* note that blocks are NOT byte-aligned! Only the end of the stream has a necessary padding. */
@@ -421,11 +425,11 @@ BZ2Reader::readBlockHeader( size_t offsetBits )
     }
 
     m_bitReader.seekTo( offsetBits );
-    BlockHeader header( m_bitReader );
+    m_lastHeader.reset( m_bitReader );
 
-    if ( header.eos() ) {
+    if ( m_lastHeader.eos() ) {
         /* EOS block contains CRC for whole stream */
-        m_streamCRC = header.headerCRC();
+        m_streamCRC = m_lastHeader.headerCRC();
 
         if ( !m_blockToDataOffsetsComplete && ( m_streamCRC != m_calculatedStreamCRC ) ) {
             std::stringstream msg;
@@ -435,12 +439,10 @@ BZ2Reader::readBlockHeader( size_t offsetBits )
         }
     }
 
-    m_atEndOfFile = header.eof();
-    if ( header.eof() ) {
+    m_atEndOfFile = m_lastHeader.eof();
+    if ( m_lastHeader.eof() ) {
         m_blockToDataOffsetsComplete = true;
     }
-
-    return header;
 }
 
 
@@ -479,7 +481,7 @@ BZ2Reader::decodeStream( WriteFunctor const& writeFunctor,
         /* If we need to refill dbuf, do it. Only won't be required for resuming interrupted decodations. */
         if ( m_lastHeader.eob() ) {
             m_statistics.merge( m_lastHeader.statistics );
-            m_lastHeader = readBlockHeader( m_bitReader.tell() );
+            readBlockHeader( m_bitReader.tell() );
             if ( m_lastHeader.eos() ) {
                 return nBytesDecoded;
             }
