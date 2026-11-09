@@ -145,9 +145,15 @@ private:
         bitReader.seekTo( blockOffset );
         /* Keep the 135 KiB decoder state off the worker stack. Its address there depends on the caller and
          * interacts with the hot buffers in the Huffman/MTF loop, which made parallel decoding several times
-         * slower with the -O3 build. */
-        auto blockHolder = std::make_unique<bzip2::Block>( bitReader );
+         * slower with the -O3 build. Reusing it per thread also retains the multi-megabyte BWT buffers.
+         * This is function-local scratch, not a decoder instance: decodeBlock must not be re-entered on the
+         * same thread because the Block keeps a pointer to the local BitReader below. */
+        static thread_local std::unique_ptr<bzip2::Block> blockHolder;
+        if ( !blockHolder ) {
+            blockHolder = std::make_unique<bzip2::Block>();
+        }
         auto& block = *blockHolder;
+        block.reset( bitReader );
 
         BlockData result( m_bufferPool );
         result.encodedOffsetInBits = blockOffset;
