@@ -548,6 +548,42 @@ def testFileTypeAPI():
     assert getFileType('uncompressed') in ['None', 'DEFLATE']
 
 
+def testIndexImportExport():
+    """Exercise bzip2 index export/import for the serial and parallel readers and all index file kinds."""
+    data = bytes(range(256)) * 10000
+    compressed = bz2.compress(data, compresslevel=1)
+    with tempfile.NamedTemporaryFile(suffix='.bz2', delete=False) as file:
+        file.write(compressed)
+        compressedPath = file.name
+    indexPath = compressedPath + '.index'
+
+    try:
+        for parallelization in [1, 2]:
+            with IndexedBzip2File(compressedPath, parallelization=parallelization) as file:
+                expected = file.read()
+                assert expected == data
+                file.export_index(indexPath)
+                assert os.path.getsize(indexPath) > 0
+
+            indexBytes = Path(indexPath).read_bytes()
+            assert b',' in indexBytes
+
+            for indexFile in [indexPath, Path(indexPath), io.BytesIO(indexBytes)]:
+                with IndexedBzip2File(compressedPath, parallelization=parallelization) as file:
+                    file.import_index(indexFile)
+                    assert file.read() == expected
+
+            buffer = io.BytesIO()
+            with IndexedBzip2File(compressedPath, parallelization=parallelization) as file:
+                file.read()
+                file.export_index(buffer)
+            assert buffer.getvalue() == indexBytes
+    finally:
+        for path in (compressedPath, indexPath):
+            if os.path.exists(path):
+                os.remove(path)
+
+
 if __name__ == '__main__':
     print("indexed_bzip2 version:", indexed_bzip2.__version__)
     print("rapidgzip version:", rapidgzip.__version__)
@@ -555,6 +591,7 @@ if __name__ == '__main__':
 
     testFileTypeAPI()
     testReadReturnsMoreThanRequested()
+    testIndexImportExport()
     testDeadlock('pygzip')
     testRpmallocThreadSafety('pygzip')
     testMemoryReleaseAfterClose()

@@ -83,6 +83,8 @@ cdef extern from "indexed_bzip2/BZ2Reader.hpp":
         map[size_t, size_t] blockOffsets() except +
         map[size_t, size_t] availableBlockOffsets() except +
         void setBlockOffsets(map[size_t, size_t]) except +
+        void importIndex(PyObject*) except +
+        void exportIndex(PyObject*) except +
 
 cdef extern from "indexed_bzip2/ParallelBZ2Reader.hpp":
     cppclass ParallelBZ2Reader:
@@ -104,6 +106,8 @@ cdef extern from "indexed_bzip2/ParallelBZ2Reader.hpp":
         map[size_t, size_t] blockOffsets() except +
         map[size_t, size_t] availableBlockOffsets() except +
         void setBlockOffsets(map[size_t, size_t]) except +
+        void importIndex(PyObject*) except +
+        void exportIndex(PyObject*) except +
         void joinThreads() except +
 
 
@@ -208,6 +212,24 @@ cdef class _IndexedBzip2File():
         if not self.bz2reader:
             raise Exception("Invalid file object!")
         return self.bz2reader.setBlockOffsets(offsets)
+
+    def import_index(self, file: IndexFile) -> None:
+        if not self.bz2reader:
+            raise Exception("Invalid file object!")
+
+        if isinstance(file, (str, os.PathLike)):
+            with builtins.open(file, "rb") as fileObject:
+                return self.bz2reader.importIndex(<PyObject*>fileObject)
+        return self.bz2reader.importIndex(<PyObject*>file)
+
+    def export_index(self, file: IndexFile) -> None:
+        if not self.bz2reader:
+            raise Exception("Invalid file object!")
+
+        if isinstance(file, (str, os.PathLike)):
+            with builtins.open(file, "wb") as fileObject:
+                return self.bz2reader.exportIndex(<PyObject*>fileObject)
+        return self.bz2reader.exportIndex(<PyObject*>file)
 
 
 cdef class _IndexedBzip2FileParallel():
@@ -314,6 +336,24 @@ cdef class _IndexedBzip2FileParallel():
             raise Exception("Invalid file object!")
         return self.bz2reader.setBlockOffsets(offsets)
 
+    def import_index(self, file: IndexFile) -> None:
+        if not self.bz2reader:
+            raise Exception("Invalid file object!")
+
+        if isinstance(file, (str, os.PathLike)):
+            with builtins.open(file, "rb") as fileObject:
+                return self.bz2reader.importIndex(<PyObject*>fileObject)
+        return self.bz2reader.importIndex(<PyObject*>file)
+
+    def export_index(self, file: IndexFile) -> None:
+        if not self.bz2reader:
+            raise Exception("Invalid file object!")
+
+        if isinstance(file, (str, os.PathLike)):
+            with builtins.open(file, "wb") as fileObject:
+                return self.bz2reader.exportIndex(<PyObject*>fileObject)
+        return self.bz2reader.exportIndex(<PyObject*>file)
+
     def join_threads(self) -> None:
         if not self.bz2reader:
             raise Exception("Invalid file object!")
@@ -358,6 +398,8 @@ class IndexedBzip2File(io.BufferedReader):
         self.set_block_offsets       = self.bz2reader.set_block_offsets
         self.block_offsets_complete  = self.bz2reader.block_offsets_complete
         self.available_block_offsets = self.bz2reader.available_block_offsets
+        self.import_index            = self.bz2reader.import_index
+        self.export_index            = self.bz2reader.export_index
         self.size                    = self.bz2reader.size
 
         if hasattr(self.bz2reader, 'join_threads'):

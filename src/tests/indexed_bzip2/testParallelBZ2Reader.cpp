@@ -14,6 +14,7 @@
 #include <core/TestHelpers.hpp>
 #include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
+#include <indexed_bzip2/IndexFileFormat.hpp>
 #include <indexed_bzip2/ParallelBZ2Reader.hpp>
 
 
@@ -278,6 +279,40 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
     std::cerr << "Try reading 1B before the end of file\n";
     seek( static_cast<long long int>( decodedFileSize ) - 4 );
     read( decodedFileSize + 1000 );
+}
+
+
+void
+testIndexImportExport( const std::string& decodedTestFilePath,
+                       const std::string& encodedTestFilePath )
+{
+    ParallelBZ2Reader original( std::make_unique<StandardFileReader>( encodedTestFilePath ), /* parallelization */ 2 );
+    const auto expectedOffsets = original.blockOffsets();
+
+    std::vector<char> indexData;
+    original.exportIndex( [&indexData] ( const void* buffer, uint64_t size )
+                          {
+                              const auto* const bytes = reinterpret_cast<const char*>( buffer );
+                              indexData.insert( indexData.end(), bytes, bytes + size );
+                          } );
+    REQUIRE( !indexData.empty() );
+    REQUIRE( std::find( indexData.begin(), indexData.end(), ',' ) != indexData.end() );
+
+    const auto indexCopy = indexData;
+    REQUIRE( readBzip2Index( std::make_unique<BufferViewFileReader>( indexCopy ) ) == expectedOffsets );
+
+    ParallelBZ2Reader imported( std::make_unique<StandardFileReader>( encodedTestFilePath ),
+                                /* parallelization */ 2 );
+    imported.importIndex( std::make_unique<BufferViewFileReader>( indexData ) );
+    REQUIRE( imported.availableBlockOffsets() == expectedOffsets );
+    REQUIRE( imported.blockOffsets() == expectedOffsets );
+
+    std::vector<char> decoded;
+    std::vector<char> buffer( 64_Ki );
+    while ( const auto nBytesRead = imported.read( -1, buffer.data(), buffer.size() ) ) {
+        decoded.insert( decoded.end(), buffer.begin(), buffer.begin() + nBytesRead );
+    }
+    REQUIRE( decoded == readFile<std::vector<char> >( decodedTestFilePath ) );
 }
 
 
@@ -644,6 +679,7 @@ main( int    argc,
         testStreamCRCVerificationWithImportedOffsets( encodedTestFilePath.string() );
         testJoinThreadsMidStream( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testIndexImportExport( decodedTestFilePath.string(), encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
          * @see https://stackoverflow.com/questions/222175/why-destructor-is-not-called-on-exception */

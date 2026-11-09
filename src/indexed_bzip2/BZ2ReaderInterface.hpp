@@ -8,6 +8,12 @@
 #include <core/FileUtils.hpp>                    // writeAll
 #include <filereader/FileReader.hpp>
 
+#include "IndexFileFormat.hpp"
+
+#ifdef WITH_PYTHON_SUPPORT
+    #include <filereader/Python.hpp>
+#endif
+
 using std::size_t;
 
 
@@ -84,6 +90,41 @@ public:
 
     virtual void
     setBlockOffsets( std::map<size_t, size_t> offsets ) = 0;
+
+    void
+    importIndex( rapidgzip::UniqueFileReader indexFile )
+    {
+        setBlockOffsets( readBzip2Index( std::move( indexFile ) ) );
+    }
+
+    void
+    exportIndex( const WriteFunctor& checkedWrite )
+    {
+        writeBzip2Index( blockOffsets(),
+                         [&checkedWrite] ( const void* buffer, size_t size )
+                         { checkedWrite( buffer, size ); } );
+    }
+
+#ifdef WITH_PYTHON_SUPPORT
+    void
+    importIndex( PyObject* pythonObject )
+    {
+        importIndex( std::make_unique<rapidgzip::PythonFileReader>( pythonObject ) );
+    }
+
+    void
+    exportIndex( PyObject* pythonObject )
+    {
+        const auto file = std::make_unique<rapidgzip::PythonFileReader>( pythonObject );
+        exportIndex(
+            [&file] ( const void* buffer, uint64_t size )
+            {
+                if ( file->write( reinterpret_cast<const char*>( buffer ), size ) != size ) {
+                    throw std::runtime_error( "Failed to write data to index!" );
+                }
+            } );
+    }
+#endif
 
     /**
      * @return number of processed bits of compressed bzip2 input file stream
