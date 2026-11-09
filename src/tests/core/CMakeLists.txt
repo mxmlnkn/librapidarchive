@@ -21,6 +21,7 @@ addCoreTest(testFasterVector)
 addCoreTest(testFileRanges)
 addCoreTest(testParallelBitStringFinder)
 addCoreTest(testPrefetcher)
+addCoreTest(testReusableVector)
 addCoreTest(testSimpleRunLengthEncoding)
 target_compile_features(testSimpleRunLengthEncoding PRIVATE cxx_std_20)  # for constexpr std::ranges::equal
 
