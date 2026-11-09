@@ -9,6 +9,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -20,6 +21,7 @@
 #include <core/AffinityHelpers.hpp>
 #include <core/BitStringFinder.hpp>
 #include <core/common.hpp>
+#include <core/FileRanges.hpp>
 #include <core/FileUtils.hpp>
 #include <core/ParallelBitStringFinder.hpp>
 #include <filereader/Standard.hpp>
@@ -157,6 +159,13 @@ printIbzip2Help( const cxxopts::Options& options )
     << "Find and list the bzip2 block offsets to be used for another tool:\n"
     << "  ibzip2 -l blockoffsets.dat -- file.bz2\n"
     << "\n"
+    << "Print the decompressed size or line count:\n"
+    << "  ibzip2 --count file.bz2\n"
+    << "  ibzip2 --count-lines file.bz2\n"
+    << "\n"
+    << "Decompress only a byte range:\n"
+    << "  ibzip2 -d -c --ranges 10@0,1KiB@15KiB file.bz2\n"
+    << "\n"
     << "List block offsets in both the compressed as well as the decompressed data during downloading:\n"
     << "  wget -O- 'ftp://example.com/file.bz2' | tee saved-file.bz2 | ibzip2 -L blockoffsets.dat > /dev/null\n"
     << std::endl;
@@ -164,7 +173,7 @@ printIbzip2Help( const cxxopts::Options& options )
 
 
 int
-ibzip2CLI( int argc, char** argv )
+ibzip2CLI( int argc, char const* const* argv )
 {
     /**
      * @note For some reason implicit values do not mix very well with positional parameters!
@@ -199,6 +208,15 @@ ibzip2CLI( int argc, char** argv )
       "Note that there might be further threads being started with non-worker work. "
       "If 0 is given, then the parallelism will be determined automatically.",
       cxxopts::value<unsigned int>()->default_value( "0" ) );
+
+    options.add_options( "Actions" )
+    ( "count", "Print the decompressed size." )
+    ( "count-lines", "Print the number of newline characters in the decompressed data." )
+    ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,inf@40.",
+      cxxopts::value<std::string>() )
+    ( "import-index", "Use an existing bzip2 block offset index in the format written by --export-index.",
+      cxxopts::value<std::string>() )
+    ( "export-index", "Write out a bzip2 block offset index.", cxxopts::value<std::string>() );
 
     options.add_options( "Compression" )
     ( "z,compress", "Compress to bzip2. Each worker writes an independent bzip2 stream. "
@@ -333,11 +351,43 @@ ibzip2CLI( int argc, char** argv )
 
     const auto compress = parsedArgs.count( "compress" ) > 0;
     auto outputFilePath = getFilePath( parsedArgs, "output" );
+
+    /* Parse action arguments. */
+
+    const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
+    const auto listOffsets = parsedArgs.count( "list-offsets" ) > 0;
+    const auto countBytes = parsedArgs.count( "count" ) > 0;
+    const auto countLines = parsedArgs.count( "count-lines" ) > 0;
+    const auto doTest = test;
+    const auto decompress = !compress && ( parsedArgs.count( "decompress" ) > 0 );
+
+    std::optional<std::vector<FileRange> > fileRanges;
+    if ( parsedArgs.count( "ranges" ) > 0 ) {
+        fileRanges = parseFileRanges( parsedArgs["ranges"].as<std::string>() );
+        for ( const auto& range : *fileRanges ) {
+            if ( range.offsetIsLine || range.sizeIsLine ) {
+                std::cerr << "Line-based ranges are not supported for bzip2. Use byte ranges instead.\n";
+                return 1;
+            }
+        }
+    }
+
+    const auto importIndexPath = parsedArgs.count( "import-index" ) > 0
+                                 ? parsedArgs["import-index"].as<std::string>() : std::string();
+    const auto exportIndexPath = parsedArgs.count( "export-index" ) > 0
+                                 ? parsedArgs["export-index"].as<std::string>() : std::string();
+
+    const auto decode = !compress
+                        && ( decompress || doTest || countBytes || countLines || fileRanges.has_value()
+                             || listOffsets || !exportIndexPath.empty() );
+    const auto writeOutput = !compress && !doTest && ( decompress || fileRanges.has_value() );
+
     if ( compress ) {
         if ( ( parsedArgs.count( "stdout" ) == 0 ) && outputFilePath.empty() && !inputFilePath.empty() ) {
             outputFilePath = inputFilePath + ".bz2";
         }
-    } else if ( ( parsedArgs.count( "stdout" ) == 0 ) && outputFilePath.empty() && !inputFilePath.empty() ) {
+    } else if ( writeOutput && ( parsedArgs.count( "stdout" ) == 0 )
+                && outputFilePath.empty() && !inputFilePath.empty() ) {
         const std::string& suffix = ".bz2";
         if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
             outputFilePath = std::string( inputFilePath.begin(),
@@ -351,15 +401,11 @@ ibzip2CLI( int argc, char** argv )
         }
     }
 
-    /* Parse other arguments. */
-
-    const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
-    const auto listOffsets = parsedArgs.count( "list-offsets" ) > 0;
-    const auto decompress = !compress && ( parsedArgs.count( "decompress" ) > 0 );
-
     if ( compress
-         && ( ( parsedArgs.count( "decompress" ) > 0 ) || test || listCompressedOffsets || listOffsets ) ) {
-        std::cerr << "Compression cannot be combined with decompression, test, or offset listing options.\n";
+         && ( ( parsedArgs.count( "decompress" ) > 0 ) || doTest || listCompressedOffsets || listOffsets
+              || countBytes || countLines || fileRanges.has_value()
+              || !importIndexPath.empty() || !exportIndexPath.empty() ) ) {
+        std::cerr << "Compression cannot be combined with decompression, test, count, range, or index options.\n";
         return 1;
     }
 #ifndef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
@@ -369,9 +415,19 @@ ibzip2CLI( int argc, char** argv )
     }
 #endif
 
-    if ( ( decompress || compress ) && ( outputFilePath != "/dev/null" )
+    if ( ( writeOutput || compress ) && ( outputFilePath != "/dev/null" )
          && fileExists( outputFilePath ) && !force ) {
         std::cerr << "Output file '" << outputFilePath << "' already exists! Use --force to overwrite.\n";
+        return 1;
+    }
+
+    if ( !importIndexPath.empty() && !fileExists( importIndexPath ) ) {
+        std::cerr << "The block offset index to import was not found: " << importIndexPath << "\n";
+        return 1;
+    }
+    if ( !exportIndexPath.empty() && fileExists( exportIndexPath ) && !force ) {
+        std::cerr << "Output file for block offsets '" << exportIndexPath
+                  << "' already exists! Use --force to overwrite.\n";
         return 1;
     }
 
@@ -445,7 +501,7 @@ ibzip2CLI( int argc, char** argv )
         return 0;
     }
 
-    if ( decompress || listOffsets ) {
+    if ( decode ) {
         if ( verbose ) {
             std::cerr << "Decompress " << inputFilePath << " -> " << outputFilePath << " with " << decoderParallelism
                       << " threads\n";
@@ -454,7 +510,7 @@ ibzip2CLI( int argc, char** argv )
         auto fileReader = openFileOrStdin( inputFilePath );
 
         std::unique_ptr<OutputFile> outputFile;
-        if ( decompress ) {
+        if ( writeOutput ) {
             outputFile = std::make_unique<OutputFile>( outputFilePath );
         }
         const auto outputFileDescriptor = outputFile ? outputFile->fd() : -1;
@@ -465,33 +521,70 @@ ibzip2CLI( int argc, char** argv )
         } else {
             reader = std::make_unique<ParallelBZ2Reader>( std::move( fileReader ), decoderParallelism );
         }
+        if ( !importIndexPath.empty() ) {
+            reader->importIndex( std::make_unique<StandardFileReader>( importIndexPath ) );
+        }
         reader->setShowProfileOnDestruction( verbose );
 
+        const auto actualBufferSize = bufferSize > 0 ? bufferSize : 1_Mi;
+        std::vector<char> buffer( actualBufferSize );
+        size_t nBytesDecodedTotal = 0;
         size_t nBytesWrittenTotal = 0;
-        if ( bufferSize > 0 ) {
-            do {
-                std::vector<char> buffer( bufferSize, 0 );
-                const auto nBytesRead = reader->read( -1, buffer.data(), buffer.size() );
-                assert( nBytesRead <= buffer.size() );
+        size_t newlineCount = 0;
 
-                const auto nBytesWritten = write( outputFileDescriptor, buffer.data(), nBytesRead );
-                if ( static_cast<size_t>( nBytesWritten ) != nBytesRead ) {
-                    std::cerr << "Could not write all the decoded data to the specified output!\n";
+        const auto process =
+            [&] ( const char* const data, const size_t size )
+            {
+                nBytesDecodedTotal += size;
+                if ( countLines ) {
+                    newlineCount += static_cast<size_t>( std::count( data, data + size, '\n' ) );
+                }
+                if ( !writeOutput ) {
+                    return;
                 }
 
-                nBytesWrittenTotal += nBytesWritten;
-            } while ( !reader->eof() );
+                size_t offset = 0;
+                while ( offset < size ) {
+                    const auto nBytesWritten = write( outputFileDescriptor, data + offset, size - offset );
+                    if ( nBytesWritten <= 0 ) {
+                        std::cerr << "Could not write all the decoded data to the specified output!\n";
+                        return;
+                    }
+                    offset += static_cast<size_t>( nBytesWritten );
+                    nBytesWrittenTotal += static_cast<size_t>( nBytesWritten );
+                }
+            };
+
+        if ( fileRanges ) {
+            for ( const auto& range : *fileRanges ) {
+                reader->seek( static_cast<long long int>( range.offset ), SEEK_SET );
+                auto remaining = range.size;
+                while ( remaining > 0 ) {
+                    const auto toRead = std::min( buffer.size(), remaining );
+                    const auto nBytesRead = reader->read( -1, buffer.data(), toRead );
+                    if ( nBytesRead == 0 ) {
+                        break;
+                    }
+                    process( buffer.data(), nBytesRead );
+                    remaining -= nBytesRead;
+                }
+            }
         } else {
-            nBytesWrittenTotal = reader->read( outputFileDescriptor );
+            while ( true ) {
+                const auto nBytesRead = reader->read( -1, buffer.data(), buffer.size() );
+                if ( nBytesRead == 0 ) {
+                    break;
+                }
+                process( buffer.data(), nBytesRead );
+            }
         }
 
         const auto writeToStdErr = outputFile && outputFile->writingToStdout();
         auto& out = writeToStdErr ? std::cerr : std::cout;
         if ( outputFile ) {
             outputFile->truncate( nBytesWrittenTotal );
-            outputFile.reset();  // Close the file here to include it in the time measurement.
+            outputFile.reset();  /* Close the file here to include it in the time measurement. */
         }
-
 
         const auto offsets = reader->blockOffsets();
 
@@ -505,18 +598,18 @@ ibzip2CLI( int argc, char** argv )
             out << "Found " << offsets.size() << " blocks\n";
         }
 
-        if ( test ) {
-            checkOffsets( inputFilePath, compressedOffsets );
-
-            const auto readerSize = reader->size();
-            if ( !readerSize ) {
-                throw std::logic_error( "Bzip2 reader size should be available at this point!" );
-            }
-            if ( nBytesWrittenTotal != *readerSize ) {
-                std::stringstream msg;
-                msg << "Wrote less bytes (" << nBytesWrittenTotal << " B) than decoded stream is large("
-                    << *readerSize << " B)!";
-                throw std::logic_error( std::move( msg ).str() );
+        if ( doTest ) {
+            if ( !fileRanges ) {
+                const auto readerSize = reader->size();
+                if ( !readerSize ) {
+                    throw std::logic_error( "Bzip2 reader size should be available at this point!" );
+                }
+                if ( nBytesDecodedTotal != *readerSize ) {
+                    std::stringstream msg;
+                    msg << "Wrote less bytes (" << nBytesDecodedTotal << " B) than decoded stream is large("
+                        << *readerSize << " B)!";
+                    throw std::logic_error( std::move( msg ).str() );
+                }
             }
         }
 
@@ -539,6 +632,19 @@ ibzip2CLI( int argc, char** argv )
                 dumpOffsets( std::cerr, compressedOffsets );
             } else {
                 dumpOffsets( std::cout, compressedOffsets );
+            }
+        }
+
+        if ( !exportIndexPath.empty() ) {
+            std::ofstream file( exportIndexPath, std::ios_base::out | std::ios_base::binary );
+            writeBzip2Index( file, offsets );
+        }
+
+        if ( countBytes || countLines ) {
+            if ( countBytes && countLines ) {
+                out << nBytesDecodedTotal << " " << newlineCount << "\n";
+            } else {
+                out << ( countBytes ? nBytesDecodedTotal : newlineCount ) << "\n";
             }
         }
 
@@ -569,7 +675,7 @@ ibzip2CLI( int argc, char** argv )
 }
 
 
-#ifndef WITH_PYTHON_SUPPORT
+#if !defined( WITH_PYTHON_SUPPORT ) && !defined( WITHOUT_MAIN )
 int
 main( int argc, char** argv )
 {

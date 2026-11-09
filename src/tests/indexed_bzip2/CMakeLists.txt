@@ -17,6 +17,13 @@ addIndexedBzip2Test(testBZ2Reader)
 addIndexedBzip2Test(testParallelBZ2Reader)
 endif()
 
+addIndexedBzip2Test(testIbzip2CLI)
+target_include_directories(testIbzip2CLI PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../tools)
+target_link_libraries(testIbzip2CLI PRIVATE cxxopts)
+if(TARGET bzip2_compression)
+    target_link_libraries(testIbzip2CLI PRIVATE bzip2_compression)
+endif()
+
 addIndexedBzip2Test(testCrc32)
 addIndexedBzip2Test(testMoveToFront)
 
