@@ -676,6 +676,29 @@ private:
             const uint8_t& m_originalBitBufferSize;
         } const shiftBackOnExit( m_bitBuffer, m_originalBitBufferSize );
 
+        /* The MSB path always appends a whole number of bytes, so the remaining space can be filled with
+         * one big-endian 64-bit load instead of one load and shift per byte. The load needs eight readable
+         * bytes; near the end of the input buffer keep the byte-wise fallback. */
+        if constexpr ( MOST_SIGNIFICANT_BITS_FIRST ) {
+            const auto bytesToAppend = static_cast<size_t>(
+                ( MAX_BIT_BUFFER_SIZE - m_originalBitBufferSize ) / CHAR_BIT );
+            if ( ( bytesToAppend > 0 )
+                 && ( m_inputBufferPosition + sizeof( uint64_t ) <= m_inputBuffer.size() ) ) {
+                auto value = byteSwap( loadUnaligned<uint64_t>( m_inputBuffer.data() + m_inputBufferPosition ) );
+                if ( bytesToAppend == sizeof( uint64_t ) ) {
+                    m_bitBuffer = value;
+                } else {
+                    value >>= static_cast<uint8_t>( CHAR_BIT * ( sizeof( uint64_t ) - bytesToAppend ) );
+                    m_bitBuffer = ( m_bitBuffer << static_cast<uint8_t>( CHAR_BIT * bytesToAppend ) ) | value;
+                }
+                m_inputBufferPosition += bytesToAppend;
+                m_originalBitBufferSize += static_cast<uint8_t>( CHAR_BIT * bytesToAppend );
+                m_bitBufferFree -= static_cast<uint32_t>( CHAR_BIT * bytesToAppend );
+                m_statistics.bitBufferRefillCount++;
+                return;
+            }
+        }
+
         /* Refill buffer one byte at a time to enforce endianness and avoid unaligned access. */
         for ( ; m_originalBitBufferSize + CHAR_BIT <= MAX_BIT_BUFFER_SIZE;
               m_bitBufferFree -= CHAR_BIT, m_originalBitBufferSize += CHAR_BIT )
