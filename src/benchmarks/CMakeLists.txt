@@ -65,6 +65,10 @@ add_executable(benchmarkInflate)
 target_sources(benchmarkInflate PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkInflate.cpp)
 target_link_libraries(benchmarkInflate PRIVATE librapidgzip)
 
+add_executable(benchmarkByteSwap)
+target_sources(benchmarkByteSwap PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkByteSwap.cpp)
+target_link_libraries(benchmarkByteSwap PRIVATE core)
+
 add_executable(benchmarkBzip2)
 target_sources(benchmarkBzip2 PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkBzip2.cpp)
 target_link_libraries(benchmarkBzip2 PRIVATE indexed_bzip2_parallel)
