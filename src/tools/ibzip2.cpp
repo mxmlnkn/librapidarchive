@@ -26,6 +26,7 @@
 #include <indexed_bzip2/bzip2.hpp>
 #include <indexed_bzip2/BZ2Reader.hpp>
 #include <indexed_bzip2/Bzip2Compressor.hpp>
+#include <indexed_bzip2/IndexFileFormat.hpp>
 #include <indexed_bzip2/ParallelBZ2Reader.hpp>
 
 #include "CLIHelper.hpp"
@@ -78,20 +79,6 @@ dumpOffsets( std::ostream&              out,
 
     for ( const auto offset : offsets ) {
         out << offset << "\n";
-    }
-}
-
-
-void
-dumpOffsets( std::ostream&                   out,
-             const std::map<size_t, size_t>& offsets )
-{
-    if ( !out.good() ) {
-        return;
-    }
-
-    for ( const auto [compressedOffset, offset] : offsets ) {
-        out << compressedOffset << "," << offset << "\n";
     }
 }
 
@@ -536,11 +523,11 @@ ibzip2CLI( int argc, char** argv )
         if ( listOffsets ) {
             if ( !offsetsFilePath.empty() ) {
                 std::ofstream file( offsetsFilePath, std::ios_base::out | std::ios_base::binary );
-                dumpOffsets( file, offsets );
+                writeBzip2Index( file, offsets );
             } else if ( outputFilePath.empty() ) {
-                dumpOffsets( std::cerr, offsets );
+                writeBzip2Index( std::cerr, offsets );
             } else {
-                dumpOffsets( std::cout, offsets );
+                writeBzip2Index( std::cout, offsets );
             }
         }
 
