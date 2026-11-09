@@ -36,6 +36,13 @@
 
 #include "Bzip2Crc32.hpp"
 
+#if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+    /* The AVX-512 RLE scan uses the same compiler/architecture gate as the PCLMUL CRC header. */
+    #define LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN 1
+#else
+    #define LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN 0
+#endif
+
 
 /**
  * @see https://github.com/dsnet/compress/blob/master/doc/bzip2-format.pdf
@@ -77,6 +84,85 @@ static constexpr uint16_t SYMBOL_RUNB = 1;
 
 /* bzip2 levels 1-9 use blocks of at most 100000 to 900000 bytes before the BWT. */
 static constexpr size_t MAX_BLOCK_SIZE = 900000;
+
+
+#if LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN
+#define LIBRAPIDARCHIVE_BZIP2_AVX512_TARGET __attribute__( ( target( "avx512f,avx512bw" ) ) )
+
+[[nodiscard]] inline bool
+hasAvx512RLEScan() noexcept
+{
+    static const bool supported =
+        ( __builtin_cpu_supports( "avx512f" ) != 0 ) && ( __builtin_cpu_supports( "avx512bw" ) != 0 );
+    return supported;
+}
+
+
+/**
+ * Expand the whole RLE1 prefix of a block 64 positions at a time. A position starts a run when it and the next
+ * three bytes are equal. The byte after those four is the additional repeat count. The first set bit of the
+ * equality mask is therefore the first run start, and everything before it is a literal.
+ *
+ * Stops when the caller's buffer is full, the source is exhausted, or fewer than 68 source bytes remain, so
+ * the scalar and SSE2 paths in decodeBlock can handle the tail.
+ */
+LIBRAPIDARCHIVE_BZIP2_AVX512_TARGET
+inline void
+expandRLEAvx512( const uint8_t* source,
+                 const size_t   sourceSize,
+                 size_t&        position,
+                 char* const    output,
+                 size_t&        nBytesDecoded,
+                 const size_t   nMaxBytesToDecode,
+                 uint8_t&       repeatByte,
+                 size_t&        repeatCount )
+{
+    while ( nBytesDecoded < nMaxBytesToDecode ) {
+        if ( repeatCount > 0 ) {
+            const auto nBytesToRepeat = std::min( repeatCount, nMaxBytesToDecode - nBytesDecoded );
+            for ( size_t i = 0; i < nBytesToRepeat; ++i ) {
+                output[nBytesDecoded + i] = static_cast<char>( repeatByte );
+            }
+            nBytesDecoded += nBytesToRepeat;
+            repeatCount -= nBytesToRepeat;
+            continue;
+        }
+
+        if ( ( position >= sourceSize )
+             || ( nBytesDecoded + sizeof( __m512i ) > nMaxBytesToDecode )
+             || ( position + sizeof( __m512i ) + 4 > sourceSize ) ) {
+            return;
+        }
+
+        const auto* const window = source + position;
+        const auto v0 = _mm512_loadu_si512( window );
+        const auto v1 = _mm512_loadu_si512( window + 1 );
+        const auto v2 = _mm512_loadu_si512( window + 2 );
+        const auto v3 = _mm512_loadu_si512( window + 3 );
+        const auto runStarts = _mm512_cmpeq_epi8_mask( v0, v1 )
+                               & _mm512_cmpeq_epi8_mask( v0, v2 )
+                               & _mm512_cmpeq_epi8_mask( v0, v3 );
+        if ( runStarts == 0 ) {
+            _mm512_storeu_si512( output + nBytesDecoded, v0 );
+            nBytesDecoded += sizeof( __m512i );
+            position += sizeof( __m512i );
+            continue;
+        }
+
+        const auto literalCount = static_cast<size_t>( __builtin_ctzll( runStarts ) );
+        if ( literalCount > 0 ) {
+            const auto literalMask = ( __mmask64( 1 ) << literalCount ) - 1;
+            _mm512_mask_storeu_epi8( output + nBytesDecoded, literalMask, v0 );
+        }
+        nBytesDecoded += literalCount;
+        position += literalCount;
+        repeatByte = source[position];
+        repeatCount = 4 + source[position + 4];
+        position += 5;
+    }
+}
+#undef LIBRAPIDARCHIVE_BZIP2_AVX512_TARGET
+#endif
 
 
 constexpr auto MAGIC_BITS_BLOCK = 0x314159265359ULL;  /* bcd(pi) */
@@ -1282,6 +1368,16 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
             if ( state.position >= writeCount ) {
                 break;
             }
+
+        #if LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN
+            if ( hasAvx512RLEScan() ) {
+                expandRLEAvx512( bwtData.get(), writeCount, state.position, outputBuffer,
+                                 nBytesDecoded, nMaxBytesToDecode, state.repeatByte, state.repeatCount );
+                if ( ( nBytesDecoded >= nMaxBytesToDecode ) || ( state.position >= writeCount ) ) {
+                    break;
+                }
+            }
+        #endif
 
         #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
             /* Scan 16 positions at once. The scalar loop short-circuits after the first mismatch, but it still costs
