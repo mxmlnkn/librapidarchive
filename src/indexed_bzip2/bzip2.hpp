@@ -1156,7 +1156,26 @@ Block::readBlockData()
     uint32_t bwtDataCount = 0;
     const auto* huffmanCoding = &huffmanCodings.front();
     auto& reader = *m_bitReader;
-    for ( uint32_t hh = 0, runPos = 0, symCount = 0, selector = 0; ; ) {
+
+    /* The weight of the next RUNA/RUNB symbol. It starts at one after every literal, so each run
+     * symbol can emit its share immediately instead of accumulating a pending run that a later literal
+     * has to flush. Short runs use one 64-bit store and leave the slack bytes for the next write. */
+    uint32_t runWeight = 1;
+    const auto appendRunBytes =
+        [&] ( const uint8_t uc, const uint32_t count )
+        {
+            bwdata.byteCount[uc] += count;
+            if ( count <= sizeof( uint64_t ) ) {
+                const auto pattern = uint64_t( 0x0101'0101'0101'0101ULL ) * uc;
+                std::memcpy( bwdata.bwtData.get() + bwtDataCount, &pattern, sizeof( pattern ) );
+                bwtDataCount += count;
+            } else {
+                for ( uint32_t i = 0; i < count; ++i ) {
+                    bwdata.bwtData[bwtDataCount++] = uc;
+                }
+            }
+        };
+    for ( uint32_t symCount = 0, selector = 0; ; ) {
         // Have we reached the end of this huffman group?
         if ( symCount-- == 0 ) {
             // Determine which huffman coding group to use.
@@ -1175,60 +1194,20 @@ Block::readBlockData()
             throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
         }
 
-        // If this is a repeated run, loop collecting data
+        // If this is a repeated run, emit this symbol's share immediately.
         if ( nextSym <= SYMBOL_RUNB ) {
-            // If this is the start of a new run, zero out counter
-            if ( runPos == 0 ) {
-                runPos = 1;
-                hh = 0;
-            }
-
-            /* Neat trick that saves 1 symbol: instead of or-ing 0 or 1 at
-             * each bit position, add 1 or 2 instead. For example,
-             * 1011 is 1<<0 + 1<<1 + 2<<2. 1010 is 2<<0 + 2<<1 + 1<<2.
-             * You can make any bit pattern that way using 1 less symbol than
-             * the basic or 0/1 method (except all bits 0, which would use no
-             * symbols, but a run of length 0 doesn't mean anything in this
-             * context). Thus space is saved. */
-            /* The run length must fit into one block. Check in 64 bit because a crafted sequence of RUNA/RUNB symbols
-             * can wrap the 32-bit sum and bypass the block-size check at the end of the run, which would then write
-             * far past the block buffer. */
-            if ( static_cast<uint64_t>( hh ) + ( static_cast<uint64_t>( runPos ) << nextSym ) > MAX_BLOCK_SIZE ) {
+            /* The run length must fit into one block. Check in 64 bit because a crafted sequence of
+             * RUNA/RUNB symbols can wrap the 32-bit sum and bypass the block-size check, which would
+             * then write far past the block buffer. */
+            const auto count = static_cast<uint64_t>( runWeight ) << nextSym;
+            if ( static_cast<uint64_t>( bwtDataCount ) + count > MAX_BLOCK_SIZE ) {
                 std::stringstream msg;
                 msg << "[BZip2 block data] The run length exceeds the maximum block size " << MAX_BLOCK_SIZE;
                 throw std::domain_error( std::move( msg ).str() );
             }
-            hh += runPos << nextSym;  // +runPos if RUNA; +2*runPos if RUNB
-            runPos <<= 1U;
+            appendRunBytes( symbolToByte[mtfPacked[0] & 0xFFU], static_cast<uint32_t>( count ) );
+            runWeight <<= 1U;
             continue;
-        }
-
-        /* When we hit the first non-run symbol after a run, we now know
-         * how many times to repeat the last literal, so append that many
-         * copies to our buffer of decoded symbols (bwtData) now. (The last
-         * literal used is the one at the head of the mtfSymbol array.) */
-        if ( runPos != 0 ) {
-            runPos = 0;
-            if ( static_cast<uint64_t>( bwtDataCount ) + hh > MAX_BLOCK_SIZE ) {
-                std::stringstream msg;
-                msg << "[BZip2 block data] bwtDataCount + hh " << static_cast<uint64_t>( bwtDataCount ) + hh
-                    << " > " << MAX_BLOCK_SIZE << " maximum block size";
-                throw std::domain_error( std::move( msg ).str() );
-            }
-
-            const auto uc = symbolToByte[mtfPacked[0] & 0xFFU];
-            bwdata.byteCount[uc] += hh;
-            if ( hh <= sizeof( uint64_t ) ) {
-                /* One full-word store instead of the byte loop. The bytes past hh are overwritten by the
-                 * next literal, which always follows a flushed run, so they are never read. */
-                const auto fill = uint64_t( 0x0101'0101'0101'0101ULL ) * uc;
-                std::memcpy( bwdata.bwtData.get() + bwtDataCount, &fill, sizeof( fill ) );
-                bwtDataCount += hh;
-            } else {
-                while ( hh-- != 0 ) {
-                    bwdata.bwtData[bwtDataCount++] = uc;
-                }
-            }
         }
 
         // Is this the terminating symbol?
@@ -1253,6 +1232,7 @@ Block::readBlockData()
         // We have our literal byte.  Save it into bwtData.
         bwdata.byteCount[uc]++;
         bwdata.bwtData[bwtDataCount++] = uc;
+        runWeight = 1;
     }
 
     // Now we know what bwtDataCount is, do a better sanity check on origPtr.
