@@ -53,6 +53,10 @@ trailingZeroCount( const uint32_t value ) noexcept
 [[nodiscard]] constexpr uint64_t
 byteSwap( uint64_t value )
 {
+#if defined( __GNUC__ ) || defined( __clang__ )
+    return __builtin_bswap64( value );
+#else
+    /* _byteswap_uint64 is not constexpr on MSVC, so keep the shift/mask form there. */
     value = ( ( value & uint64_t( 0x0000'0000'FFFF'FFFFULL ) ) << 32U ) |
             ( ( value & uint64_t( 0xFFFF'FFFF'0000'0000ULL ) ) >> 32U );
     value = ( ( value & uint64_t( 0x0000'FFFF'0000'FFFFULL ) ) << 16U ) |
@@ -60,6 +64,7 @@ byteSwap( uint64_t value )
     value = ( ( value & uint64_t( 0x00FF'00FF'00FF'00FFULL ) ) << 8U  ) |
             ( ( value & uint64_t( 0xFF00'FF00'FF00'FF00ULL ) ) >> 8U  );
     return value;
+#endif
 }
 
 
