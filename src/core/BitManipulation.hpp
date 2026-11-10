@@ -303,7 +303,7 @@ createReversedBitsLUT<uint16_t>()
 
 /* Size: uint16_t: 64 KiB, uint8_t: 256 B */
 template<typename T>
-alignas( 8 ) static constexpr auto REVERSED_BITS_LUT = createReversedBitsLUT<T>();
+alignas( 64 ) static constexpr auto REVERSED_BITS_LUT = createReversedBitsLUT<T>();
 
 
 template<typename T>

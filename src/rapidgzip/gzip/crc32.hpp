@@ -45,7 +45,7 @@ createCRC32LookupTable() noexcept
 static constexpr int CRC32_LOOKUP_TABLE_SIZE = 256;
 
 /* a small lookup table: raw data -> CRC32 value to speed up CRC calculation */
-alignas( 8 ) constexpr static CRC32LookupTable CRC32_TABLE = createCRC32LookupTable();
+alignas( 64 ) constexpr static CRC32LookupTable CRC32_TABLE = createCRC32LookupTable();
 
 [[nodiscard]] constexpr uint32_t
 updateCRC32( uint32_t crc,
@@ -63,7 +63,7 @@ static constexpr size_t MAX_CRC32_SLICE_SIZE = 64;
  * @note LUT[n + 1] contains the CRC32 of a byte steam consisting of n zero-bytes.
  * Size: 64 * 256 * 32 bit = 64 KiB
  */
-alignas( 8 ) static constexpr std::array<CRC32LookupTable, MAX_CRC32_SLICE_SIZE> CRC32_SLICE_BY_N_LUT =
+alignas( 64 ) static constexpr std::array<CRC32LookupTable, MAX_CRC32_SLICE_SIZE> CRC32_SLICE_BY_N_LUT =
     [] ()
     {
         std::array<CRC32LookupTable, MAX_CRC32_SLICE_SIZE> lut{};
@@ -96,7 +96,7 @@ crc32SliceByN( uint32_t    crc,
         std::memcpy( &firstDoubleWord, data + i, sizeof( uint32_t ) );
         crc ^= firstDoubleWord;
 
-        alignas( 8 ) std::array<uint8_t, SLICE_SIZE> chunk{};
+        alignas( 64 ) std::array<uint8_t, SLICE_SIZE> chunk{};
         std::memcpy( chunk.data(), &crc, sizeof( uint32_t ) );
         std::memcpy( chunk.data() + sizeof( uint32_t ),
                      data + i + sizeof( uint32_t ),
