@@ -1119,18 +1119,7 @@ public:
             throw std::invalid_argument( "Exporting index not supported when index-keeping has been disabled!" );
         }
 
-        switch ( indexFormat )
-        {
-        case IndexFormat::INDEXED_GZIP:
-            indexed_gzip::writeGzipIndex( gzipIndex(), checkedWrite );
-            break;
-        case IndexFormat::GZTOOL:
-            gztool::writeGzipIndex( gzipIndex( false ), checkedWrite );
-            break;
-        case IndexFormat::GZTOOL_WITH_LINES:
-            gztool::writeGzipIndex( gzipIndex( true ), checkedWrite );
-            break;
-        }
+        writeGzipIndex( gzipIndex( indexFormat == IndexFormat::GZTOOL_WITH_LINES ), checkedWrite, indexFormat );
 
         if ( m_showProfileOnDestruction ) {
             std::cerr << "[ParallelGzipReader::exportIndex] Took " << duration( t0 ) << " s\n";
