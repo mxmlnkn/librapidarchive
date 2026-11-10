@@ -143,7 +143,7 @@ public:
     }
 
 private:
-    alignas( 8 ) std::array<std::pair</* length */ uint8_t, Symbol>, ( 1UL << MAX_CODE_LENGTH )> m_codeCache{};
+    alignas( 64 ) std::array<std::pair</* length */ uint8_t, Symbol>, ( 1UL << MAX_CODE_LENGTH )> m_codeCache{};
     bool m_needsToBeZeroed{ false };
 };
 }  // namespace rapidgzip

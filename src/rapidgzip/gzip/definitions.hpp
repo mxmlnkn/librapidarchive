@@ -40,7 +40,7 @@ constexpr uint32_t MAX_PRECODE_COUNT = 19;  // The maximum precode count
 constexpr uint32_t PRECODE_BITS = 3;        // The number of bits per precode (code length)
 constexpr uint32_t MAX_PRECODE_LENGTH = ( 1U << PRECODE_BITS ) - 1U;
 static_assert( MAX_PRECODE_LENGTH == 7 );
-alignas( 8 ) static constexpr std::array<uint8_t, MAX_PRECODE_COUNT> PRECODE_ALPHABET = {
+alignas( 64 ) static constexpr std::array<uint8_t, MAX_PRECODE_COUNT> PRECODE_ALPHABET = {
     16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15
 };
 
