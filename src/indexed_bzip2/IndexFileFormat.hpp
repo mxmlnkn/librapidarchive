@@ -162,11 +162,20 @@ readBzip2Index( rapidgzip::UniqueFileReader indexFile )
 
 
 inline void
+writeBzip2IndexEntry( std::ostream& out,
+                      const size_t  compressedOffset,
+                      const size_t  uncompressedOffset )
+{
+    out << compressedOffset << "," << uncompressedOffset << "\n";
+}
+
+
+inline void
 writeBzip2Index( std::ostream&       out,
                  const BlockOffsets& offsets )
 {
     for ( const auto& [compressedOffset, uncompressedOffset] : offsets ) {
-        out << compressedOffset << "," << uncompressedOffset << "\n";
+        writeBzip2IndexEntry( out, compressedOffset, uncompressedOffset );
     }
     if ( !out ) {
         throw std::runtime_error( "Failed to write the bzip2 block offset index!" );
