@@ -846,8 +846,9 @@ public:
 
         /* BWT input bytes. libsais inverts them in place into the run-length encoded output; the classic
          * chase fallback copies them into dbuf first. Not zero-initialized because the symbol pass and
-         * libsais overwrite every element that is read. */
-        std::unique_ptr<uint8_t[]> bwtData{ new uint8_t[MAX_BLOCK_SIZE] };
+         * libsais overwrite every element that is read. The eight tail bytes are slack for the word-store
+         * run flush, which may write past the logical count. */
+        std::unique_ptr<uint8_t[]> bwtData{ new uint8_t[MAX_BLOCK_SIZE + sizeof( uint64_t )] };
     };
 
 public:
@@ -1217,8 +1218,16 @@ Block::readBlockData()
 
             const auto uc = symbolToByte[mtfPacked[0] & 0xFFU];
             bwdata.byteCount[uc] += hh;
-            while ( hh-- != 0 ) {
-                bwdata.bwtData[bwtDataCount++] = uc;
+            if ( hh <= sizeof( uint64_t ) ) {
+                /* One full-word store instead of the byte loop. The bytes past hh are overwritten by the
+                 * next literal, which always follows a flushed run, so they are never read. */
+                const auto fill = uint64_t( 0x0101'0101'0101'0101ULL ) * uc;
+                std::memcpy( bwdata.bwtData.get() + bwtDataCount, &fill, sizeof( fill ) );
+                bwtDataCount += hh;
+            } else {
+                while ( hh-- != 0 ) {
+                    bwdata.bwtData[bwtDataCount++] = uc;
+                }
             }
         }
 
