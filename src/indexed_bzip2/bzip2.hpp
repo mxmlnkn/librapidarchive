@@ -39,6 +39,7 @@
 #include <libsais.h>
 
 #include "Bzip2Crc32.hpp"
+#include "Bzip2Format.hpp"
 
 #if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
     /* The AVX-512 RLE scan uses the same compiler/architecture gate as the PCLMUL CRC header. */
@@ -168,11 +169,6 @@ expandRLEAvx512( const uint8_t* source,
 #undef LIBRAPIDARCHIVE_BZIP2_AVX512_TARGET
 #endif
 
-
-constexpr auto MAGIC_BITS_BLOCK = 0x314159265359ULL;  /* bcd(pi) */
-constexpr auto MAGIC_BITS_EOS = 0x177245385090ULL;  /* bcd(sqrt(pi)) */
-constexpr auto MAGIC_BITS_SIZE = 48;
-constexpr std::string_view MAGIC_BYTES_BZ2 = "BZh";
 
 using BitReader = rapidgzip::BitReader<true, uint64_t>;
 

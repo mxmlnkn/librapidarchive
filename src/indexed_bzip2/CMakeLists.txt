@@ -4,6 +4,7 @@ target_sources(indexed_bzip2 INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/BZ2Reader.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Bzip2Compressor.hpp
     ${CMAKE_CURRENT_LIST_DIR}/BZ2ReaderInterface.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2Format.hpp
     ${CMAKE_CURRENT_LIST_DIR}/IndexFileFormat.hpp
     ${CMAKE_CURRENT_LIST_DIR}/bzip2.hpp
 )
