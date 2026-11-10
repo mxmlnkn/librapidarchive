@@ -11,7 +11,7 @@
 
 #include <sys/stat.h>
 
-#ifdef _MSC_VER
+#if defined( _WIN32 )
     #include <stdio.h>  // stdin
     #include <io.h>     // _setmode
     #include <fcntl.h>
@@ -319,7 +319,7 @@ openFileOrStdin( const std::string& inputFilePath )
         return std::make_unique<StandardFileReader>( inputFilePath );
     }
 
-#ifdef _MSC_VER
+#ifdef _WIN32
     const auto stdinHandle = _fileno( stdin );
     _setmode( stdinHandle, _O_BINARY );
 #else

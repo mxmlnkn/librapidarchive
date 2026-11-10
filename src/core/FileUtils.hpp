@@ -48,6 +48,10 @@
     #endif
 #endif
 
+#if defined( _WIN32 ) && !defined( _MSC_VER )
+    #include <io.h>  // _setmode
+#endif
+
 /**
  * Disable vmsplice because it STILL has bugs. In this case it seems to happen because rapidgzip quits
  * before everything has been read. This seems to cause a free and possible reuse of the memory section
@@ -842,7 +846,7 @@ public:
         m_writingToStdout( filePath.empty() )
     {
         if ( filePath.empty() ) {
-        #ifdef _MSC_VER
+        #ifdef _WIN32
             m_fileDescriptor = _fileno( stdout );
             _setmode( m_fileDescriptor, _O_BINARY );
         #else
@@ -859,7 +863,11 @@ public:
                 /* Opening an existing file and overwriting its data can be much slower because posix_fallocate
                  * can be relatively slow compared to the decoding speed and memory bandwidth! Note that std::fopen
                  * would open a file with O_TRUNC, deallocating all its contents before it has to be reallocated. */
+            #if defined( _WIN32 )
+                m_fileDescriptor = ::open( filePath.c_str(), O_WRONLY | O_BINARY );  // NOLINT
+            #else
                 m_fileDescriptor = ::open( filePath.c_str(), O_WRONLY );  // NOLINT
+            #endif
                 m_ownedFd = unique_file_descriptor( m_fileDescriptor );
             }
         #endif
