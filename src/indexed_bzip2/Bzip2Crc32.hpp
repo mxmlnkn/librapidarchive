@@ -78,6 +78,12 @@ createCRC32SliceTables() noexcept
 }
 
 
+/* Keep the tables at namespace scope, like the gzip CRC tables. */
+template<unsigned int SLICE_SIZE>
+alignas( 64 ) static constexpr std::array<CRC32LookupTable, SLICE_SIZE> CRC32_SLICE_TABLES =
+    createCRC32SliceTables<SLICE_SIZE>();
+
+
 /**
  * Slicing-by-@p SLICE_SIZE update for the non-reflected bzip2 CRC32.
  *
@@ -101,7 +107,7 @@ updateCRC32SliceByN( uint32_t       crc,
         }
         return crc;
     } else {
-        alignas( 64 ) static constexpr auto TABLES = createCRC32SliceTables<SLICE_SIZE>();
+        constexpr const auto& TABLES = CRC32_SLICE_TABLES<SLICE_SIZE>;
 
         size_t i = 0;
         for ( ; i + SLICE_SIZE <= size; i += SLICE_SIZE ) {
