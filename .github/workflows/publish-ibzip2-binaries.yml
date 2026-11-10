@@ -1,0 +1,217 @@
+name: Build and Publish Static Binaries
+
+on:
+  push:
+    branches: [ "master" ]
+    tags: [ 'indexed-bzip2-v*' ]
+  workflow_dispatch:
+
+jobs:
+  Static-Binary-Build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - name: ubuntu-latest
+            artifact_suffix: 'linux-x86_64.tar.gz'
+          - name: ubuntu-26.04-arm
+            artifact_suffix: 'linux-aarch64.tar.gz'
+          - name: macos-latest
+            artifact_suffix: 'darwin-aarch64.tar.gz'
+          - name: windows-latest
+            artifact_suffix: 'windows-x86_64.zip'
+        tool:
+          # ibzip2 does not use ISA-L. rapidgzip gets its own build with ISA-L enabled so the two
+          # tools do not have to share a CMake configuration.
+          - name: ibzip2
+            with_isal: 'OFF'
+            with_bzip2_compression: 'ON'
+          - name: rapidgzip
+            with_isal: 'ON'
+            with_bzip2_compression: 'OFF'
+    # Version tags only ship the indexed_bzip2 release. The nightly release builds both tools.
+    runs-on: ${{ matrix.os.name }}
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Install System Dependencies
+      if: startsWith( matrix.os.name, 'ubuntu' )
+      run: |
+        sudo apt update
+        sudo apt-get -y install clang-22 g++ ninja-build
+        if [[ "${RUNNER_ARCH}" == "X64" ]]; then
+            sudo apt-get -y install nasm
+        fi
+
+    - name: Install System Dependencies
+      if: startsWith( matrix.os.name, 'macos' )
+      run: |
+        brew install -q ninja
+        if [[ "${RUNNER_ARCH}" == "X64" ]]; then
+            brew install -q nasm
+        fi
+
+    - name: Install System Dependencies
+      if: startsWith( matrix.os.name, 'windows' )
+      run: |
+        choco install -y --no-progress ninja nasm
+        Add-Content -Path $env:GITHUB_PATH -Value "C:\Program Files\NASM"
+
+    - name: Configure CMake
+      shell: bash
+      run: |
+        EXTRA_ARGS=()
+        EXTRA_ARGS+=( -DLIBRAPIDARCHIVE_BUILD_BENCHMARKS=OFF )
+        EXTRA_ARGS+=( -DLIBRAPIDARCHIVE_BUILD_TESTS=OFF )
+        EXTRA_ARGS+=( -DLIBRAPIDARCHIVE_BUILD_TOOLS=ON )
+        EXTRA_ARGS+=( -DLIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION=${{ matrix.tool.with_bzip2_compression }} )
+        # ISA-L has x86 and aarch64 kernels. NASM is only needed for the x86 kernels, which is why
+        # the dependency step installs it only on X64 runners.
+        EXTRA_ARGS+=( -DLIBRAPIDARCHIVE_WITH_ISAL=${{ matrix.tool.with_isal }} )
+        EXTRA_ARGS+=( -DCMAKE_POSITION_INDEPENDENT_CODE=ON )
+        if command -v clang-22 &>/dev/null; then
+            # Prefer the newest compiler for code generation, as in the rapidgzip release build.
+            CC=clang-22
+            CXX=clang++-22
+            export CC CXX
+            EXTRA_ARGS+=( -DCMAKE_CXX_FLAGS='-std=c++2c' )
+        fi
+        if [[ "${{ matrix.os.name }}" =~ windows ]]; then
+            EXTRA_ARGS+=( -DCMAKE_EXE_LINKER_FLAGS='-static' )
+        elif [[ "${{ matrix.os.name }}" =~ ubuntu ]]; then
+            EXTRA_ARGS+=( -DCMAKE_EXE_LINKER_FLAGS='-static-libgcc -static-libstdc++' )
+        fi
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo "${EXTRA_ARGS[@]}"
+
+    - name: Build
+      if: matrix.tool.name == 'ibzip2' || github.ref_type != 'tag'
+      run: |
+        cmake --build build --target ${{ matrix.tool.name }} -v
+
+    - name: Smoke Test ibzip2
+      if: matrix.tool.name == 'ibzip2'
+      shell: bash
+      run: |
+        IBZIP2=$( find build/src/tools -maxdepth 1 -type f -name 'ibzip2*' ! -name '*.pdb' | head -1 )
+        "$IBZIP2" --version
+        "$IBZIP2" -d -c src/tests/data/base64-256KiB.bz2 > "$RUNNER_TEMP/decoded"
+        diff -q "$RUNNER_TEMP/decoded" src/tests/data/base64-256KiB
+        "$IBZIP2" -z -f -o "$RUNNER_TEMP/compressed.bz2" src/tests/data/base64-256KiB
+        "$IBZIP2" -d -c "$RUNNER_TEMP/compressed.bz2" > "$RUNNER_TEMP/roundtrip"
+        diff -q "$RUNNER_TEMP/roundtrip" src/tests/data/base64-256KiB
+
+    - name: Smoke Test rapidgzip
+      if: matrix.tool.name == 'rapidgzip' && github.ref_type != 'tag'
+      shell: bash
+      run: |
+        RAPIDGZIP=$( find build/src/tools -maxdepth 1 -type f -name 'rapidgzip*' ! -name '*.pdb' | head -1 )
+        "$RAPIDGZIP" --version
+        "$RAPIDGZIP" -d -c -P 2 src/tests/data/base64-256KiB.gz > "$RUNNER_TEMP/decoded"
+        diff -q "$RUNNER_TEMP/decoded" src/tests/data/base64-256KiB
+
+    - name: Package Binary
+      if: matrix.tool.name == 'ibzip2' || github.ref_type != 'tag'
+      shell: bash
+      env:
+        ARTIFACT_SUFFIX: ${{ matrix.os.artifact_suffix }}
+        TOOL: ${{ matrix.tool.name }}
+      run: |
+        BINARY=$( find build/src/tools -maxdepth 1 -type f -name "$TOOL*" ! -name '*.pdb' )
+        VERSION=$( "$BINARY" --version | sed -nE 's|.*version ([0-9.]*).*|\1|p' )
+        if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG_VERSION="${GITHUB_REF_NAME#indexed-bzip2-v}"
+            if [[ "$VERSION" != "$TAG_VERSION" ]]; then
+                echo "$TOOL reports version $VERSION but the tag is $TAG_VERSION" >&2
+                exit 1
+            fi
+        fi
+        ARTIFACT_SUFFIX=$VERSION-$ARTIFACT_SUFFIX
+        mv "$BINARY" .
+        if [[ "$ARTIFACT_SUFFIX" == *.zip ]]; then
+            # Git Bash on windows-latest does not ship the zip command. Both 7z and Python are
+            # part of the Windows runner image.
+            if command -v 7z >/dev/null 2>&1; then
+                7z a -tzip "$TOOL-$ARTIFACT_SUFFIX" "$TOOL"*
+            else
+                python -m zipfile -c "$TOOL-$ARTIFACT_SUFFIX" "$TOOL"*
+            fi
+        else
+            tar -czf "$TOOL-$ARTIFACT_SUFFIX" "$TOOL"
+        fi
+
+    - uses: actions/upload-artifact@v7
+      if: matrix.tool.name == 'ibzip2' || github.ref_type != 'tag'
+      with:
+        name: ${{ matrix.tool.name }}-${{ matrix.os.artifact_suffix }}
+        path: "${{ matrix.tool.name }}-*${{ matrix.os.artifact_suffix }}"
+
+  Static-Binary-Release:
+    runs-on: ubuntu-slim
+    needs: [Static-Binary-Build]
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - uses: actions/download-artifact@v8
+      with:
+        merge-multiple: true
+        pattern: '*'
+
+    # GitHub creates a dummy tag with the commit message as contents, so delete it and fetch the real tag.
+    - name: Fetch tags
+      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      run: |
+        git tag -n99 -l
+        git tag -d ${{ github.ref_name }} || true
+        git fetch origin ${{ github.ref }}:${{ github.ref }}
+
+    - name: Prepare Message
+      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      shell: bash
+      run: |
+        git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > release.md
+        sed "s|__TAG__|${GITHUB_REF_NAME}|g" .github/workflows/release-template.md >> release.md
+
+    - name: Strip tag prefix from release title
+      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      id: release-title
+      run: echo "version=${GITHUB_REF_NAME#indexed-bzip2-v}" >> "$GITHUB_OUTPUT"
+
+    - uses: ncipollo/release-action@v1
+      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      with:
+        artifacts: "ibzip2*"
+        tag: ${{ github.ref_name }}
+        name: "indexed_bzip2 ${{ steps.release-title.outputs.version }}"
+        bodyFile: release.md
+        allowUpdates: true
+        removeArtifacts: true
+        replacesArtifacts: true
+        updateOnlyUnreleased: true
+        prerelease: true
+        draft: true
+        makeLatest: false
+
+    - uses: ncipollo/release-action@v1
+      if: github.ref_name == 'master'
+      with:
+        artifacts: "ibzip2*,rapidgzip*"
+        tag: "nightly"
+        commit: "master"
+        name: "Nightly Release"
+        allowUpdates: true
+        removeArtifacts: true
+        replacesArtifacts: true
+        updateOnlyUnreleased: true
+        prerelease: true
+        makeLatest: false
+        body: |
+          This is the newest as of yet unreleased but tested state.
+          Try this if you want cutting-edge features or need a fix that has not made it into another release yet.
+
+          This nightly release contains static binaries for `indexed_bzip2` (`ibzip2`) and `rapidgzip`.
