@@ -120,6 +120,7 @@ jobs:
     # And especially without -DSHORT_TESTS, which makes it non redundant to the sanitizer checks!
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         # ISA-L currently not supported on macOS. macos-xx would simply build without ISA-L and waste precious CI time.
         os: [ubuntu-26.04, ubuntu-26.04-arm]
@@ -200,6 +201,7 @@ jobs:
     # And especially without -DSHORT_TESTS, which makes it non redundant to the sanitizer checks!
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
         - ubuntu-26.04
@@ -280,11 +282,49 @@ jobs:
         cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF -DCMAKE_CXX_FLAGS="-DSHORT_TESTS" .
         cmake --build build -- check
 
-    - name: Run Tests With Sanitizers
+    - name: Enable Windows Crash Dumps
+      if: "startsWith(matrix.os , 'windows')"
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\crashes" | Out-Null
+        New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps" -Force | Out-Null
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps" -Name DumpFolder -Value "$env:RUNNER_TEMP\crashes"
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps" -Name DumpType -Value 2
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps" -Name DumpCount -Value 20
+
+    - name: Run Tests
       if: "startsWith(matrix.os , 'windows')"
       run: |
         cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF .
-        cmake --build build -- check
+        cmake --build build
+        # Run serially so the heavy tests do not compete for the Windows runner's memory.
+        ctest --test-dir build -j 1 --output-on-failure --extra-verbose
+
+    - name: Print Windows Crash Backtraces
+      if: always() && startsWith(matrix.os , 'windows')
+      shell: pwsh
+      run: |
+        Start-Sleep -Seconds 5
+        $dumps = Get-ChildItem "$env:RUNNER_TEMP\crashes" -Filter *.dmp -ErrorAction SilentlyContinue
+        if ( -not $dumps ) { Write-Host "No Windows crash dumps found."; exit 0 }
+        $candidates = @(
+          "${env:ProgramFiles(x86)}\Windows Kits\10\Debuggers\x64\cdb.exe",
+          "${env:ProgramFiles}\Windows Kits\10\Debuggers\x64\cdb.exe"
+        )
+        $cdb = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ( -not $cdb ) { Write-Host "cdb.exe not found; dumps are in $env:RUNNER_TEMP\crashes"; exit 0 }
+        foreach ( $dump in $dumps ) {
+          Write-Host "=== $($dump.Name) ==="
+          & $cdb -z $dump.FullName -c "!analyze -v; kb; q"
+        }
+
+    - name: Upload Windows Crash Dumps
+      if: always() && startsWith(matrix.os , 'windows')
+      uses: actions/upload-artifact@v7
+      with:
+        name: windows-crash-dumps
+        path: ${{ runner.temp }}/crashes
+        if-no-files-found: ignore
 
   Sanitize:
     name: Sanitize
@@ -295,6 +335,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
         - ubuntu-26.04
@@ -354,6 +395,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
         - ubuntu-26.04
@@ -493,6 +535,7 @@ jobs:
     # And especially without -DSHORT_TESTS, which makes it non redundant to the sanitizer checks!
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
         - ubuntu-26.04
