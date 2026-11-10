@@ -318,6 +318,6 @@ private:
      * because we want to store the code length sum for both symbols in only the first symbol.
      * Using std::array<std::array<Symbol, 2>, ( 1UL << CACHED_BIT_COUNT )> instead of a one-dimensional array
      * with the same size reduces speed for base64.gz by 10%! */
-    alignas( 8 ) std::array<Symbol, 2 * ( 1UL << MAX_CODE_LENGTH )> m_doubleCodeCache{};
+    alignas( 64 ) std::array<Symbol, 2 * ( 1UL << MAX_CODE_LENGTH )> m_doubleCodeCache{};
 };
 }  // namespace rapidgzip

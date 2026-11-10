@@ -61,7 +61,7 @@ createDistanceLUT() noexcept
 }
 
 
-alignas( 8 ) static constexpr DistanceLUT
+alignas( 64 ) static constexpr DistanceLUT
 distanceLUT = createDistanceLUT();
 
 
@@ -90,7 +90,7 @@ createLengthLUT() noexcept
 }
 
 
-alignas( 8 ) static constexpr LengthLUT
+alignas( 64 ) static constexpr LengthLUT
 lengthLUT = createLengthLUT();
 
 
