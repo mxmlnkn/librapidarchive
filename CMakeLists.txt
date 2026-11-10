@@ -5,6 +5,28 @@ cmake_minimum_required(VERSION 3.17)
 # enabling C as a side effect because each of them can be disabled.
 project("Indexed BZip2/Gzip Decoder" C CXX)
 
+# GCC's AVX target functions can spill vector registers to stack slots that the compiler assumes are
+# 32 or 64 byte aligned, but the Win64 ABI only guarantees 16 bytes and GCC does not realign the frame
+# on MinGW (GCC PR target/49001 and 54412). -mpreferred-stack-boundary rejects values above 4 on
+# Windows, so let the assembler rewrite the aligned vector moves to their unaligned forms. Unaligned
+# moves have no penalty when the address happens to be aligned. binutils 2.38 added the option.
+if(MINGW)
+    include(CheckCCompilerFlag)
+    include(CheckCXXCompilerFlag)
+    check_c_compiler_flag("-Wa,-muse-unaligned-vector-move" LIBRAPIDARCHIVE_CAN_UNALIGN_VECTOR_MOVE_C)
+    check_cxx_compiler_flag("-Wa,-muse-unaligned-vector-move" LIBRAPIDARCHIVE_CAN_UNALIGN_VECTOR_MOVE_CXX)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND NOT LIBRAPIDARCHIVE_CAN_UNALIGN_VECTOR_MOVE_C)
+        message(FATAL_ERROR "MinGW builds require binutils >= 2.38 for -Wa,-muse-unaligned-vector-move.")
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT LIBRAPIDARCHIVE_CAN_UNALIGN_VECTOR_MOVE_CXX)
+        message(FATAL_ERROR "MinGW builds require binutils >= 2.38 for -Wa,-muse-unaligned-vector-move.")
+    endif()
+    add_compile_options(
+        "$<$<AND:$<COMPILE_LANG_AND_ID:C,GNU>,$<BOOL:${LIBRAPIDARCHIVE_CAN_UNALIGN_VECTOR_MOVE_C}>>:-Wa,-muse-unaligned-vector-move>"
+        "$<$<AND:$<COMPILE_LANG_AND_ID:CXX,GNU>,$<BOOL:${LIBRAPIDARCHIVE_CAN_UNALIGN_VECTOR_MOVE_CXX}>>:-Wa,-muse-unaligned-vector-move>"
+    )
+endif()
+
 option(LIBRAPIDARCHIVE_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(LIBRAPIDARCHIVE_BUILD_TESTS "Build tests" ON)
 option(LIBRAPIDARCHIVE_BUILD_FUZZERS "Build AFL++ fuzz targets" OFF)

@@ -109,6 +109,11 @@ class Build(build_ext):
                 ext.extra_compile_args += ['-DMS_WIN64']
 
             if self.compiler.compiler_type == 'mingw32':
+                # GCC can spill AVX registers to stack slots it assumes are 32/64-byte aligned, but the
+                # Win64 ABI only guarantees 16 bytes. See the top-level CMakeLists.txt for the bug
+                # references and why the assembler rewrite is the safe fix.
+                if supportsFlag(self.compiler, '-Wa,-muse-unaligned-vector-move'):
+                    ext.extra_compile_args += ['-Wa,-muse-unaligned-vector-move']
                 ext.extra_link_args = [
                     '-static-libgcc',
                     '-static-libstdc++',
