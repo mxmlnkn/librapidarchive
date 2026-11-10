@@ -1103,6 +1103,30 @@ writeGzipIndex( const GzipIndex&                                              in
 }  // namespace gztool
 
 
+/**
+ * Writes the index in the requested format. Callers must pass an index with line offsets when selecting
+ * GZTOOL_WITH_LINES.
+ */
+inline void
+writeGzipIndex( const GzipIndex&                                              index,
+                const std::function<void( const void* buffer, size_t size )>& checkedWrite,
+                const IndexFormat                                             indexFormat )
+{
+    switch ( indexFormat )
+    {
+    case IndexFormat::INDEXED_GZIP:
+        indexed_gzip::writeGzipIndex( index, checkedWrite );
+        break;
+    case IndexFormat::GZTOOL:
+        gztool::writeGzipIndex( index, checkedWrite );
+        break;
+    case IndexFormat::GZTOOL_WITH_LINES:
+        gztool::writeGzipIndex( index, checkedWrite );
+        break;
+    }
+}
+
+
 [[nodiscard]] inline GzipIndex
 readGzipIndex( UniqueFileReader indexFile,
                UniqueFileReader archiveFile = {},
