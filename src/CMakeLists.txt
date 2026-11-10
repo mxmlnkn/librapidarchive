@@ -159,6 +159,19 @@ target_sources(libsais PRIVATE
 set_target_properties(libsais PROPERTIES C_STANDARD 11)
 set_target_properties(libsais PROPERTIES LINKER_LANGUAGE C)
 
+set(LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE "" CACHE STRING
+    "Compile-time UNBWT_CHUNK_SIZE for the vendored libsais inverse BWT (empty uses the libsais default)")
+if(NOT LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE STREQUAL "")
+    file(READ "${LIBSAIS_HOME}/src/libsais.c" LIBSAIS_SOURCE)
+    if(NOT LIBSAIS_SOURCE MATCHES "#ifndef UNBWT_CHUNK_SIZE")
+        message(FATAL_ERROR
+            "LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE is set, but ${LIBSAIS_HOME}/src/libsais.c does not guard "
+            "UNBWT_CHUNK_SIZE with #ifndef. Update the libsais submodule or unset the option.")
+    endif()
+    target_compile_definitions(libsais PRIVATE
+        UNBWT_CHUNK_SIZE=${LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE})
+endif()
+
 
 # bzip2 (compression backend for the ibzip2 CLI and the compressor test)
 
