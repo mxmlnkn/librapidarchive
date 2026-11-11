@@ -259,6 +259,8 @@ cmake --build . -- ibzip2
 The finished `ibzip2` binary is created in the `tools` subfolder.
 To install it, it can be copied, e.g., to `/usr/local/bin` or anywhere else as long as it is available in your `PATH` variable.
 The command line options are similar to those of the existing `bzip2` tool.
+The full generated help is available in
+[`ibzip2-help.txt`](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/python/indexed_bzip2/ibzip2-help.txt).
 
 ```bash
 src/tools/ibzip2 --help

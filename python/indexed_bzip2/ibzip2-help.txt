@@ -1,0 +1,120 @@
+A parallel bzip2 decompressor and compressor based on the indexed_bzip2 backend from ratarmount
+Usage:
+  ibzip2 [OPTION...] positional parameters
+
+ Decompression options:
+  -c, --stdout                  Output to standard output. This is the
+                                default, when reading from standard input.
+  -d, --decompress              Force decompression.
+  -f, --force                   Force overwriting existing output files.
+                                Also forces decompression even when piped
+                                to /dev/null.
+  -o, --output arg              Output file. If none is given, use the
+                                input file name with '.bz2' stripped or
+                                '<input file>.out'. If no input is read
+                                from standard input and not output file is
+                                given, then will write to standard output.
+  -k, --keep                    Keep (do not delete) input file. Only for
+                                compatibility. This tool will not delete
+                                anything automatically!
+  -t, --test                    Test compressed file integrity.
+  -p, --block-finder-parallelism arg
+                                This only has an effect if the parallel
+                                decoder is used with the -P option. If an
+                                optional integer >= 1 is given, then that
+                                is the number of threads to use for finding
+                                bzip2 blocks. If 0 is given, then the
+                                parallelism will be determined
+                                automatically. (default: 1)
+  -P, --decoder-parallelism arg
+                                Use the parallel decoder or compressor. If
+                                an optional integer >= 1 is given, then
+                                that is the number of worker threads to
+                                use. Note that there might be further
+                                threads being started with non-worker work.
+                                If 0 is given, then the parallelism will be
+                                determined automatically. (default: 0)
+
+ Actions options:
+      --count             Print the decompressed size.
+      --count-lines       Print the number of newline characters in the
+                          decompressed data.
+      --ranges arg        Decompress only the specified byte ranges.
+                          Example: 10@0,1KiB@15KiB,inf@40.
+      --import-index arg  Use an existing bzip2 block offset index in the
+                          format written by --export-index.
+
+ Compression options:
+  -z, --compress   Compress to bzip2. Each worker writes an independent
+                   bzip2 stream. The complete streams are concatenated in
+                   input order, which bzip2 tools accept.
+      --level arg  bzip2 block size / compression level in the range 1..9
+                   (default 9). (default: 9)
+
+ Output options:
+  -h, --help                    Print this help message.
+  -q, --quiet                   Suppress noncritical error messages.
+  -v, --verbose                 Be verbose. A second -v (or shorthand -vv)
+                                gives even more verbosity.
+  -V, --version                 Display software version.
+      --oss-attributions        Display open-source software licenses.
+      --oss-attributions-yaml   Display open-source software licenses in
+                                YAML format for use with Conda.
+  -l, --list-compressed-offsets arg
+                                List only the bzip2 block offsets given in
+                                bits one per line to the specified output
+                                file. If no file is given, it will print to
+                                stdout or to stderr if the decoded data is
+                                already written to stdout. Specifying '-'
+                                as file path, will write to stdout.
+  -L, --export-index arg        Write a bzip2 block offset index with one
+                                '<encoded bits>,<decoded bytes>' pair per
+                                line. Entries are written incrementally
+                                while decoding or compressing. Specifying
+                                '-' writes to stdout, or to stderr when the
+                                output data itself is written to stdout.
+                                The former --list-offsets spelling is
+                                accepted as an alias.
+
+ Advanced options:
+      --buffer-size arg  Specifies the output buffer size between calls to
+                         the Bzip2 decoder and writing to standard out. If
+                         only --export-index is used with nothing else then
+                         it affects the input buffer for the block finder.
+                         (default: 0)
+
+If no file names are given, ibzip2 decompresses from standard input to standard output.
+If the output is discarded by piping to /dev/null, then the actual decoding step might
+be omitted if neither --test nor -l nor -L nor --force are given.
+
+Examples:
+
+Decompress a file:
+  ibzip2 -d file.bz2
+
+Decompress a file in parallel:
+  ibzip2 -d -P 0 file.bz2
+
+Compress a file to bzip2 in parallel:
+  ibzip2 -z -P 0 file
+  ibzip2 -z -P 0 --level 9 -o file.bz2 file
+
+Compress and write the block index while compressing, also for stdout:
+  ibzip2 -z --level 9 --export-index file.bz2.index -o file.bz2 file
+
+Write the block offset index while decoding (-L is an alias):
+  ibzip2 -L file.bz2.index -- file.bz2
+
+Find and list the bzip2 block offsets to be used for another tool:
+  ibzip2 -l blockoffsets.dat -- file.bz2
+
+Print the decompressed size or line count:
+  ibzip2 --count file.bz2
+  ibzip2 --count-lines file.bz2
+
+Decompress only a byte range:
+  ibzip2 -d -c --ranges 10@0,1KiB@15KiB file.bz2
+
+List block offsets in both the compressed as well as the decompressed data during downloading:
+  wget -O- 'ftp://example.com/file.bz2' | tee saved-file.bz2 | ibzip2 -L blockoffsets.dat > /dev/null
+
