@@ -2,12 +2,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
 #include <mutex>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <thread>
@@ -69,24 +67,25 @@ public:
     }
 
     /**
-     * @param timeoutInSeconds Use infinity or 0 to wait forever or not wait at all.
+     * @param timeoutInSeconds Negative waits indefinitely, 0 does not wait at all, and a positive value is a
+     *        timeout. Do not use infinity as a sentinel: -ffast-math implies -ffinite-math-only, which would
+     *        make an `std::isfinite` check on the sentinel return true and turn the infinite wait into an
+     *        immediate timeout.
      * @return the result at the requested position.
      */
     [[nodiscard]] std::pair<std::optional<size_t>, GetReturnCode>
     get( size_t position,
-         double timeoutInSeconds = std::numeric_limits<double>::infinity() ) const
+         double timeoutInSeconds = -1.0 ) const
     {
         std::unique_lock lock( m_mutex );
 
-        if ( timeoutInSeconds > 0 ) {
-            const auto predicate = [&] () { return m_finalized || ( position < m_results.size() ); };
+        const auto predicate = [&] () { return m_finalized || ( position < m_results.size() ); };
 
-            if ( std::isfinite( timeoutInSeconds ) ) {
-                const auto timeout = std::chrono::nanoseconds( static_cast<size_t>( timeoutInSeconds * 1e9 ) );
-                m_changed.wait_for( lock, timeout, predicate );
-            } else {
-                m_changed.wait( lock, predicate );
-            }
+        if ( timeoutInSeconds < 0 ) {
+            m_changed.wait( lock, predicate );
+        } else if ( timeoutInSeconds > 0 ) {
+            const auto timeout = std::chrono::nanoseconds( static_cast<size_t>( timeoutInSeconds * 1e9 ) );
+            m_changed.wait_for( lock, timeout, predicate );
         }
 
         if ( position < m_results.size() ) {

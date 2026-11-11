@@ -2,7 +2,6 @@
 
 #include <cassert>
 #include <cstddef>
-#include <limits>
 #include <optional>
 
 namespace rapidgzip
@@ -34,7 +33,7 @@ public:
     [[nodiscard]] virtual std::optional<size_t>
     get( size_t blockIndex )
     {
-        const auto [result, returnCode] = get( blockIndex, std::numeric_limits<double>::infinity() );
+        const auto [result, returnCode] = get( blockIndex, -1.0 );
         assert( returnCode != GetReturnCode::TIMEOUT );
         return result;
     }
