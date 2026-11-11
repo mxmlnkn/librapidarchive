@@ -11,6 +11,11 @@
 #include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
 
+#if !defined( _WIN32 )
+    #include <fcntl.h>
+    #include <unistd.h>
+#endif
+
 #define WITHOUT_MAIN
 #include <ibzip2.cpp>
 #undef WITHOUT_MAIN
@@ -20,6 +25,42 @@ using namespace rapidgzip;
 
 namespace
 {
+#if !defined( _WIN32 )
+class ScopedStandardOutputRedirect
+{
+public:
+    explicit
+    ScopedStandardOutputRedirect( const std::string& path )
+    {
+        m_oldFileDescriptor = ::dup( STDOUT_FILENO );
+        const auto newFileDescriptor = ::open( path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+        if ( ( m_oldFileDescriptor < 0 ) || ( newFileDescriptor < 0 )
+             || ( ::dup2( newFileDescriptor, STDOUT_FILENO ) < 0 ) ) {
+            if ( newFileDescriptor >= 0 ) {
+                ::close( newFileDescriptor );
+            }
+            throw std::runtime_error( "Could not redirect stdout to '" + path + "'." );
+        }
+        ::close( newFileDescriptor );
+    }
+
+    ~ScopedStandardOutputRedirect()
+    {
+        if ( m_oldFileDescriptor >= 0 ) {
+            ::dup2( m_oldFileDescriptor, STDOUT_FILENO );
+            ::close( m_oldFileDescriptor );
+        }
+    }
+
+    ScopedStandardOutputRedirect( const ScopedStandardOutputRedirect& ) = delete;
+    ScopedStandardOutputRedirect& operator=( const ScopedStandardOutputRedirect& ) = delete;
+
+private:
+    int m_oldFileDescriptor{ -1 };
+};
+#endif
+
+
 void
 testCount( const std::filesystem::path& dataFolder )
 {
@@ -101,6 +142,49 @@ testIndex( const std::filesystem::path& dataFolder )
 }
 
 
+std::string
+readTextFile( const std::string& path )
+{
+    const auto bytes = readFile<std::vector<char> >( path );
+    return std::string( bytes.begin(), bytes.end() );
+}
+
+
+void
+testStreamingOffsets( const std::filesystem::path& dataFolder )
+{
+    const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
+    const auto data = readFile<std::vector<char> >( dataFolder / "base64-256KiB" );
+    const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testIbzip2CLI" );
+    const auto listPath = ( tmpFolder.path() / "listed.index" ).string();
+    const auto exportPath = ( tmpFolder.path() / "exported.index" ).string();
+    const auto decodedPath = ( tmpFolder.path() / "decoded" ).string();
+
+    /* -L is an alias for --export-index. Decode while writing the streamed index to a file. */
+    callCLI( "./ibzip2", ibzip2CLI, { "-f", "-L", listPath, "-d", "-o", decodedPath, compressedPath } );
+    REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
+
+    /* A standalone export uses the same code path and must produce the same bytes. */
+    callCLI( "./ibzip2", ibzip2CLI, { "-f", "--export-index", exportPath, compressedPath } );
+    REQUIRE_EQUAL( readTextFile( listPath ), readTextFile( exportPath ) );
+
+    /* The former --list-offsets spelling remains available as an alias. */
+    callCLI( "./ibzip2", ibzip2CLI, { "-f", "--list-offsets", listPath, compressedPath } );
+    REQUIRE_EQUAL( readTextFile( listPath ), readTextFile( exportPath ) );
+
+#if !defined( _WIN32 )
+    /* A dash writes the index to stdout when the decoded data goes to a file. */
+    const auto stdoutPath = ( tmpFolder.path() / "stdout.index" ).string();
+    {
+        const ScopedStandardOutputRedirect redirect( stdoutPath );
+        callCLI( "./ibzip2", ibzip2CLI,
+                 { "-f", "--export-index", "-", "-d", "-o", decodedPath, compressedPath } );
+    }
+    REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
+    REQUIRE_EQUAL( readTextFile( stdoutPath ), readTextFile( listPath ) );
+#endif
+}
+
 void
 testTestOption( const std::filesystem::path& dataFolder )
 {
@@ -132,6 +216,7 @@ main( int    argc,
     testCount( dataFolder );
     testRanges( dataFolder );
     testIndex( dataFolder );
+    testStreamingOffsets( dataFolder );
     testTestOption( dataFolder );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";

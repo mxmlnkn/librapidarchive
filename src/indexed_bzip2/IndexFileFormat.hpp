@@ -162,6 +162,16 @@ readBzip2Index( rapidgzip::UniqueFileReader indexFile )
 
 
 inline void
+writeBzip2IndexEntry( const CheckedWrite& checkedWrite,
+                      const size_t        compressedOffset,
+                      const size_t        uncompressedOffset )
+{
+    const auto line = std::to_string( compressedOffset ) + "," + std::to_string( uncompressedOffset ) + "\n";
+    checkedWrite( line.data(), line.size() );
+}
+
+
+inline void
 writeBzip2IndexEntry( std::ostream& out,
                       const size_t  compressedOffset,
                       const size_t  uncompressedOffset )
@@ -192,8 +202,7 @@ writeBzip2Index( const BlockOffsets&    offsets,
     }
 
     for ( const auto& [compressedOffset, uncompressedOffset] : offsets ) {
-        const auto line = std::to_string( compressedOffset ) + "," + std::to_string( uncompressedOffset ) + "\n";
-        checkedWrite( line.data(), line.size() );
+        writeBzip2IndexEntry( checkedWrite, compressedOffset, uncompressedOffset );
     }
 }
 }  // namespace indexed_bzip2

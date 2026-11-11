@@ -33,11 +33,6 @@ using namespace rapidgzip;
 
 namespace
 {
-class BrokenPipeException :
-    public std::exception
-{};
-
-
 struct Arguments
 {
     unsigned int decoderParallelism{ 0 };

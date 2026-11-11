@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
-#include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -72,15 +72,12 @@ checkOffsets( const std::string&         filePath,
 
 
 void
-dumpOffsets( std::ostream&              out,
-             const std::vector<size_t>& offsets )
+dumpOffsets( const std::vector<size_t>&  offsets,
+             const CheckedWrite&         checkedWrite )
 {
-    if ( !out.good() ) {
-        return;
-    }
-
     for ( const auto offset : offsets ) {
-        out << offset << "\n";
+        const auto line = std::to_string( offset ) + "\n";
+        checkedWrite( line.data(), line.size() );
     }
 }
 
@@ -120,14 +117,9 @@ findCompressedBlocks( const std::string& inputFilePath,
         checkOffsets( inputFilePath, offsets );
     }
 
-    if ( offsetOutputFilePath.empty() ) {
-        for ( const auto offset : offsets ) {
-            std::cout << offset << "\n";
-        }
-    } else {
-        std::ofstream file( offsetOutputFilePath, std::ios_base::out | std::ios_base::binary );
-        dumpOffsets( file, offsets );
-    }
+    OutputFile output( offsetOutputFilePath );
+    dumpOffsets( offsets, [&output] ( const void* data, const size_t size ) { output.write( data, size ); } );
+    output.truncateToWrittenSize();
 
     if ( verbose ) {
         std::cout << "Found " << offsets.size() << " blocks\n";
@@ -155,6 +147,9 @@ printIbzip2Help( const cxxopts::Options& options )
     << "Compress a file to bzip2 in parallel:\n"
     << "  ibzip2 -z -P 0 file\n"
     << "  ibzip2 -z -P 0 --level 9 -o file.bz2 file\n"
+    << "\n"
+    << "Write the block offset index while decoding (-L is an alias):\n"
+    << "  ibzip2 -L file.bz2.index -- file.bz2\n"
     << "\n"
     << "Find and list the bzip2 block offsets to be used for another tool:\n"
     << "  ibzip2 -l blockoffsets.dat -- file.bz2\n"
@@ -237,8 +232,9 @@ ibzip2CLI( int argc, char const* const* argv )
       cxxopts::value<std::string>() )
     ( "L,list-offsets,export-index",
       "Write a bzip2 block offset index with one '<encoded bits>,<decoded bytes>' pair per line. "
-      "Specifying '-' writes to stdout, or to stderr when the output data itself is written to stdout. "
-      "The former --list-offsets spelling is accepted as an alias.",
+      "During decoding, entries are written incrementally. Specifying '-' writes to stdout, or to stderr "
+      "when the output data itself is written to stdout. The former --list-offsets spelling is accepted "
+      "as an alias.",
       cxxopts::value<std::string>() );
 
     options.add_options( "Advanced" )
@@ -482,7 +478,7 @@ ibzip2CLI( int argc, char const* const* argv )
                                : 0.0 )
                           << "\n";
             }
-        } catch ( const indexed_bzip2::BrokenPipeException& ) {
+        } catch ( const BrokenPipeException& ) {
             return 128 + /* SIGPIPE */ 13;
         } catch ( const std::exception& exception ) {
             std::cerr << "Compression failed: " << exception.what() << "\n";
@@ -523,8 +519,54 @@ ibzip2CLI( int argc, char const* const* argv )
         size_t nBytesWrittenTotal = 0;
         size_t newlineCount = 0;
 
+        const auto writeToStdErr = outputFile && outputFile->writingToStdout();
+        auto& out = writeToStdErr ? std::cerr : std::cout;
+
+        std::optional<OutputFile> exportIndexFile;
+        std::optional<OutputFile> compressedOffsetsFile;
+        if ( exportIndexRequested ) {
+            exportIndexFile.emplace( exportIndexPath, writeToStdErr );
+        }
+        if ( listCompressedOffsets ) {
+            compressedOffsetsFile.emplace( compressedOffsetsFilePath, writeToStdErr );
+        }
+
+        const auto offsetOutputRequested = exportIndexFile.has_value() || compressedOffsetsFile.has_value();
+        std::optional<size_t> lastPrintedOffset;
+        size_t printedOffsetCount{ 0 };
+        const auto printNewOffset =
+            [&] ( const size_t compressedOffset,
+                  const size_t decodedOffset )
+            {
+                if ( lastPrintedOffset && ( compressedOffset <= *lastPrintedOffset ) ) {
+                    return;
+                }
+                if ( exportIndexFile ) {
+                    writeBzip2IndexEntry(
+                        [&exportIndexFile] ( const void* data, const size_t size ) {
+                            exportIndexFile->write( data, size );
+                        },
+                        compressedOffset, decodedOffset );
+                }
+                if ( compressedOffsetsFile ) {
+                    const auto line = std::to_string( compressedOffset ) + "\n";
+                    compressedOffsetsFile->write( line.data(), line.size() );
+                }
+                lastPrintedOffset = compressedOffset;
+                ++printedOffsetCount;
+            };
+
+        if ( offsetOutputRequested ) {
+            reader->setBlockOffsetCallback( printNewOffset );
+            /* An imported or already known map will not produce callbacks for its existing entries. */
+            for ( const auto [compressedOffset, decodedOffset] : reader->availableBlockOffsets() ) {
+                printNewOffset( compressedOffset, decodedOffset );
+            }
+        }
+
         const auto process =
-            [&] ( const char* const data, const size_t size )
+            [&] ( const char* const data,
+                  const size_t size )
             {
                 nBytesDecodedTotal += size;
                 if ( countLines ) {
@@ -570,23 +612,22 @@ ibzip2CLI( int argc, char const* const* argv )
             }
         }
 
-        const auto writeToStdErr = outputFile && outputFile->writingToStdout();
-        auto& out = writeToStdErr ? std::cerr : std::cout;
+        if ( compressedOffsetsFile ) {
+            compressedOffsetsFile->truncateToWrittenSize();
+        }
+        if ( exportIndexFile ) {
+            exportIndexFile->truncateToWrittenSize();
+        }
+
         if ( outputFile ) {
             outputFile->truncate( nBytesWrittenTotal );
             outputFile.reset();  /* Close the file here to include it in the time measurement. */
         }
 
-        const auto offsets = reader->blockOffsets();
-
-        std::vector<size_t> compressedOffsets;
-        compressedOffsets.reserve( offsets.size() );
-        for ( const auto [offset, _] : offsets ) {
-            compressedOffsets.push_back( offset );
-        }
-
         if ( verbose ) {
-            out << "Found " << offsets.size() << " blocks\n";
+            /* The callback already delivered every offset, so avoid another full block-map copy here. */
+            const auto blockCount = offsetOutputRequested ? printedOffsetCount : reader->blockOffsets().size();
+            out << "Found " << blockCount << " blocks\n";
         }
 
         if ( doTest ) {
@@ -601,28 +642,6 @@ ibzip2CLI( int argc, char const* const* argv )
                         << *readerSize << " B)!";
                     throw std::logic_error( std::move( msg ).str() );
                 }
-            }
-        }
-
-        if ( listCompressedOffsets ) {
-            if ( !compressedOffsetsFilePath.empty() ) {
-                std::ofstream file( compressedOffsetsFilePath, std::ios_base::out | std::ios_base::binary );
-                dumpOffsets( file, compressedOffsets );
-            } else if ( outputFilePath.empty() ) {
-                dumpOffsets( std::cerr, compressedOffsets );
-            } else {
-                dumpOffsets( std::cout, compressedOffsets );
-            }
-        }
-
-        if ( exportIndexRequested ) {
-            if ( !exportIndexPath.empty() ) {
-                std::ofstream file( exportIndexPath, std::ios_base::out | std::ios_base::binary );
-                writeBzip2Index( file, offsets );
-            } else if ( outputFilePath.empty() ) {
-                writeBzip2Index( std::cerr, offsets );
-            } else {
-                writeBzip2Index( std::cout, offsets );
             }
         }
 

@@ -22,17 +22,6 @@
 
 namespace indexed_bzip2
 {
-struct BrokenPipeException :
-    public std::exception
-{
-    [[nodiscard]] const char*
-    what() const noexcept override
-    {
-        return "Broken pipe";
-    }
-};
-
-
 struct Bzip2CompressionResult
 {
     uint64_t uncompressedBytes{ 0 };
@@ -106,7 +95,7 @@ compressBzip2Parallel( rapidgzip::FileReader& inputFile,
         [outputFileDescriptor, &result] ( const std::vector<uint8_t>& data ) {
             const auto errorCode = rapidgzip::writeAllToFd( outputFileDescriptor, data.data(), data.size() );
             if ( errorCode == EPIPE ) {
-                throw BrokenPipeException();
+                throw rapidgzip::BrokenPipeException();
             }
             if ( errorCode != 0 ) {
                 throw std::runtime_error( "Failed to write compressed data because of: "

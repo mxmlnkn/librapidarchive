@@ -74,6 +74,17 @@
 
 namespace rapidgzip
 {
+struct BrokenPipeException :
+    public std::exception
+{
+    [[nodiscard]] const char*
+    what() const noexcept override
+    {
+        return "Broken pipe";
+    }
+};
+
+
 #ifdef _MSC_VER
 [[nodiscard]] inline bool
 stdinHasInput()
@@ -836,21 +847,22 @@ writeAll( const int         outputFileDescriptor,
 
 
 /**
- * Wrapper to open either stdout, a given existing file without truncation for better performance, or a new file.
+ * Wrapper to open either stdout/stderr, a given existing file without truncation for better performance, or a new file.
  */
 class OutputFile
 {
 public:
     explicit
-    OutputFile( const std::string& filePath ) :
-        m_writingToStdout( filePath.empty() )
+    OutputFile( const std::string& filePath,
+                const bool         useStderr = false ) :
+        m_writingToStdout( filePath.empty() && !useStderr )
     {
         if ( filePath.empty() ) {
         #ifdef _WIN32
-            m_fileDescriptor = _fileno( stdout );
+            m_fileDescriptor = _fileno( useStderr ? stderr : stdout );
             _setmode( m_fileDescriptor, _O_BINARY );
         #else
-            m_fileDescriptor = ::fileno( stdout );
+            m_fileDescriptor = ::fileno( useStderr ? stderr : stdout );
         #endif
         } else {
         #ifndef _MSC_VER
@@ -881,6 +893,30 @@ public:
                 m_fileDescriptor = ::fileno( m_outputFile.get() );
             }
         }
+    }
+
+    void
+    write( const void*  data,
+           const size_t size )
+    {
+        const auto errorCode = writeAllToFd( m_fileDescriptor, data, size );
+        if ( errorCode == EPIPE ) {
+            throw BrokenPipeException();
+        }
+
+        if ( errorCode != 0 ) {
+            std::stringstream message;
+            message << "Failed to write all bytes because of: " << strerror( errorCode )
+                    << " (" << errorCode << ")";
+            throw std::runtime_error( std::move( message ).str() );
+        }
+        m_bytesWritten += size;
+    }
+
+    void
+    truncateToWrittenSize()
+    {
+        truncate( m_bytesWritten );
     }
 
     void
@@ -915,6 +951,9 @@ private:
 
     /** This is used to decide whether to truncate the file to a smaller (decompressed) size before closing. */
     size_t m_oldOutputFileSize{ 0 };
+
+    /** Bytes written through write(), used to trim a reused output file to the new content. */
+    size_t m_bytesWritten{ 0 };
 
     /**
      * These should not be used. They are only for automatic closing!
