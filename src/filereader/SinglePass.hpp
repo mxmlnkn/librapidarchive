@@ -130,7 +130,10 @@ public:
     void
     close() override
     {
-        m_cancelReaderThread = true;
+        {
+            const std::scoped_lock lock( m_bufferUntilOffsetMutex );
+            m_cancelReaderThread = true;
+        }
         m_notifyReaderThread.notify_one();
         m_readerThread.reset();
 
@@ -302,7 +305,12 @@ private:
             return;
         }
 
-        m_bufferUntilOffset = untilOffset;
+        {
+            /* Update under the same mutex used by the reader thread's wait so that the wakeup cannot be lost
+             * between its predicate check and the wait. */
+            const std::scoped_lock lock( m_bufferUntilOffsetMutex );
+            m_bufferUntilOffset = untilOffset;
+        }
         m_notifyReaderThread.notify_one();
 
         std::unique_lock lock( m_bufferMutex );
