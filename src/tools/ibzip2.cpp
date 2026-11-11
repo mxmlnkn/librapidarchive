@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -345,6 +346,10 @@ ibzip2CLI( int argc, char const* const* argv )
     std::string inputFilePath;  /* Can be empty. Then, read from STDIN. */
     if ( parsedArgs.count( "input" ) == 1 ) {
         inputFilePath = parsedArgs["input"].as<std::string>();
+        if ( !inputFilePath.empty() && std::filesystem::is_directory( inputFilePath ) ) {
+            std::cerr << "Input path is a directory: " << inputFilePath << "\n";
+            return 1;
+        }
     }
 
     const auto compress = parsedArgs.count( "compress" ) > 0;
