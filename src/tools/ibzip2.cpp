@@ -215,8 +215,7 @@ ibzip2CLI( int argc, char const* const* argv )
     ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,inf@40.",
       cxxopts::value<std::string>() )
     ( "import-index", "Use an existing bzip2 block offset index in the format written by --export-index.",
-      cxxopts::value<std::string>() )
-    ( "export-index", "Write out a bzip2 block offset index.", cxxopts::value<std::string>() );
+      cxxopts::value<std::string>() );
 
     options.add_options( "Compression" )
     ( "z,compress", "Compress to bzip2. Each worker writes an independent bzip2 stream. "
@@ -236,16 +235,16 @@ ibzip2CLI( int argc, char const* const* argv )
       "If no file is given, it will print to stdout or to stderr if the decoded data is already written to stdout. "
       "Specifying '-' as file path, will write to stdout.",
       cxxopts::value<std::string>() )
-    ( "L,list-offsets",
-      "List bzip2 block offsets in bits and also the corresponding offsets in the decoded data at the beginning "
-      "of each block in bytes as a comma separated pair per line '<encoded bits>,<decoded bytes>'. "
-      "Specifying '-' as file path, will write to stdout.",
+    ( "L,list-offsets,export-index",
+      "Write a bzip2 block offset index with one '<encoded bits>,<decoded bytes>' pair per line. "
+      "Specifying '-' writes to stdout, or to stderr when the output data itself is written to stdout. "
+      "The former --list-offsets spelling is accepted as an alias.",
       cxxopts::value<std::string>() );
 
     options.add_options( "Advanced" )
     ( "buffer-size",
       "Specifies the output buffer size between calls to the Bzip2 decoder and writing to standard out. "
-      "If only --list-offsets is used with nothing else then it affects the input buffer for the block finder.",
+      "If only --export-index is used with nothing else then it affects the input buffer for the block finder.",
       cxxopts::value<unsigned int>()->default_value( "0" ) );
 
     options.parse_positional( { "input" } );
@@ -266,7 +265,7 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto decoderParallelism     = getParallelism( parsedArgs["decoder-parallelism"].as<unsigned int>() );
 
     if ( verbose ) {
-        for ( auto const* const path : { "input", "output", "list-compressed-offsets", "list-offsets" } ) {
+        for ( auto const* const path : { "input", "output", "list-compressed-offsets", "export-index" } ) {
             std::string value = "<none>";
             try {
                 value = getFilePath( parsedArgs, path );
@@ -355,7 +354,7 @@ ibzip2CLI( int argc, char const* const* argv )
     /* Parse action arguments. */
 
     const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
-    const auto listOffsets = parsedArgs.count( "list-offsets" ) > 0;
+    const auto exportIndexRequested = parsedArgs.count( "export-index" ) > 0;
     const auto countBytes = parsedArgs.count( "count" ) > 0;
     const auto countLines = parsedArgs.count( "count-lines" ) > 0;
     const auto doTest = test;
@@ -374,12 +373,11 @@ ibzip2CLI( int argc, char const* const* argv )
 
     const auto importIndexPath = parsedArgs.count( "import-index" ) > 0
                                  ? parsedArgs["import-index"].as<std::string>() : std::string();
-    const auto exportIndexPath = parsedArgs.count( "export-index" ) > 0
-                                 ? parsedArgs["export-index"].as<std::string>() : std::string();
+    const auto exportIndexPath = getFilePath( parsedArgs, "export-index" );
 
     const auto decode = !compress
                         && ( decompress || doTest || countBytes || countLines || fileRanges.has_value()
-                             || listOffsets || !exportIndexPath.empty() );
+                             || exportIndexRequested );
     const auto writeOutput = !compress && !doTest && ( decompress || fileRanges.has_value() );
 
     if ( compress ) {
@@ -402,9 +400,9 @@ ibzip2CLI( int argc, char const* const* argv )
     }
 
     if ( compress
-         && ( ( parsedArgs.count( "decompress" ) > 0 ) || doTest || listCompressedOffsets || listOffsets
+         && ( ( parsedArgs.count( "decompress" ) > 0 ) || doTest || listCompressedOffsets
               || countBytes || countLines || fileRanges.has_value()
-              || !importIndexPath.empty() || !exportIndexPath.empty() ) ) {
+              || !importIndexPath.empty() || exportIndexRequested ) ) {
         std::cerr << "Compression cannot be combined with decompression, test, count, range, or index options.\n";
         return 1;
     }
@@ -432,13 +430,6 @@ ibzip2CLI( int argc, char const* const* argv )
     }
 
     const auto bufferSize = parsedArgs["buffer-size"].as<unsigned int>();
-
-    const auto offsetsFilePath = getFilePath( parsedArgs, "list-offsets" );
-    if ( !offsetsFilePath.empty() && fileExists( offsetsFilePath ) && !force ) {
-        std::cerr << "Output file for offsets'" << offsetsFilePath
-                  << "' for offsets already exists! Use --force to overwrite.\n";
-        return 1;
-    }
 
     const auto compressedOffsetsFilePath = getFilePath( parsedArgs, "list-compressed-offsets" );
     if ( !compressedOffsetsFilePath.empty() && fileExists( compressedOffsetsFilePath ) && !force ) {
@@ -613,17 +604,6 @@ ibzip2CLI( int argc, char const* const* argv )
             }
         }
 
-        if ( listOffsets ) {
-            if ( !offsetsFilePath.empty() ) {
-                std::ofstream file( offsetsFilePath, std::ios_base::out | std::ios_base::binary );
-                writeBzip2Index( file, offsets );
-            } else if ( outputFilePath.empty() ) {
-                writeBzip2Index( std::cerr, offsets );
-            } else {
-                writeBzip2Index( std::cout, offsets );
-            }
-        }
-
         if ( listCompressedOffsets ) {
             if ( !compressedOffsetsFilePath.empty() ) {
                 std::ofstream file( compressedOffsetsFilePath, std::ios_base::out | std::ios_base::binary );
@@ -635,9 +615,15 @@ ibzip2CLI( int argc, char const* const* argv )
             }
         }
 
-        if ( !exportIndexPath.empty() ) {
-            std::ofstream file( exportIndexPath, std::ios_base::out | std::ios_base::binary );
-            writeBzip2Index( file, offsets );
+        if ( exportIndexRequested ) {
+            if ( !exportIndexPath.empty() ) {
+                std::ofstream file( exportIndexPath, std::ios_base::out | std::ios_base::binary );
+                writeBzip2Index( file, offsets );
+            } else if ( outputFilePath.empty() ) {
+                writeBzip2Index( std::cerr, offsets );
+            } else {
+                writeBzip2Index( std::cout, offsets );
+            }
         }
 
         if ( countBytes || countLines ) {
