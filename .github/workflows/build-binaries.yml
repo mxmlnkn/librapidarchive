@@ -94,12 +94,15 @@ jobs:
       env:
         ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
       run: |
-        RAPIDGZIP=$( find build/src/tools -maxdepth 1 -type f -name 'rapidgzip*' )
+        RAPIDGZIP=$( find build/src/tools -maxdepth 1 -type f -name 'rapidgzip*' ! -name '*.pdb' | head -1 )
         VERSION=$( "$RAPIDGZIP" --version | sed -nE 's|.*version ([0-9.]*).*|\1|p' )
         ARTIFACT_SUFFIX=$VERSION-$ARTIFACT_SUFFIX
         mv "$RAPIDGZIP" .
-        if [[ "$ARTIFACT_SUFFIX" =~ *.zip ]]; then
-            zip "rapidgzip-$ARTIFACT_SUFFIX" rapidgzip*
+        if [[ "$ARTIFACT_SUFFIX" == *.zip ]]; then
+            # Git Bash on the Windows runners has no zip executable. Exclude debug symbols and
+            # previously created archives from the binary glob.
+            python -c 'import glob, sys, zipfile; files = [p for p in glob.glob("rapidgzip*") if not p.endswith((".pdb", ".zip", ".tar.gz"))]; z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED); [z.write(p) for p in files]; z.close()' \
+                "rapidgzip-$ARTIFACT_SUFFIX"
         else
             tar -czf "rapidgzip-$ARTIFACT_SUFFIX" rapidgzip
         fi
