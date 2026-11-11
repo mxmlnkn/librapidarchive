@@ -964,6 +964,9 @@ private:
         if ( offsets.size() < 2 ) {
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
+        if ( offsets.begin()->second != 0 ) {
+            throw std::invalid_argument( "The first block offset must map compressed offset 0 to decoded offset 0!" );
+        }
 
         /* Wait for in-flight chunk jobs before finalizing the new finder offsets. A worker that finishes a
          * stale chunk afterwards would try to insert into the finalized finder, which throws. */
@@ -993,6 +996,9 @@ public:
             };
         if ( !std::is_sorted( index.checkpoints.begin(), index.checkpoints.end(), lessOffset ) ) {
             throw std::invalid_argument( "Index checkpoints must be sorted by uncompressed offsets!" );
+        }
+        if ( index.checkpoints.front().uncompressedOffsetInBytes != 0 ) {
+            throw std::invalid_argument( "The first index checkpoint must start at uncompressed offset 0!" );
         }
 
         m_indexIsImported = true;
