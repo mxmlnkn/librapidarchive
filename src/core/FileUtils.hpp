@@ -733,8 +733,14 @@ writeAllToFd( const int         outputFileDescriptor,
                           dataToWriteSize - nTotalWritten ) );
 
         const auto nBytesWritten = ::write( outputFileDescriptor, currentBufferPosition, nBytesToWritePerCall );
-        if ( nBytesWritten <= 0 ) {
+        if ( nBytesWritten < 0 ) {
+            if ( errno == EINTR ) {
+                continue;
+            }
             return errno;
+        }
+        if ( nBytesWritten == 0 ) {
+            return EIO;
         }
         nTotalWritten += static_cast<uint64_t>( nBytesWritten );
     }
@@ -756,6 +762,9 @@ pwriteAllToFd( const int         outputFileDescriptor,
                                              currentBufferPosition,
                                              dataToWriteSize - nTotalWritten,
                                              fileOffset + nTotalWritten );  // NOLINT
+        if ( ( nBytesWritten < 0 ) && ( errno == EINTR ) ) {
+            continue;
+        }
         if ( nBytesWritten <= 0 ) {
             std::stringstream message;
             message << "Unable to write all data to the given file descriptor. Wrote " << nTotalWritten << " out of "
