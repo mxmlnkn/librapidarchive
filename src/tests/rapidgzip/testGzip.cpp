@@ -561,6 +561,18 @@ testSerialDecoderTrailingZeroPadding( const std::filesystem::path& rootFolder )
 
 
 void
+testZlibHeaderWindowSize()
+{
+    /* CINFO = 7 means a 32 KiB window. The old calculation shifted 2 instead of 1, wrapping to 0 in uint16_t. */
+    const std::vector<uint8_t> zlibHeader = { 0x78, 0x9C };
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( zlibHeader ) );
+    const auto [header, error] = zlib::readHeader( bitReader );
+    REQUIRE( error == Error::NONE );
+    REQUIRE_EQUAL( header.windowSize, uint16_t( 32_Ki ) );
+}
+
+
+void
 testSerialDecoderRejectsTruncationAfterHeader( const std::filesystem::path& rootFolder )
 {
     const auto encoded = readFile<std::vector<uint8_t> >( rootFolder / "base64-32KiB.gz" );
@@ -673,6 +685,7 @@ main( int    argc,
             findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bgz" )
         ) / "src" / "tests" / "data";
 
+    testZlibHeaderWindowSize();
     testSerialDecoderZlibAdler32( testsFolder );
     testSerialDecoderTrailingZeroPadding( testsFolder );
     testSerialDecoderRejectsTruncationAfterHeader( testsFolder );

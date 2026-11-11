@@ -367,7 +367,7 @@ readHeader( const std::function<uint64_t()>& readByte )
         if ( compressionInfo > 7 ) {
             return { header, Error::INVALID_GZIP_HEADER };
         }
-        header.windowSize = static_cast<uint16_t>( 2U << ( 8U + compressionInfo ) );
+        header.windowSize = static_cast<uint16_t>( 1U << ( 8U + compressionInfo ) );
 
         const auto flags = readByte();
         if ( ( ( cmf << 8U ) + flags ) % 31 != 0 ) {
