@@ -227,9 +227,9 @@ scanBzip2ChunkOffsets( const std::vector<uint8_t>& compressed )
  *     raw:  A A A A
  *     RLE1: A A A A <count=0>
  *
- * which expands four bytes to five, i.e., at most 5/4. Keeping the raw chunk at 80% of the level's
- * block size therefore leaves 25% headroom and avoids a full block followed by a tiny tail block when
- * the expansion crosses the limit.
+ * which expands four bytes to five, i.e., at most 5/4. libbz2 flushes at level * 100000 - 19 encoded
+ * bytes, so keep the raw chunk at 4/5 of that limit. This avoids a full block followed by a tiny tail
+ * block when the expansion crosses the limit.
  *
  * @param onBlockOffset Called with each known (compressed bit offset, decoded byte offset) pair in output
  *        order while the streams are written. The compressed input is scanned in memory, so exporting the
@@ -251,7 +251,7 @@ compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
         throw std::invalid_argument( "A valid output file descriptor is required for bzip2 compression." );
     }
 
-    const auto blockSize = static_cast<size_t>( level ) * 100000U * 4U / 5U;
+    const auto blockSize = ( static_cast<size_t>( level ) * 100000U - 19U ) * 4U / 5U;
     rapidgzip::ThreadPool pool( std::max<size_t>( 1, parallelism ) );
     const auto maxInFlight = std::max<size_t>( 1, pool.capacity() * 2 );
     struct PendingStream
