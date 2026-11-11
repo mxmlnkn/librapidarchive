@@ -559,6 +559,16 @@ def testDetermineFileTypeKeepsFileDescriptor():
         os.close(fileDescriptor)
 
 
+def testUnclosedFileAtInterpreterShutdown():
+    code = (
+        "import gzip, io, rapidgzip; "
+        "f = rapidgzip.RapidgzipFile(io.BytesIO(gzip.compress(b'x' * 1000))); "
+        "assert len(f.read(10)) == 10"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
 def testIndexImportExport():
     """Exercise bzip2 index export/import for the serial and parallel readers and all index file kinds."""
     data = bytes(range(256)) * 10000
@@ -602,6 +612,7 @@ if __name__ == '__main__':
 
     testFileTypeAPI()
     testDetermineFileTypeKeepsFileDescriptor()
+    testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
     testDeadlock('pygzip')
