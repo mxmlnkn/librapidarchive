@@ -16,6 +16,10 @@
 #include <core/FasterVector.hpp>
 #include <core/JoiningThread.hpp>
 
+#ifdef WITH_PYTHON_SUPPORT
+    #include <core/ScopedGIL.hpp>
+#endif
+
 #include "FileReader.hpp"
 
 
@@ -110,7 +114,7 @@ public:
     explicit
     SinglePassFileReader( UniqueFileReader fileReader ) :
         m_file( std::move( fileReader ) ),
-        m_fileno( m_file ? m_file->fileno() : -1 )
+        m_fileno( getFileno( m_file.get() ) )
     {}
 
     ~SinglePassFileReader() override
@@ -164,10 +168,10 @@ public:
     [[nodiscard]] int
     fileno() const override
     {
-        if ( m_file ) {
+        if ( m_file && ( m_fileno >= 0 ) ) {
             return m_fileno;
         }
-        throw std::invalid_argument( "Trying to get fileno of an invalid file!" );
+        throw std::invalid_argument( "Trying to get fileno of a file without a valid file descriptor!" );
     }
 
     [[nodiscard]] bool
@@ -314,6 +318,10 @@ private:
         m_notifyReaderThread.notify_one();
 
         std::unique_lock lock( m_bufferMutex );
+    #ifdef WITH_PYTHON_SUPPORT
+        /* The reader thread calls back into a Python file object and needs the GIL. Do not keep it while waiting. */
+        const ScopedGILUnlock gilUnlock;
+    #endif
         m_bufferChanged.wait(
             lock,
             [this, untilOffset] () {
@@ -436,6 +444,20 @@ private:
         }
 
         return chunk;
+    }
+
+    /** Some inputs, such as Python file-like objects or BufferViewFileReader, have no file descriptor. */
+    [[nodiscard]] static int
+    getFileno( FileReader* const file ) noexcept
+    {
+        if ( file == nullptr ) {
+            return -1;
+        }
+        try {
+            return file->fileno();
+        } catch ( const std::exception& ) {
+            return -1;
+        }
     }
 
 protected:

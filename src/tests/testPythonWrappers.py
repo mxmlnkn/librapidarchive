@@ -377,6 +377,39 @@ class FileWrapper:
         self.fd.close()
 
 
+class NonSeekableFile:
+    """File-like object without fileno or seeking, as used by SinglePassFileReader."""
+
+    def __init__(self, data):
+        self.buffer = io.BytesIO(data)
+
+    def read(self, size=-1):
+        return self.buffer.read(size)
+
+    def write(self, data):
+        raise NotImplementedError
+
+    def tell(self):
+        return self.buffer.tell()
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        raise io.UnsupportedOperation
+
+    def seekable(self):
+        return False
+
+    def close(self):
+        self.buffer.close()
+
+
+def testNonSeekableFileObjectWithoutFileno():
+    contents = b"Hello\nWorld!\n"
+    compressed = gzip.compress(contents)
+    file = NonSeekableFile(compressed)
+    with rapidgzip.RapidgzipFile(file, io_read_method=rapidgzip.IOReadMethod.SEQUENTIAL) as reader:
+        assert reader.read() == contents
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -612,6 +645,7 @@ if __name__ == '__main__':
 
     testFileTypeAPI()
     testDetermineFileTypeKeepsFileDescriptor()
+    testNonSeekableFileObjectWithoutFileno()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()

@@ -350,7 +350,7 @@ public:
     [[nodiscard]] std::optional<size_t>
     size() const override
     {
-        return m_fileSizeBytes;
+        return m_seekable ? std::optional<size_t>{ m_fileSizeBytes } : std::nullopt;
     }
 
     [[nodiscard]] size_t
@@ -404,7 +404,7 @@ protected:
 
     const long long int m_initialPosition;
     const bool m_seekable;
-    size_t m_fileSizeBytes;
+    size_t m_fileSizeBytes{ 0 };
 
     size_t m_currentPosition{ 0 };  /**< Only necessary for unseekable files. */
     bool m_lastReadSuccessful{ true };
