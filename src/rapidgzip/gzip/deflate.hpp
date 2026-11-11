@@ -1665,7 +1665,9 @@ Block<ENABLE_STATISTICS>::readInternalCompressedMultiCached
 
     constexpr bool containsMarkerBytes = std::is_same_v<std::decay_t<decltype( *window.data() ) >, uint16_t>;
 
-    nMaxToDecode = std::min( nMaxToDecode, window.size() - MAX_RUN_LENGTH );
+    /* A group contains at most one back-reference, which must be its last symbol. The two preceding symbols can
+     * be literals, so the group may write up to MAX_RUN_LENGTH + 2 bytes. */
+    nMaxToDecode = std::min( nMaxToDecode, window.size() - MAX_RUN_LENGTH - 2 );
 
     size_t nBytesRead{ 0 };
     for ( nBytesRead = 0; nBytesRead < nMaxToDecode; )
