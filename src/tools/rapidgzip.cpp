@@ -826,7 +826,8 @@ rapidgzipCLI( int                  argc,
             } );
     }
 
-    const auto writeToStdErr = outputFile && outputFile->writingToStdout();
+    const auto writeToStdErr = ( stdoutFile && stdoutFile->writingToStdout() )
+                               || ( outputFile && outputFile->writingToStdout() );
     if ( outputFile ) {
         outputFile->truncate( totalBytesRead );
         outputFile.reset();  // Close the file here to include it in the time measurement.
