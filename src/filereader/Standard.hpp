@@ -315,7 +315,7 @@ protected:
 [[nodiscard]] inline UniqueFileReader
 openFileOrStdin( const std::string& inputFilePath )
 {
-    if ( !inputFilePath.empty() ) {
+    if ( !inputFilePath.empty() && ( inputFilePath != "-" ) ) {
         return std::make_unique<StandardFileReader>( inputFilePath );
     }
 
