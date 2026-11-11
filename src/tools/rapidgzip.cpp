@@ -233,6 +233,9 @@ parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
     std::string inputFilePath;  /* Can be empty. Then, read from STDIN. */
     if ( parsedArgs.count( "input" ) == 1 ) {
         inputFilePath = parsedArgs["input"].as<std::string>();
+        if ( inputFilePath == "-" ) {
+            inputFilePath.clear();
+        }
         if ( !inputFilePath.empty() && !fileExists( inputFilePath ) ) {
             std::cerr << "Input file could not be found! Specified path: " << inputFilePath << "\n";
             return {};
@@ -482,7 +485,9 @@ rapidgzipCLI( int                  argc,
     const auto countBytes = parsedArgs.count( "count" ) > 0;
     const auto countLines = parsedArgs.count( "count-lines" ) > 0;
     const auto doTest = parsedArgs.count( "test" ) > 0;
-    const auto writeToStdOut = parsedArgs.count( "stdout" ) > 0;
+    const auto writeToStdOut =
+        ( parsedArgs.count( "stdout" ) > 0 )
+        || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
     const auto decompress = ( parsedArgs.count( "decompress" ) > 0 ) || ( parsedArgs.count( "ranges" ) > 0 ) || doTest;
 
     /* Parse ranges. */

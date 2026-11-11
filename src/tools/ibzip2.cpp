@@ -338,21 +338,27 @@ ibzip2CLI( int argc, char const* const* argv )
         return 1;
     }
 
-    if ( !stdinHasInput() && ( parsedArgs.count( "input" ) != 1 ) ) {
-        std::cerr << "Either stdin must have input, e.g., by piping to it, or an input file must be specified!\n";
-        return 1;
-    }
-
     std::string inputFilePath;  /* Can be empty. Then, read from STDIN. */
     if ( parsedArgs.count( "input" ) == 1 ) {
         inputFilePath = parsedArgs["input"].as<std::string>();
+        if ( inputFilePath == "-" ) {
+            inputFilePath.clear();
+        }
         if ( !inputFilePath.empty() && std::filesystem::is_directory( inputFilePath ) ) {
             std::cerr << "Input path is a directory: " << inputFilePath << "\n";
             return 1;
         }
     }
 
+    if ( !stdinHasInput() && inputFilePath.empty() ) {
+        std::cerr << "Either stdin must have input, e.g., by piping to it, or an input file must be specified!\n";
+        return 1;
+    }
+
     const auto compress = parsedArgs.count( "compress" ) > 0;
+    const auto writeToStdOut =
+        ( parsedArgs.count( "stdout" ) > 0 )
+        || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
     auto outputFilePath = getFilePath( parsedArgs, "output" );
 
     /* Parse action arguments. */
@@ -385,11 +391,10 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto writeOutput = !compress && !doTest && ( decompress || fileRanges.has_value() );
 
     if ( compress ) {
-        if ( ( parsedArgs.count( "stdout" ) == 0 ) && outputFilePath.empty() && !inputFilePath.empty() ) {
+        if ( !writeToStdOut && outputFilePath.empty() && !inputFilePath.empty() ) {
             outputFilePath = inputFilePath + ".bz2";
         }
-    } else if ( writeOutput && ( parsedArgs.count( "stdout" ) == 0 )
-                && outputFilePath.empty() && !inputFilePath.empty() ) {
+    } else if ( writeOutput && !writeToStdOut && outputFilePath.empty() && !inputFilePath.empty() ) {
         const std::string& suffix = ".bz2";
         if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
             outputFilePath = std::string( inputFilePath.begin(),
