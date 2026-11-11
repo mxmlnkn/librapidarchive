@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <mutex>
@@ -60,6 +61,7 @@ public:
 
     using BlockOffsets = std::vector<std::pair</* encoded offset in bits */ size_t,
                                                /* decoded offset in bytes */ size_t> >;
+    using BlockOffsetCallback = std::function<void ( size_t encodedOffset, size_t decodedOffset )>;
 
 public:
     BlockMap() = default;
@@ -72,51 +74,61 @@ public:
           size_t encodedSize,
           size_t decodedSize )
     {
-        const std::scoped_lock lock( m_mutex );
+        std::optional<std::pair<size_t, size_t> > inserted;
+        BlockOffsetCallback callback;
+        {
+            const std::scoped_lock lock( m_mutex );
 
-        if ( m_finalized ) {
-            throw std::invalid_argument( "May not insert into finalized block map!" );
-        }
-
-        std::optional<size_t> decodedOffset;
-        if ( m_blockToDataOffsets.empty() ) {
-            decodedOffset = 0;
-        } else if ( encodedBlockOffset > m_blockToDataOffsets.back().first ) {
-            decodedOffset = m_blockToDataOffsets.back().second + m_lastBlockDecodedSize;
-        }
-
-        /* If successive value or empty, then simply append */
-        if ( decodedOffset ) {
-            m_blockToDataOffsets.emplace_back( encodedBlockOffset, *decodedOffset );
-            if ( decodedSize == 0 ) {
-                m_eosBlocks.emplace_back( encodedBlockOffset );
+            if ( m_finalized ) {
+                throw std::invalid_argument( "May not insert into finalized block map!" );
             }
-            m_lastBlockDecodedSize = decodedSize;
-            m_lastBlockEncodedSize = encodedSize;
-            return *decodedOffset;
+
+            std::optional<size_t> decodedOffset;
+            if ( m_blockToDataOffsets.empty() ) {
+                decodedOffset = 0;
+            } else if ( encodedBlockOffset > m_blockToDataOffsets.back().first ) {
+                decodedOffset = m_blockToDataOffsets.back().second + m_lastBlockDecodedSize;
+            }
+
+            /* If successive value or empty, then simply append */
+            if ( decodedOffset ) {
+                m_blockToDataOffsets.emplace_back( encodedBlockOffset, *decodedOffset );
+                if ( decodedSize == 0 ) {
+                    m_eosBlocks.emplace_back( encodedBlockOffset );
+                }
+                m_lastBlockDecodedSize = decodedSize;
+                m_lastBlockEncodedSize = encodedSize;
+                inserted = std::make_pair( encodedBlockOffset, *decodedOffset );
+                callback = m_blockOffsetCallback;
+            } else {
+                /* Generally, block inserted offsets should always be increasing!
+                 * But do ignore duplicates after confirming that there is no data inconsistency. */
+                const auto match = std::lower_bound(
+                    m_blockToDataOffsets.begin(), m_blockToDataOffsets.end(), std::make_pair( encodedBlockOffset, 0 ),
+                    [] ( const auto& a, const auto& b ) { return a.first < b.first; } );
+
+                if ( ( match == m_blockToDataOffsets.end() ) || ( match->first != encodedBlockOffset ) ) {
+                    throw std::invalid_argument( "Inserted block offsets should be strictly increasing!" );
+                }
+
+                if ( std::next( match ) == m_blockToDataOffsets.end() ) {
+                    throw std::logic_error( "In this case, the new block should already have been appended above!" );
+                }
+
+                const auto impliedDecodedSize = std::next( match )->second - match->second;
+                if ( impliedDecodedSize != decodedSize ) {
+                    throw std::invalid_argument( "Got duplicate block offset with inconsistent size!" );
+                }
+
+                /* Quietly ignore duplicate insertions. Note that match->first == encodedBlockOffset. */
+                return match->second;
+            }
         }
 
-        /* Generally, block inserted offsets should always be increasing!
-         * But do ignore duplicates after confirming that there is no data inconsistency. */
-        const auto match = std::lower_bound(
-            m_blockToDataOffsets.begin(), m_blockToDataOffsets.end(), std::make_pair( encodedBlockOffset, 0 ),
-            [] ( const auto& a, const auto& b ) { return a.first < b.first; } );
-
-        if ( ( match == m_blockToDataOffsets.end() ) || ( match->first != encodedBlockOffset ) ) {
-            throw std::invalid_argument( "Inserted block offsets should be strictly increasing!" );
+        if ( inserted && callback ) {
+            callback( inserted->first, inserted->second );
         }
-
-        if ( std::next( match ) == m_blockToDataOffsets.end() ) {
-            throw std::logic_error( "In this case, the new block should already have been appended above!" );
-        }
-
-        const auto impliedDecodedSize = std::next( match )->second - match->second;
-        if ( impliedDecodedSize != decodedSize ) {
-            throw std::invalid_argument( "Got duplicate block offset with inconsistent size!" );
-        }
-
-        /* Quietly ignore duplicate insertions. Note that match->first == encodedBlockOffset. */
-        return match->second;
+        return inserted->second;
     }
 
     /**
@@ -161,6 +173,13 @@ public:
         return get( blockOffset );
     }
 
+    void
+    setBlockOffsetCallback( BlockOffsetCallback callback )
+    {
+        const std::scoped_lock lock( m_mutex );
+        m_blockOffsetCallback = std::move( callback );
+    }
+
     /**
      * Returns number of non-EOS blocks. This is necessary to have a number in sync with BlockFinder,
      * which does not find EOS blocks!
@@ -175,27 +194,38 @@ public:
     void
     finalize()
     {
-        const std::scoped_lock lock( m_mutex );
+        std::optional<std::pair<size_t, size_t> > added;
+        BlockOffsetCallback callback;
+        {
+            const std::scoped_lock lock( m_mutex );
 
-        if ( m_finalized ) {
-            return;
+            if ( m_finalized ) {
+                return;
+            }
+
+            /* Add last empty block if it does not already exist in order to imply the size of the last real block. */
+            if ( m_blockToDataOffsets.empty() ) {
+                assert( m_lastBlockEncodedSize == 0 );
+                assert( m_lastBlockDecodedSize == 0 );
+                m_blockToDataOffsets.emplace_back( m_lastBlockEncodedSize, m_lastBlockDecodedSize );
+                added = m_blockToDataOffsets.back();
+            } else if ( ( m_lastBlockEncodedSize != 0 ) || ( m_lastBlockDecodedSize != 0 ) ) {
+                const auto& [lastEncodedOffset, lastDecodedOffset] = m_blockToDataOffsets.back();
+                m_blockToDataOffsets.emplace_back( lastEncodedOffset + m_lastBlockEncodedSize,
+                                                   lastDecodedOffset + m_lastBlockDecodedSize );
+                added = m_blockToDataOffsets.back();
+            }
+
+            m_lastBlockEncodedSize = 0;
+            m_lastBlockDecodedSize = 0;
+
+            m_finalized = true;
+            callback = m_blockOffsetCallback;
         }
 
-        /* Add last empty block if it does not already exist in order to imply the size of the last real block. */
-        if ( m_blockToDataOffsets.empty() ) {
-            assert( m_lastBlockEncodedSize == 0 );
-            assert( m_lastBlockDecodedSize == 0 );
-            m_blockToDataOffsets.emplace_back( m_lastBlockEncodedSize, m_lastBlockDecodedSize );
-        } else if ( ( m_lastBlockEncodedSize != 0 ) || ( m_lastBlockDecodedSize != 0 ) ) {
-            const auto& [lastEncodedOffset, lastDecodedOffset] = m_blockToDataOffsets.back();
-            m_blockToDataOffsets.emplace_back( lastEncodedOffset + m_lastBlockEncodedSize,
-                                               lastDecodedOffset + m_lastBlockDecodedSize );
+        if ( added && callback ) {
+            callback( added->first, added->second );
         }
-
-        m_lastBlockEncodedSize = 0;
-        m_lastBlockDecodedSize = 0;
-
-        m_finalized = true;
     }
 
     void
@@ -300,6 +330,7 @@ private:
     /** If complete, the last block will be of size 0 and indicate the end of stream! */
     BlockOffsets m_blockToDataOffsets;
     std::vector<size_t> m_eosBlocks;
+    BlockOffsetCallback m_blockOffsetCallback;
     bool m_finalized{ false };
 
     size_t m_lastBlockEncodedSize{ 0 };  /**< Encoded block size of m_blockToDataOffsets.rbegin() */

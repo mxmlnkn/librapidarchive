@@ -24,6 +24,7 @@ class BZ2ReaderInterface :
 {
 public:
     using WriteFunctor = std::function<void ( const void*, uint64_t )>;
+    using BlockOffsetCallback = std::function<void ( size_t encodedOffset, size_t decodedOffset )>;
 
 public:
     ~BZ2ReaderInterface() override = default;
@@ -90,6 +91,13 @@ public:
 
     virtual void
     setBlockOffsets( std::map<size_t, size_t> offsets ) = 0;
+
+    /**
+     * Called for each newly appended block offset in compressed bits and decoded bytes. Duplicate insertions and
+     * imported maps do not notify; callers that need those entries should read availableBlockOffsets().
+     */
+    virtual void
+    setBlockOffsetCallback( BlockOffsetCallback callback ) = 0;
 
     void
     importIndex( rapidgzip::UniqueFileReader indexFile )

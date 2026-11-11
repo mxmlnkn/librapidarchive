@@ -407,6 +407,12 @@ public:
         m_blockMap->setBlockOffsets( offsets );
     }
 
+    void
+    setBlockOffsetCallback( BlockOffsetCallback callback ) override
+    {
+        m_blockMap->setBlockOffsetCallback( std::move( callback ) );
+    }
+
     /**
      * @return number of processed bits of compressed bzip2 input file stream
      * @note Bzip2 is block based and blocks are currently read fully, meaning that the granularity
