@@ -1795,6 +1795,31 @@ testBgzfWithUnknownFileSize( const std::filesystem::path& rootFolder )
                          std::make_unique<BufferViewFileReader>( expected ) );
 }
 
+
+void
+testImportedIndexRequiresFirstCheckpoint( const std::filesystem::path& rootFolder )
+{
+    const auto member = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
+    ParallelGzipReader original(
+        std::make_unique<BufferViewFileReader>( member ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+    original.read( -1, nullptr );
+    auto index = original.gzipIndex();
+    REQUIRE( index.checkpoints.size() > 1 );
+
+    index.checkpoints.erase( index.checkpoints.begin() );
+
+    ParallelGzipReader reader(
+        std::make_unique<BufferViewFileReader>( member ), /* parallelization */ 2, /* chunk size */ 16_Ki );
+    bool threw{ false };
+    try {
+        reader.setBlockOffsets( index );
+    } catch ( const std::invalid_argument& ) {
+        threw = true;
+    }
+    REQUIRE( threw );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -1879,6 +1904,7 @@ main( int    argc,
     }
 
     testBgzfWithUnknownFileSize( rootFolder );
+    testImportedIndexRequiresFirstCheckpoint( rootFolder );
 
     for ( const auto* const indexSuffix : { ".index", ".gztool.index", ".gztool.with-lines.index" } ) {
         testParallelDecoder( rootFolder / "base64-256KiB.gz",
