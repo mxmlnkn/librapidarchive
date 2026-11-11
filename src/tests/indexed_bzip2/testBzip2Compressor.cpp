@@ -82,6 +82,43 @@ testStreams()
 
 
 void
+testScanChunkOffsets()
+{
+    const auto text = std::vector<uint8_t>( 100000, static_cast<uint8_t>( 'A' ) );
+    const auto singleBlock = compressBzip2Stream( text.data(), text.size(), 9 );
+    const auto singleScan = scanBzip2ChunkOffsets( singleBlock );
+    REQUIRE( singleScan.firstBlockBit == 32U );
+    REQUIRE( singleScan.endOfStreamBit.has_value() );
+    REQUIRE( singleScan.ambiguousBoundaryBits.empty() );
+
+    const auto emptyStream = compressBzip2Stream( nullptr, 0, 9 );
+    const auto emptyScan = scanBzip2ChunkOffsets( emptyStream );
+    REQUIRE( !emptyScan.firstBlockBit );
+    REQUIRE( emptyScan.endOfStreamBit == 32U );
+    REQUIRE( emptyScan.ambiguousBoundaryBits.empty() );
+
+    /* 500 kB at level 1 exceeds the 100 kB block size, so libbz2 splits it into multiple blocks. Their
+     * decoded sizes are not stored in the stream and must therefore be reported as ambiguous. */
+    auto random = std::vector<uint8_t>( 500000 );
+    fillWithRandomData( random.data(), random.size() );
+    const auto multiBlock = compressBzip2Stream( random.data(), random.size(), 1 );
+    const auto multiScan = scanBzip2ChunkOffsets( multiBlock );
+    REQUIRE( multiScan.firstBlockBit == 32U );
+    REQUIRE( multiScan.endOfStreamBit.has_value() );
+    REQUIRE( !multiScan.ambiguousBoundaryBits.empty() );
+
+    /* A concatenated stream boundary is an EOS followed by another stream header, not the final EOS. */
+    auto concatenated = singleBlock;
+    concatenated.insert( concatenated.end(), singleBlock.begin(), singleBlock.end() );
+    const auto concatenatedScan = scanBzip2ChunkOffsets( concatenated );
+    REQUIRE( concatenatedScan.firstBlockBit == 32U );
+    REQUIRE( concatenatedScan.endOfStreamBit.has_value() );
+    REQUIRE( !concatenatedScan.ambiguousBoundaryBits.empty() );
+    REQUIRE( concatenatedScan.endOfStreamBit > singleBlock.size() * 8U );
+}
+
+
+void
 testParallelFileCompression( const std::vector<uint8_t>& input,
                              const int                   level,
                              const size_t                parallelism )
@@ -114,6 +151,7 @@ int
 main()
 {
     testStreams();
+    testScanChunkOffsets();
 
     const auto text = std::vector<uint8_t>( 300000, static_cast<uint8_t>( 'B' ) );
     auto random = std::vector<uint8_t>( 400000 );

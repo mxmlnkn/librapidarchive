@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <sstream>
@@ -151,6 +152,79 @@ readTextFile( const std::string& path )
 
 
 void
+testCompressionIndex( const std::filesystem::path& dataFolder )
+{
+    const auto rawPath = ( dataFolder / "base64-256KiB" ).string();
+    const auto data = readFile<std::vector<char> >( rawPath );
+    const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testIbzip2CLI" );
+    const auto compressedPath = ( tmpFolder.path() / "compressed.bz2" ).string();
+    const auto stdoutCompressedPath = ( tmpFolder.path() / "stdout.bz2" ).string();
+    const auto writtenIndexPath = ( tmpFolder.path() / "written.index" ).string();
+    const auto stdoutIndexPath = ( tmpFolder.path() / "stdout.index" ).string();
+    const auto scannedIndexPath = ( tmpFolder.path() / "scanned.index" ).string();
+    const auto decodedPath = ( tmpFolder.path() / "decoded" ).string();
+    const auto emptyPath = ( tmpFolder.path() / "empty" ).string();
+    const auto emptyCompressedPath = ( tmpFolder.path() / "empty.bz2" ).string();
+    const auto emptyIndexPath = ( tmpFolder.path() / "empty.index" ).string();
+    const auto emptyP1IndexPath = ( tmpFolder.path() / "empty-p1.index" ).string();
+
+    /* Level 1 with the 80 kB raw chunk makes four worker streams, each exactly one block. */
+    callCLI( "./ibzip2", ibzip2CLI, { "-z", "-f", "--level", "1", "-P", "2", "-o", compressedPath,
+                                      "--export-index", writtenIndexPath, rawPath } );
+    REQUIRE( std::filesystem::is_regular_file( compressedPath ) );
+    REQUIRE( std::filesystem::is_regular_file( writtenIndexPath ) );
+
+    callCLI( "./ibzip2", ibzip2CLI,
+             { "-d", "-f", "-o", decodedPath, "--import-index", writtenIndexPath, compressedPath } );
+    REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
+
+    /* The in-memory scan must produce the same index as decoding the finished file. */
+    callCLI( "./ibzip2", ibzip2CLI, { "-f", "--export-index", scannedIndexPath, compressedPath } );
+    REQUIRE_EQUAL( readTextFile( writtenIndexPath ), readTextFile( scannedIndexPath ) );
+
+    /* The compressed data may be written to stdout because the index is streamed from memory. */
+#if !defined( _WIN32 )
+    {
+        const ScopedStandardOutputRedirect redirect( stdoutCompressedPath );
+        callCLI( "./ibzip2", ibzip2CLI,
+                 { "-z", "-f", "--level", "1", "-P", "2", "--stdout",
+                   "--export-index", stdoutIndexPath, rawPath } );
+    }
+    REQUIRE( std::filesystem::file_size( stdoutCompressedPath ) > 0 );
+    REQUIRE_EQUAL( readTextFile( stdoutIndexPath ), readTextFile( writtenIndexPath ) );
+    callCLI( "./ibzip2", ibzip2CLI,
+             { "-d", "-f", "-o", decodedPath, "--import-index", stdoutIndexPath, stdoutCompressedPath } );
+    REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
+#else
+    (void)stdoutCompressedPath;
+    (void)stdoutIndexPath;
+#endif
+
+    /* An empty input is written as one valid empty stream and has the single-entry empty index. */
+    {
+        std::ofstream file( emptyPath, std::ios_base::out | std::ios_base::binary );
+    }
+    callCLI( "./ibzip2", ibzip2CLI, { "-z", "-f", "-o", emptyCompressedPath,
+                                      "--export-index", emptyIndexPath, emptyPath } );
+    /* The empty stream has its EOS at bit 32 and the physical file end at bit 112. */
+    REQUIRE_EQUAL( readTextFile( emptyIndexPath ), std::string( "32,0\n112,0\n" ) );
+    callCLI( "./ibzip2", ibzip2CLI,
+             { "-d", "-f", "-o", decodedPath, "--import-index", emptyIndexPath, emptyCompressedPath } );
+    REQUIRE( readFile<std::vector<char> >( decodedPath ).empty() );
+
+    /* A single-threaded scan records the EOS block at its actual bit offset instead of the (0,0) sentinel.
+     * Both forms are valid empty-stream indexes. */
+    callCLI( "./ibzip2", ibzip2CLI,
+             { "-f", "-P", "1", "--export-index", emptyP1IndexPath, emptyCompressedPath } );
+    /* BlockMap finalizes the stream with a file-end sentinel, matching the parallel reader. */
+    REQUIRE_EQUAL( readTextFile( emptyP1IndexPath ), std::string( "32,0\n112,0\n" ) );
+    callCLI( "./ibzip2", ibzip2CLI,
+             { "-d", "-f", "-o", decodedPath, "--import-index", emptyP1IndexPath, emptyCompressedPath } );
+    REQUIRE( readFile<std::vector<char> >( decodedPath ).empty() );
+}
+
+
+void
 testStreamingOffsets( const std::filesystem::path& dataFolder )
 {
     const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
@@ -217,6 +291,7 @@ main( int    argc,
     testRanges( dataFolder );
     testIndex( dataFolder );
     testStreamingOffsets( dataFolder );
+    testCompressionIndex( dataFolder );
     testTestOption( dataFolder );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";

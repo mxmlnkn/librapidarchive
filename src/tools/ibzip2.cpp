@@ -148,6 +148,9 @@ printIbzip2Help( const cxxopts::Options& options )
     << "  ibzip2 -z -P 0 file\n"
     << "  ibzip2 -z -P 0 --level 9 -o file.bz2 file\n"
     << "\n"
+    << "Compress and write the block index while compressing, also for stdout:\n"
+    << "  ibzip2 -z --level 9 --export-index file.bz2.index -o file.bz2 file\n"
+    << "\n"
     << "Write the block offset index while decoding (-L is an alias):\n"
     << "  ibzip2 -L file.bz2.index -- file.bz2\n"
     << "\n"
@@ -232,9 +235,9 @@ ibzip2CLI( int argc, char const* const* argv )
       cxxopts::value<std::string>() )
     ( "L,list-offsets,export-index",
       "Write a bzip2 block offset index with one '<encoded bits>,<decoded bytes>' pair per line. "
-      "During decoding, entries are written incrementally. Specifying '-' writes to stdout, or to stderr "
-      "when the output data itself is written to stdout. The former --list-offsets spelling is accepted "
-      "as an alias.",
+      "Entries are written incrementally while decoding or compressing. Specifying '-' writes to stdout, "
+      "or to stderr when the output data itself is written to stdout. The former --list-offsets spelling "
+      "is accepted as an alias.",
       cxxopts::value<std::string>() );
 
     options.add_options( "Advanced" )
@@ -398,8 +401,9 @@ ibzip2CLI( int argc, char const* const* argv )
     if ( compress
          && ( ( parsedArgs.count( "decompress" ) > 0 ) || doTest || listCompressedOffsets
               || countBytes || countLines || fileRanges.has_value()
-              || !importIndexPath.empty() || exportIndexRequested ) ) {
-        std::cerr << "Compression cannot be combined with decompression, test, count, range, or index options.\n";
+              || !importIndexPath.empty() ) ) {
+        std::cerr << "Compression cannot be combined with decompression, test, count, range, or "
+                  << "import-index options.\n";
         return 1;
     }
 #ifndef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
@@ -462,11 +466,30 @@ ibzip2CLI( int argc, char const* const* argv )
             std::cerr << " with " << decoderParallelism << " worker(s), level " << level << "\n";
         }
 
+        std::optional<OutputFile> exportIndexFile;
+        if ( exportIndexRequested ) {
+            exportIndexFile.emplace( exportIndexPath, outputFile->writingToStdout() );
+        }
+        const auto writeBlockOffset =
+            [&exportIndexFile] ( const size_t compressedOffset, const size_t decodedOffset )
+            {
+                writeBzip2IndexEntry(
+                    [&exportIndexFile] ( const void* data, const size_t size )
+                    { exportIndexFile->write( data, size ); },
+                    compressedOffset, decodedOffset );
+            };
+        const std::function<void( size_t, size_t )> blockOffsetCallback =
+            exportIndexFile ? std::function<void( size_t, size_t )>( writeBlockOffset )
+                            : std::function<void( size_t, size_t )>();
+
         try {
             const auto tCompressionStart = now();
             const auto result = indexed_bzip2::compressBzip2Parallel(
-                *inputFile, outputFileDescriptor, level, decoderParallelism );
+                *inputFile, outputFileDescriptor, level, decoderParallelism, blockOffsetCallback );
             const auto compressionDuration = duration( tCompressionStart );
+            if ( exportIndexFile ) {
+                exportIndexFile->truncateToWrittenSize();
+            }
             outputFile->truncate( result.compressedBytes );
             if ( verbose ) {
                 std::cerr << "Compressed " << result.uncompressedBytes << " B to "
@@ -578,7 +601,8 @@ ibzip2CLI( int argc, char const* const* argv )
 
                 size_t offset = 0;
                 while ( offset < size ) {
-                    const auto nBytesWritten = write( outputFileDescriptor, data + offset, size - offset );
+                    const auto nBytesWritten = write( outputFileDescriptor, data + offset,
+                                                      size - offset );
                     if ( nBytesWritten <= 0 ) {
                         std::cerr << "Could not write all the decoded data to the specified output!\n";
                         return;
