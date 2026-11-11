@@ -539,12 +539,24 @@ def testFileTypeAPI():
     assert getFileType('uncompressed') in ['None', 'DEFLATE']
 
 
+def testDetermineFileTypeKeepsFileDescriptor():
+    _, gzipFile = createRandomCompressedFile(1024, 6, 'pygzip')
+    fileDescriptor = os.open(gzipFile.name, os.O_RDONLY)
+    try:
+        assert rapidgzip.determineFileType(fileDescriptor) == 'GZIP'
+        # The descriptor must still be usable after determineFileType returned.
+        os.fstat(fileDescriptor)
+    finally:
+        os.close(fileDescriptor)
+
+
 if __name__ == '__main__':
     print("indexed_bzip2 version:", indexed_bzip2.__version__)
     print("rapidgzip version:", rapidgzip.__version__)
     print("Cores:", os.cpu_count())
 
     testFileTypeAPI()
+    testDetermineFileTypeKeepsFileDescriptor()
     testReadReturnsMoreThanRequested()
     testDeadlock('pygzip')
     testRpmallocThreadSafety('pygzip')
