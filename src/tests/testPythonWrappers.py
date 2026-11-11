@@ -548,6 +548,17 @@ def testFileTypeAPI():
     assert getFileType('uncompressed') in ['None', 'DEFLATE']
 
 
+def testDetermineFileTypeKeepsFileDescriptor():
+    _, gzipFile = createRandomCompressedFile(1024, 6, 'pygzip')
+    fileDescriptor = os.open(gzipFile.name, os.O_RDONLY)
+    try:
+        assert rapidgzip.determineFileType(fileDescriptor) == 'GZIP'
+        # The descriptor must still be usable after determineFileType returned.
+        os.fstat(fileDescriptor)
+    finally:
+        os.close(fileDescriptor)
+
+
 def testIndexImportExport():
     """Exercise bzip2 index export/import for the serial and parallel readers and all index file kinds."""
     data = bytes(range(256)) * 10000
@@ -590,6 +601,7 @@ if __name__ == '__main__':
     print("Cores:", os.cpu_count())
 
     testFileTypeAPI()
+    testDetermineFileTypeKeepsFileDescriptor()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
     testDeadlock('pygzip')
