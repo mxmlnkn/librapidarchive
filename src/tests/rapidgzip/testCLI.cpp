@@ -32,6 +32,45 @@ using namespace std::string_literals;
 using namespace rapidgzip;
 
 
+#if !defined( _WIN32 )
+    #include <fcntl.h>
+    #include <unistd.h>
+
+class ScopedStandardOutputRedirect
+{
+public:
+    explicit
+    ScopedStandardOutputRedirect( const std::string& path )
+    {
+        m_oldFileDescriptor = ::dup( STDOUT_FILENO );
+        const auto newFileDescriptor = ::open( path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+        if ( ( m_oldFileDescriptor < 0 ) || ( newFileDescriptor < 0 )
+             || ( ::dup2( newFileDescriptor, STDOUT_FILENO ) < 0 ) ) {
+            if ( newFileDescriptor >= 0 ) {
+                ::close( newFileDescriptor );
+            }
+            throw std::runtime_error( "Could not redirect stdout to '" + path + "'." );
+        }
+        ::close( newFileDescriptor );
+    }
+
+    ~ScopedStandardOutputRedirect()
+    {
+        if ( m_oldFileDescriptor >= 0 ) {
+            ::dup2( m_oldFileDescriptor, STDOUT_FILENO );
+            ::close( m_oldFileDescriptor );
+        }
+    }
+
+    ScopedStandardOutputRedirect( const ScopedStandardOutputRedirect& ) = delete;
+    ScopedStandardOutputRedirect& operator=( const ScopedStandardOutputRedirect& ) = delete;
+
+private:
+    int m_oldFileDescriptor{ -1 };
+};
+#endif
+
+
 [[nodiscard]] std::vector<char>
 createRandomWords( const size_t fileSize )
 {
@@ -245,6 +284,11 @@ testConcatenateCombinations()
 
 
 void
+testCountDoesNotPolluteStdout( const std::string&       compressedFilePath,
+                               const std::vector<char>& decompressed );
+
+
+void
 testCLI()
 {
     /* Write to /dev/shm if possible because writing ~240 GB to any disk is probably not want you want for
@@ -370,6 +414,31 @@ testCLI()
      *       the output is directly written to the stdout file descriptor without any std::cout call. */
     //const auto indexPath = ( tmpFolder.path() / "index-file" ).string();
     //testFile( { "--count", "--count-lines", "--decompress", "--export-index", indexPath, "--stdout" } );
+
+    testCountDoesNotPolluteStdout( compressedFilePath, decompressed );
+}
+
+
+void
+testCountDoesNotPolluteStdout( const std::string&          compressedFilePath,
+                               const std::vector<char>&    decompressed )
+{
+#if !defined( _WIN32 )
+    const auto tmpFolder = createTemporaryDirectory( "rapidgzip.testCLI" );
+    const auto outputPath = ( tmpFolder.path() / "stdout" ).string();
+
+    ScopedStandardOutputRedirect redirect( outputPath );
+    const auto result = callCLI( "./rapidgzip", rapidgzipCLI,
+                                 { "--decompress", "--stdout", "--count", compressedFilePath } );
+
+    /* The payload is written to the stdout file descriptor, while the count must go to stderr. */
+    REQUIRE( result.out.empty() );
+    REQUIRE( result.err.find( std::to_string( decompressed.size() ) ) != std::string::npos );
+
+    const auto output = readFile<std::vector<char> >( outputPath );
+    REQUIRE_EQUAL( output.size(), decompressed.size() );
+    REQUIRE( output == decompressed );
+#endif
 }
 
 
