@@ -145,15 +145,6 @@ public:
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
-    size() const override
-    {
-        if ( !m_blockMap->finalized() ) {
-            return std::nullopt;
-        }
-        return m_blockMap->back().second;
-    }
-
     void
     clearerr() override
     {
@@ -187,27 +178,27 @@ public:
             const rapidgzip::ScopedGILUnlock unlockedGIL;
         #endif
 
-            auto blockInfo = m_blockMap->findDataOffset( m_currentPosition );
+            auto blockInfo = m_blockMap.findDataOffset( m_currentPosition );
             if ( !blockInfo.contains( m_currentPosition ) ) {
                 /* Fetch new block for the first time and add information to block map. */
-                const auto dataBlockIndex = m_blockMap->dataBlockCount();
+                const auto dataBlockIndex = m_blockMap.dataBlockCount();
                 const auto encodedOffsetInBits = blockFinder().get( dataBlockIndex );
                 if ( !encodedOffsetInBits ) {
                     /* The block finder only looks for data-block magic, so a file with a valid header and
                      * only an EOS block has no blocks. Validate that case instead of reporting any input
                      * without blocks, including a truncated header, as a successfully decoded empty stream. */
-                    if ( m_blockMap->dataBlockCount() == 0 ) {
+                    if ( m_blockMap.dataBlockCount() == 0 ) {
                         validateStreamWithoutBlocks();
                     }
-                    m_blockMap->finalize();
+                    m_blockMap.finalize();
                     m_atEndOfFile = true;
                     break;
                 }
 
                 blockData = blockFetcher().get( *encodedOffsetInBits, dataBlockIndex );
-                const auto decodedOffsetInBytes = m_blockMap->push( blockData->encodedOffsetInBits,
-                                                                    blockData->encodedSizeInBits,
-                                                                    blockData->data.size() );
+                const auto decodedOffsetInBytes = m_blockMap.push( blockData->encodedOffsetInBits,
+                                                                   blockData->encodedSizeInBits,
+                                                                   blockData->data.size() );
                 m_streamCRCVerifier.appendBlock( decodedOffsetInBytes, blockData->data.size(),
                                                  blockData->calculatedCRC );
 
@@ -218,13 +209,13 @@ public:
                     const auto& nextBlockHeaderData = *blockData->nextBlockHeader;
                     if ( nextBlockHeaderData.isEndOfStreamBlock ) {
                         const auto existingEOS =
-                            m_blockMap->getEncodedOffset( nextBlockHeaderData.encodedOffsetInBits );
+                            m_blockMap.getEncodedOffset( nextBlockHeaderData.encodedOffsetInBits );
                         const auto eosDecodedOffsetInBytes =
                             existingEOS
                             ? existingEOS->decodedOffsetInBytes
-                            : m_blockMap->push( nextBlockHeaderData.encodedOffsetInBits,
-                                                nextBlockHeaderData.encodedSizeInBits,
-                                                0 );
+                            : m_blockMap.push( nextBlockHeaderData.encodedOffsetInBits,
+                                               nextBlockHeaderData.encodedSizeInBits,
+                                               0 );
                         m_streamCRCVerifier.finishStream( nextBlockHeaderData.encodedOffsetInBits,
                                                           eosDecodedOffsetInBytes,
                                                           nextBlockHeaderData.expectedCRC );
@@ -246,14 +237,14 @@ public:
                                  * The block finder already might have prefetched further values, so we need to truncate it!
                                  * @todo Maybe add an --ignore-invalid option like with tarfile's --ignore-zeros.
                                  */
-                                m_blockFinder->finalize( m_blockMap->dataBlockCount() );
+                                m_blockFinder->finalize( m_blockMap.dataBlockCount() );
                             }
                         }
                     }
                 }
 
                 /* We could also directly continue but then the block would be refetched, and fetching quite complex. */
-                blockInfo = m_blockMap->findDataOffset( m_currentPosition );
+                blockInfo = m_blockMap.findDataOffset( m_currentPosition );
                 if ( !blockInfo.contains( m_currentPosition ) ) {
                     continue;
                 }
@@ -265,7 +256,7 @@ public:
                 /* Imported block offsets already contain the EOS blocks, which findDataOffset does not visit.
                  * Verify an EOS directly following this block, including intermediate concatenated streams. */
                 const auto nextBlockOffsetInBits = blockInfo.encodedOffsetInBits + blockInfo.encodedSizeInBits;
-                const auto nextBlock = m_blockMap->getEncodedOffset( nextBlockOffsetInBits );
+                const auto nextBlock = m_blockMap.getEncodedOffset( nextBlockOffsetInBits );
                 if ( nextBlock && ( nextBlock->decodedSizeInBytes == 0 ) ) {
                     const auto eosHeader = blockFetcher().readBlockHeader( nextBlockOffsetInBits );
                     if ( eosHeader.isEndOfStreamBlock ) {
@@ -308,7 +299,7 @@ public:
 
         if ( origin == SEEK_END ) {
             /* size() requires the block offsets to be available! */
-            if ( !m_blockMap->finalized() ) {
+            if ( !m_blockMap.finalized() ) {
                 read();
             }
         }
@@ -328,7 +319,7 @@ public:
 
         /* m_blockMap is only accessed by read and seek, which are not to be called from different threads,
          * so we do not have to lock it. */
-        const auto blockInfo = m_blockMap->findDataOffset( positiveOffset );
+        const auto blockInfo = m_blockMap.findDataOffset( positiveOffset );
         if ( positiveOffset < blockInfo.decodedOffsetInBytes ) {
             throw std::logic_error( "Block map returned unwanted block!" );
         }
@@ -339,9 +330,9 @@ public:
             return tell();
         }
 
-        if ( m_blockMap->finalized() ) {
+        if ( m_blockMap.finalized() ) {
             m_atEndOfFile = true;
-            m_currentPosition = m_blockMap->back().second;
+            m_currentPosition = m_blockMap.back().second;
             return tell();
         }
 
@@ -356,12 +347,6 @@ public:
 
     /* BZip2 specific methods */
 
-    [[nodiscard]] bool
-    blockOffsetsComplete() const override
-    {
-        return m_blockMap->finalized();
-    }
-
     /**
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
@@ -369,26 +354,14 @@ public:
     [[nodiscard]] std::map<size_t, size_t>
     blockOffsets() override
     {
-        if ( !m_blockMap->finalized() ) {
+        if ( !m_blockMap.finalized() ) {
             read();
-            if ( !m_blockMap->finalized() || !blockFinder().finalized() ) {
+            if ( !m_blockMap.finalized() || !blockFinder().finalized() ) {
                 throw std::logic_error( "Reading everything should have finalized the block map!" );
             }
         }
 
-        return m_blockMap->blockOffsets();
-    }
-
-    /**
-     * Same as @ref blockOffsets but it won't force calculation of all blocks and simply returns
-     * what is available at call time.
-     * @return vectors of block data: offset in file, offset in decoded data
-     *         (cumulative size of all prior decoded blocks).
-     */
-    [[nodiscard]] std::map<size_t, size_t>
-    availableBlockOffsets() const override
-    {
-        return m_blockMap->blockOffsets();
+        return m_blockMap.blockOffsets();
     }
 
     // NOLINTBEGIN(misc-no-recursion)
@@ -404,13 +377,7 @@ public:
         }
 
         setBlockFinderOffsets( offsets );
-        m_blockMap->setBlockOffsets( offsets );
-    }
-
-    void
-    setBlockOffsetCallback( BlockOffsetCallback callback ) override
-    {
-        m_blockMap->setBlockOffsetCallback( std::move( callback ) );
+        m_blockMap.setBlockOffsets( offsets );
     }
 
     /**
@@ -421,14 +388,14 @@ public:
     [[nodiscard]] size_t
     tellCompressed() const override
     {
-        if ( m_blockMap->empty() ) {
+        if ( m_blockMap.empty() ) {
             return 0;
         }
-        const auto blockInfo = m_blockMap->findDataOffset( m_currentPosition );
+        const auto blockInfo = m_blockMap.findDataOffset( m_currentPosition );
         if ( blockInfo.contains( m_currentPosition ) ) {
             return blockInfo.encodedOffsetInBits;
         }
-        return m_blockMap->back().first;
+        return m_blockMap.back().first;
     }
 
     /**
@@ -468,8 +435,8 @@ private:
             throw std::logic_error( "Block finder creator failed to create new block finder!" );
         }
 
-        if ( m_blockMap->finalized() ) {
-            setBlockFinderOffsets( m_blockMap->blockOffsets() );
+        if ( m_blockMap.finalized() ) {
+            setBlockFinderOffsets( m_blockMap.blockOffsets() );
         }
 
         return *m_blockFinder;
@@ -568,7 +535,6 @@ private:
 
     /** Necessary for prefetching decoded blocks in parallel. */
     std::shared_ptr<BlockFinder>               m_blockFinder;
-    std::unique_ptr<rapidgzip::BlockMap> const m_blockMap{ std::make_unique<rapidgzip::BlockMap>() };
     std::unique_ptr<BlockFetcher>              m_blockFetcher;
 };
 }  // namespace indexed_bzip2

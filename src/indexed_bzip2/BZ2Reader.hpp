@@ -6,7 +6,6 @@
 #include <iostream>
 #include <limits>
 #include <map>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -151,15 +150,6 @@ public:
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
-    size() const override
-    {
-        if ( !m_blockMap.finalized() ) {
-            return std::nullopt;
-        }
-        return m_blockMap.back().second;
-    }
-
     size_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override;
@@ -180,38 +170,6 @@ public:
         return m_calculatedStreamCRC;
     }
 
-    [[nodiscard]] bool
-    blockOffsetsComplete() const override
-    {
-        return m_blockMap.finalized();
-    }
-
-    /**
-     * @return vectors of block data: offset in file, offset in decoded data
-     *         (cumulative size of all prior decoded blocks).
-     */
-    [[nodiscard]] std::map<size_t, size_t>
-    blockOffsets() override
-    {
-        if ( !m_blockMap.finalized() ) {
-            read();
-        }
-
-        return m_blockMap.blockOffsets();
-    }
-
-    /**
-     * Same as @ref blockOffsets but it won't force calculation of all blocks and simply returns
-     * what is available at call time.
-     * @return vectors of block data: offset in file, offset in decoded data
-     *         (cumulative size of all prior decoded blocks).
-     */
-    [[nodiscard]] std::map<size_t, size_t>
-    availableBlockOffsets() const override
-    {
-        return m_blockMap.blockOffsets();
-    }
-
     void
     setBlockOffsets( std::map<size_t, size_t> offsets ) override
     {
@@ -219,12 +177,6 @@ public:
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
         m_blockMap.setBlockOffsets( offsets );
-    }
-
-    void
-    setBlockOffsetCallback( BlockOffsetCallback callback ) override
-    {
-        m_blockMap.setBlockOffsetCallback( std::move( callback ) );
     }
 
     /**
@@ -337,8 +289,6 @@ protected:
     size_t m_currentPosition = 0;  /** the current position as can only be modified with read or seek calls. */
     bool m_atEndOfFile = false;
 
-    rapidgzip::BlockMap m_blockMap;
-    /** Holds a value if there is a block to push to the map. */
     std::optional<size_t> m_blockStartDecodedBytes;
 
 private:

@@ -4,7 +4,9 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 
+#include <core/BlockMap.hpp>
 #include <core/FileUtils.hpp>                    // writeAll
 #include <filereader/FileReader.hpp>
 
@@ -24,7 +26,7 @@ class BZ2ReaderInterface :
 {
 public:
     using WriteFunctor = std::function<void ( const void*, uint64_t )>;
-    using BlockOffsetCallback = std::function<void ( size_t encodedOffset, size_t decodedOffset )>;
+    using BlockOffsetCallback = rapidgzip::BlockMap::BlockOffsetCallback;
 
 public:
     ~BZ2ReaderInterface() override = default;
@@ -70,15 +72,34 @@ public:
 
     /* BZip2 specific methods */
 
-    [[nodiscard]] virtual bool
-    blockOffsetsComplete() const = 0;
+    [[nodiscard]] std::optional<size_t>
+    size() const override
+    {
+        if ( !m_blockMap.finalized() ) {
+            return std::nullopt;
+        }
+        return m_blockMap.back().second;
+    }
+
+    [[nodiscard]] bool
+    blockOffsetsComplete() const
+    {
+        return m_blockMap.finalized();
+    }
 
     /**
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
      */
     virtual std::map<size_t, size_t>
-    blockOffsets() = 0;
+    blockOffsets()
+    {
+        if ( !m_blockMap.finalized() ) {
+            read();
+        }
+
+        return m_blockMap.blockOffsets();
+    }
 
     /**
      * Same as @ref blockOffsets but it won't force calculation of all blocks and simply returns
@@ -87,7 +108,10 @@ public:
      *         (cumulative size of all prior decoded blocks).
      */
     [[nodiscard]] virtual std::map<size_t, size_t>
-    availableBlockOffsets() const = 0;
+    availableBlockOffsets() const
+    {
+        return m_blockMap.blockOffsets();
+    }
 
     virtual void
     setBlockOffsets( std::map<size_t, size_t> offsets ) = 0;
@@ -96,8 +120,11 @@ public:
      * Called for each newly appended block offset in compressed bits and decoded bytes. Duplicate insertions and
      * imported maps do not notify; callers that need those entries should read availableBlockOffsets().
      */
-    virtual void
-    setBlockOffsetCallback( BlockOffsetCallback callback ) = 0;
+    void
+    setBlockOffsetCallback( BlockOffsetCallback callback )
+    {
+        m_blockMap.setBlockOffsetCallback( std::move( callback ) );
+    }
 
     void
     importIndex( rapidgzip::UniqueFileReader indexFile )
@@ -150,5 +177,6 @@ public:
 
 protected:
     bool m_showProfileOnDestruction{ false };
+    rapidgzip::BlockMap m_blockMap;
 };
 }  // namespace indexed_bzip2
