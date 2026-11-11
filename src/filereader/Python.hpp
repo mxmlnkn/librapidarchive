@@ -176,6 +176,13 @@ public:
             return;
         }
 
+        /* During interpreter finalization, acquiring the GIL is not possible anymore. Leaking the
+         * references is safe because the process is shutting down. */
+        if ( pythonIsFinalizing() ) {
+            m_pythonObject = nullptr;
+            return;
+        }
+
         /* Try to restore the file position the file had before it was given to us. */
         if ( m_seekable ) {
             seek( m_initialPosition );

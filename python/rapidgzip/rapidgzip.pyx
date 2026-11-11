@@ -531,14 +531,16 @@ cdef class _RapidgzipFile():
         pass
 
     def __dealloc__(self):
-        self.close()
-
+        # Do not call close() here: it queries closed(), which needs the GIL through SharedFileReader.
+        # During interpreter shutdown that aborts the process. The C++ destructor closes the reader.
         if self.gzipReader:
             del self.gzipReader
             self.gzipReader = NULL
 
     def close(self) -> None:
-        if self.gzipReader != NULL and not self.gzipReader.closed():
+        # ParallelGzipReader::close() is idempotent. Avoid closed(), which takes the GIL through
+        # SharedFileReader and aborts during interpreter shutdown.
+        if self.gzipReader != NULL:
             self.gzipReader.close()
 
     def closed(self) -> bool:
