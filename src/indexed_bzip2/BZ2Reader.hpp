@@ -174,10 +174,7 @@ public:
     void
     setBlockOffsets( std::map<size_t, size_t> offsets ) override
     {
-        const auto emptyStream = bzip2::isEmptyBzip2BlockMap( offsets, m_bitReader );
-        if ( ( offsets.size() < 2 ) && !emptyStream ) {
-            throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
-        }
+        bzip2::validateBzip2BlockOffsets( offsets, m_bitReader );
         m_blockMap.setBlockOffsets( offsets );
         m_calculatedStreamCRC = ( m_currentPosition == 0 ) ? std::optional<uint32_t>{ 0 } : std::nullopt;
     }

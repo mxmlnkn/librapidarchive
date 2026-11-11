@@ -291,6 +291,50 @@ testIndexImportExport( const std::string& decodedTestFilePath,
 
 
 void
+testIncompleteIndexIsRejected( const std::string& encodedTestFilePath )
+{
+    const auto complete =
+        std::make_unique<BZ2Reader>( std::make_unique<StandardFileReader>( encodedTestFilePath ) )->blockOffsets();
+    REQUIRE( complete.size() >= 3 );
+
+    const auto expectRejected =
+        [&] ( const std::map<size_t, size_t>& offsets )
+        {
+            BZ2Reader reader( std::make_unique<StandardFileReader>( encodedTestFilePath ) );
+            bool threw{ false };
+            try {
+                reader.setBlockOffsets( offsets );
+            } catch ( const std::invalid_argument& ) {
+                threw = true;
+            }
+            REQUIRE( threw );
+        };
+
+    /* Missing end sentinel: the last entry is the EOS block and the penultimate one is a data block. */
+    {
+        auto offsets = complete;
+        offsets.erase( std::prev( offsets.end() ) );
+        expectRejected( offsets );
+    }
+
+    /* Truncated after a data block, as produced when exporting an index for only a decoded range. */
+    {
+        auto offsets = complete;
+        offsets.erase( std::prev( offsets.end() ) );
+        offsets.erase( std::prev( offsets.end() ) );
+        expectRejected( offsets );
+    }
+
+    /* Missing the first checkpoint makes decoded offsets before it inaccessible. */
+    {
+        auto offsets = complete;
+        offsets.erase( offsets.begin() );
+        expectRejected( offsets );
+    }
+}
+
+
+void
 testSeekBeforeOffsetCompletion( const std::string& decodedTestFilePath,
                                 const std::string& encodedTestFilePath )
 {
@@ -551,6 +595,7 @@ main()
         testSeekBeforeOffsetCompletion( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testIndexImportExport( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testConcatenatedStreams( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testIncompleteIndexIsRejected( encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
          * @see https://stackoverflow.com/questions/222175/why-destructor-is-not-called-on-exception */
