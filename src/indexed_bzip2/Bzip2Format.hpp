@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <iterator>
 #include <map>
+#include <stdexcept>
 #include <string_view>
 
 namespace bzip2
@@ -49,5 +51,50 @@ isEmptyBzip2BlockMap( const std::map<std::size_t, std::size_t>& offsets,
     const auto firstMagic = bitReader.read( MAGIC_BITS_SIZE );
     bitReader.seek( static_cast<long long int>( oldPosition ) );
     return firstMagic == MAGIC_BITS_EOS;
+}
+
+
+/**
+ * Validate block offsets before importing them.
+ *
+ * The last entry is the end sentinel and must be preceded by an EOS block. Otherwise, the index is incomplete,
+ * for example because it was exported for only a decoded range. Accepting it would silently treat the last data
+ * block as EOS and truncate the output. The first entry must start at decoded offset zero so that the beginning
+ * of the stream remains accessible.
+ */
+template<typename BitReader>
+inline void
+validateBzip2BlockOffsets( const std::map<std::size_t, std::size_t>& offsets,
+                           BitReader&                                bitReader )
+{
+    const auto emptyStream = isEmptyBzip2BlockMap( offsets, bitReader );
+    if ( ( offsets.size() < 2 ) && !emptyStream ) {
+        throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
+    }
+    if ( offsets.empty() || ( offsets.begin()->second != 0 ) ) {
+        throw std::invalid_argument( "The first block offset must map compressed offset 0 to decoded offset 0!" );
+    }
+    for ( auto it = std::next( offsets.begin() ); it != offsets.end(); ++it ) {
+        if ( it->second < std::prev( it )->second ) {
+            throw std::invalid_argument( "Decoded block offsets must be non-decreasing!" );
+        }
+    }
+
+    if ( bitReader.seekable() && ( offsets.size() >= 2 ) ) {
+        const auto eosOffsetInBits = std::prev( offsets.end(), 2 )->first;
+        const auto oldPosition = bitReader.tell();
+        bool eosMagic = false;
+        try {
+            bitReader.seek( static_cast<long long int>( eosOffsetInBits ) );
+            eosMagic = bitReader.read( MAGIC_BITS_SIZE ) == MAGIC_BITS_EOS;
+        } catch ( const std::exception& ) {
+            eosMagic = false;
+        }
+        bitReader.seek( static_cast<long long int>( oldPosition ) );
+        if ( !eosMagic ) {
+            throw std::invalid_argument( "The block offset index is incomplete: the last entry is not "
+                                         "preceded by an EOS block!" );
+        }
+    }
 }
 }  // namespace bzip2

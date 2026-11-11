@@ -372,10 +372,7 @@ public:
             throw std::invalid_argument( "May not clear offsets. Construct a new ParallelBZ2Reader instead!" );
         }
 
-        const bool emptyStream = bzip2::isEmptyBzip2BlockMap( offsets, m_bitReader );
-        if ( offsets.size() < 2 && !emptyStream ) {
-            throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
-        }
+        bzip2::validateBzip2BlockOffsets( offsets, m_bitReader );
 
         setBlockFinderOffsets( offsets );
         m_blockMap.setBlockOffsets( offsets );
