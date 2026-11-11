@@ -119,6 +119,62 @@ testScanChunkOffsets()
 
 
 void
+testWorstCaseRleExpansionWithIndex()
+{
+    /* Runs of exactly four bytes expand by 5/4 in RLE1. With the old 80% cap, an 80 kB chunk at level 1
+     * expanded to the full libbz2 block size and produced two blocks, so the in-memory offset scan rejected
+     * a valid chunk. */
+    std::vector<uint8_t> input( 80000 );
+    for ( size_t i = 0; i < input.size(); ++i ) {
+        input[i] = static_cast<uint8_t>( ( i / 4U ) % 256U );
+    }
+
+    const auto tmpFolder = createTemporaryDirectory( "testBzip2Compressor" );
+    const auto inputPath = tmpFolder.path() / "input";
+    const auto outputPath = tmpFolder.path() / "output.bz2";
+    {
+        std::ofstream output( inputPath, std::ios::binary );
+        output.write( reinterpret_cast<const char*>( input.data() ), static_cast<std::streamsize>( input.size() ) );
+    }
+
+    std::map<size_t, size_t> offsets;
+    auto inputFile = std::make_unique<StandardFileReader>( inputPath.string() );
+    auto outputFile = std::make_unique<OutputFile>( outputPath.string() );
+    const auto statistics = compressBzip2Parallel(
+        *inputFile, outputFile->fd(), /* level */ 1, /* parallelism */ 2,
+        [&offsets] ( const size_t compressedOffset, const size_t decodedOffset ) {
+            offsets.emplace( compressedOffset, decodedOffset );
+        } );
+    outputFile.reset();
+    REQUIRE_EQUAL( statistics.uncompressedBytes, input.size() );
+
+    const auto compressed = readFile<std::vector<uint8_t> >( outputPath );
+    REQUIRE( decode( compressed, 1 ) == input );
+
+    std::string index;
+    writeBzip2Index( offsets, [&index] ( const void* data, const size_t size ) {
+                         const auto* const bytes = reinterpret_cast<const char*>( data );
+                         index.append( bytes, size );
+                     } );
+
+    const std::vector<char> indexData( index.begin(), index.end() );
+    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), 2 );
+    reader.importIndex( std::make_unique<BufferViewFileReader>( indexData ) );
+    std::vector<uint8_t> decoded;
+    std::array<char, 8192> buffer{};
+    while ( true ) {
+        const auto nBytesRead = reader.read( -1, buffer.data(), buffer.size() );
+        if ( nBytesRead == 0 ) {
+            break;
+        }
+        const auto* const bytes = reinterpret_cast<const uint8_t*>( buffer.data() );
+        decoded.insert( decoded.end(), bytes, bytes + nBytesRead );
+    }
+    REQUIRE( decoded == input );
+}
+
+
+void
 testParallelFileCompression( const std::vector<uint8_t>& input,
                              const int                   level,
                              const size_t                parallelism )
@@ -152,6 +208,7 @@ main()
 {
     testStreams();
     testScanChunkOffsets();
+    testWorstCaseRleExpansionWithIndex();
 
     const auto text = std::vector<uint8_t>( 300000, static_cast<uint8_t>( 'B' ) );
     auto random = std::vector<uint8_t>( 400000 );
