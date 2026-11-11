@@ -561,6 +561,33 @@ testSerialDecoderTrailingZeroPadding( const std::filesystem::path& rootFolder )
 
 
 void
+testGzipHeaderFieldLengthLimit()
+{
+    std::vector<uint8_t> header = { 0x1F, 0x8B, 0x08, 0x08, 0, 0, 0, 0, 0, 3 };
+    header.insert( header.end(), gzip::MAX_ALLOWED_FIELD_SIZE, 'A' );
+    header.push_back( 0 );
+
+    {
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( header ) );
+        const auto [parsedHeader, error] = gzip::readHeader( bitReader );
+        REQUIRE( error == Error::NONE );
+        REQUIRE_EQUAL( parsedHeader.fileName.value().size(), size_t( gzip::MAX_ALLOWED_FIELD_SIZE ) );
+    }
+
+    /* A filename without a terminating zero must be rejected instead of parsing the following bytes as the
+     * deflate stream. */
+    {
+        auto unterminated = header;
+        unterminated.back() = 'B';
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( unterminated ) );
+        const auto [parsedHeader, error] = gzip::readHeader( bitReader );
+        REQUIRE( error == Error::INVALID_GZIP_HEADER );
+        REQUIRE_EQUAL( parsedHeader.fileName.value().size(), size_t( gzip::MAX_ALLOWED_FIELD_SIZE ) );
+    }
+}
+
+
+void
 testZlibHeaderWindowSize()
 {
     /* CINFO = 7 means a 32 KiB window. The old calculation shifted 2 instead of 1, wrapping to 0 in uint16_t. */
@@ -685,6 +712,7 @@ main( int    argc,
             findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bgz" )
         ) / "src" / "tests" / "data";
 
+    testGzipHeaderFieldLengthLimit();
     testZlibHeaderWindowSize();
     testSerialDecoderZlibAdler32( testsFolder );
     testSerialDecoderTrailingZeroPadding( testsFolder );

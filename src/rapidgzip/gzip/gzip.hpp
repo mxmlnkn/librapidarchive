@@ -183,19 +183,22 @@ readHeader( gzip::BitReader& bitReader )
             [&bitReader] () -> std::pair<std::string, Error>
             {
                 std::string result;
-                for ( size_t i = 0; i < MAX_ALLOWED_FIELD_SIZE; ++i ) {
+                for ( size_t i = 0; i <= MAX_ALLOWED_FIELD_SIZE; ++i ) {
                     if ( bitReader.eof() ) {
                         return { result, Error::EOF_ZERO_STRING };
                     }
 
                     const auto toAppend = static_cast<char>( bitReader.read<BYTE_SIZE>() );
                     if ( toAppend == 0 ) {
-                        break;
+                        return { result, Error::NONE };
+                    }
+                    if ( i == MAX_ALLOWED_FIELD_SIZE ) {
+                        return { result, Error::INVALID_GZIP_HEADER };
                     }
 
                     result.push_back( toAppend );
                 }
-                return { result, Error::NONE };
+                return { result, Error::INVALID_GZIP_HEADER };
             };
 
         if ( ( flags & ( 1U << 2U ) ) != 0 ) {
@@ -250,17 +253,20 @@ checkHeader( gzip::BitReader& bitReader )
     const auto skipZeroTerminatedString =
         [&bitReader] () -> Error
         {
-            for ( size_t i = 0; i < MAX_ALLOWED_FIELD_SIZE; ++i ) {
+            for ( size_t i = 0; i <= MAX_ALLOWED_FIELD_SIZE; ++i ) {
                 if ( bitReader.eof() ) {
                     return Error::EOF_ZERO_STRING;
                 }
 
                 const auto toAppend = bitReader.read<BYTE_SIZE>();
                 if ( toAppend == 0 ) {
-                    break;
+                    return Error::NONE;
+                }
+                if ( i == MAX_ALLOWED_FIELD_SIZE ) {
+                    return Error::INVALID_GZIP_HEADER;
                 }
             }
-            return Error::NONE;
+            return Error::INVALID_GZIP_HEADER;
         };
 
     if ( ( flags & ( 1U << 2U ) ) != 0 ) {
