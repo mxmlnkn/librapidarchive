@@ -762,7 +762,11 @@ def open(filename: FileOrPath, parallelization: int = 0, verbose: bool = False) 
 
 
 def determineFileType(fileOrPath: FileOrPath) -> str:
-    if isinstance(fileOrPath, (int, bytes, str, os.PathLike)):
+    if isinstance(fileOrPath, int):
+        # A file descriptor passed in by the caller must stay open.
+        with builtins.open(fileOrPath, "rb", closefd=False) as file:
+            return determineFileTypeAsString(<PyObject*>file).decode()
+    if isinstance(fileOrPath, (bytes, str, os.PathLike)):
         with builtins.open(fileOrPath, "rb") as file:
             return determineFileTypeAsString(<PyObject*>file).decode()
     if _isFileObject(fileOrPath):
