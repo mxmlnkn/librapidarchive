@@ -68,6 +68,40 @@ public:
 private:
     int m_oldFileDescriptor{ -1 };
 };
+
+
+class ScopedStandardInputRedirect
+{
+public:
+    explicit
+    ScopedStandardInputRedirect( const std::string& path )
+    {
+        m_oldFileDescriptor = ::dup( STDIN_FILENO );
+        const auto newFileDescriptor = ::open( path.c_str(), O_RDONLY );
+        if ( ( m_oldFileDescriptor < 0 ) || ( newFileDescriptor < 0 )
+             || ( ::dup2( newFileDescriptor, STDIN_FILENO ) < 0 ) ) {
+            if ( newFileDescriptor >= 0 ) {
+                ::close( newFileDescriptor );
+            }
+            throw std::runtime_error( "Could not redirect stdin from '" + path + "'." );
+        }
+        ::close( newFileDescriptor );
+    }
+
+    ~ScopedStandardInputRedirect()
+    {
+        if ( m_oldFileDescriptor >= 0 ) {
+            ::dup2( m_oldFileDescriptor, STDIN_FILENO );
+            ::close( m_oldFileDescriptor );
+        }
+    }
+
+    ScopedStandardInputRedirect( const ScopedStandardInputRedirect& ) = delete;
+    ScopedStandardInputRedirect& operator=( const ScopedStandardInputRedirect& ) = delete;
+
+private:
+    int m_oldFileDescriptor{ -1 };
+};
 #endif
 
 
@@ -289,6 +323,11 @@ testCountDoesNotPolluteStdout( const std::string&       compressedFilePath,
 
 
 void
+testDashMeansStdinAndStdout( const std::string&       compressedFilePath,
+                             const std::vector<char>& decompressed );
+
+
+void
 testCLI()
 {
     /* Write to /dev/shm if possible because writing ~240 GB to any disk is probably not want you want for
@@ -415,7 +454,31 @@ testCLI()
     //const auto indexPath = ( tmpFolder.path() / "index-file" ).string();
     //testFile( { "--count", "--count-lines", "--decompress", "--export-index", indexPath, "--stdout" } );
 
+    testDashMeansStdinAndStdout( compressedFilePath, decompressed );
     testCountDoesNotPolluteStdout( compressedFilePath, decompressed );
+}
+
+
+void
+testDashMeansStdinAndStdout( const std::string&       compressedFilePath,
+                             const std::vector<char>& decompressed )
+{
+#if !defined( _WIN32 )
+    const auto tmpFolder = createTemporaryDirectory( "rapidgzip.testCLI" );
+    const auto outputPath = ( tmpFolder.path() / "stdout" ).string();
+    const std::vector<std::vector<std::string> > argumentLists = {
+        { "--decompress", "--stdout", "-" },
+        { "--decompress", "-o", "-", "-" },
+    };
+    for ( const auto& arguments : argumentLists ) {
+        ScopedStandardInputRedirect inputRedirect( compressedFilePath );
+        ScopedStandardOutputRedirect outputRedirect( outputPath );
+        callCLI( "./rapidgzip", rapidgzipCLI, arguments );
+        const auto output = readFile<std::vector<char> >( outputPath );
+        REQUIRE_EQUAL( output.size(), decompressed.size() );
+        REQUIRE( output == decompressed );
+    }
+#endif
 }
 
 
