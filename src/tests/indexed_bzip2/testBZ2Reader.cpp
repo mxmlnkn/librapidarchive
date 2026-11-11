@@ -316,8 +316,8 @@ testSeekBeforeOffsetCompletion( const std::string& decodedTestFilePath,
     for ( const auto& [encodedOffset, decodedOffset] : encodedFile->availableBlockOffsets() ) {
         std::cerr << "  " << encodedOffset << " b -> " << decodedOffset << " B\n";
     }
-    const std::map<size_t, size_t> onlyFirstBlock = { { 32, 0 } };
-    REQUIRE( encodedFile->availableBlockOffsets() == onlyFirstBlock );
+    /* Like ParallelBZ2Reader, a block is added only after it has been fully decoded. */
+    REQUIRE( encodedFile->availableBlockOffsets().empty() );
     /* Seek back, which triggers redecoding parts leading to the internal variable being incremented. */
     seek( 0 );
     read( 20'000 );

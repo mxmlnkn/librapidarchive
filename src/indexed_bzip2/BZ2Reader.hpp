@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -13,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include <core/BlockMap.hpp>
 #include <core/common.hpp>
 #include <filereader/BitReader.hpp>
 #include <filereader/FileReader.hpp>
@@ -152,10 +154,10 @@ public:
     [[nodiscard]] std::optional<size_t>
     size() const override
     {
-        if ( !m_blockToDataOffsetsComplete ) {
+        if ( !m_blockMap.finalized() ) {
             return std::nullopt;
         }
-        return m_blockToDataOffsets.rbegin()->second;
+        return m_blockMap.back().second;
     }
 
     size_t
@@ -181,7 +183,7 @@ public:
     [[nodiscard]] bool
     blockOffsetsComplete() const override
     {
-        return m_blockToDataOffsetsComplete;
+        return m_blockMap.finalized();
     }
 
     /**
@@ -191,11 +193,11 @@ public:
     [[nodiscard]] std::map<size_t, size_t>
     blockOffsets() override
     {
-        if ( !m_blockToDataOffsetsComplete ) {
+        if ( !m_blockMap.finalized() ) {
             read();
         }
 
-        return m_blockToDataOffsets;
+        return m_blockMap.blockOffsets();
     }
 
     /**
@@ -207,7 +209,7 @@ public:
     [[nodiscard]] std::map<size_t, size_t>
     availableBlockOffsets() const override
     {
-        return m_blockToDataOffsets;
+        return m_blockMap.blockOffsets();
     }
 
     void
@@ -216,8 +218,7 @@ public:
         if ( offsets.size() < 2 ) {
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
-        m_blockToDataOffsetsComplete = true;
-        m_blockToDataOffsets = std::move( offsets );
+        m_blockMap.setBlockOffsets( offsets );
     }
 
     /**
@@ -251,10 +252,7 @@ public:
                  * block map whose single entry implies a decoded size of zero. This keeps tell() and
                  * size() usable after EOF was reached. */
                 m_atEndOfFile = true;
-                if ( !m_blockToDataOffsetsComplete ) {
-                    m_blockToDataOffsets.emplace( 0, 0 );
-                    m_blockToDataOffsetsComplete = true;
-                }
+                m_blockMap.finalize();
                 break;
             }
 
@@ -270,7 +268,7 @@ public:
                      * such that m_bitReader.eof() will be true before this code part has been reached?! */
                     std::cerr << "[Warning] Trailing garbage after EOF ignored!\n";
                     m_atEndOfFile = true;
-                    m_blockToDataOffsetsComplete = true;
+                    m_blockMap.finalize();
                     break;
                 }
             }
@@ -330,11 +328,12 @@ protected:
     uint8_t m_blockSize100k = 0;
     uint32_t m_streamCRC = 0;  /** CRC of stream as last block says */
     uint32_t m_calculatedStreamCRC = 0;
-    bool m_blockToDataOffsetsComplete = false;
     size_t m_currentPosition = 0;  /** the current position as can only be modified with read or seek calls. */
     bool m_atEndOfFile = false;
 
-    std::map<size_t, size_t> m_blockToDataOffsets;
+    rapidgzip::BlockMap m_blockMap;
+    /** Holds a value if there is a block to push to the map. */
+    std::optional<size_t> m_blockStartDecodedBytes;
 
 private:
     BlockHeader m_lastHeader;
@@ -360,7 +359,7 @@ BZ2Reader::seek( long long int offset,
 {
     if ( origin == SEEK_END ) {
         /* size() requires the block offsets to be available! */
-        if ( !m_blockToDataOffsetsComplete ) {
+        if ( !m_blockMap.finalized() ) {
             read();
         }
     }
@@ -372,13 +371,13 @@ BZ2Reader::seek( long long int offset,
     }
 
     /* When block offsets are not complete yet, emulate forward seeking with a read. */
-    if ( !m_blockToDataOffsetsComplete && ( positiveOffset > tell() ) ) {
+    if ( !m_blockMap.finalized() && ( positiveOffset > tell() ) ) {
         read( -1, nullptr, positiveOffset - tell() );
         return tell();
     }
 
     /* size() and then seeking requires the block offsets to be available! */
-    if ( !m_blockToDataOffsetsComplete ) {
+    if ( !m_blockMap.finalized() ) {
         read();
     }
 
@@ -391,18 +390,14 @@ BZ2Reader::seek( long long int offset,
         return tell();
     }
 
-    /* find offset from map (key and values are sorted, so we can bisect!) */
-    const auto blockOffset = std::lower_bound(
-        m_blockToDataOffsets.rbegin(), m_blockToDataOffsets.rend(), std::make_pair( 0, positiveOffset ),
-        [] ( std::pair<size_t, size_t> a, std::pair<size_t, size_t> b ) { return a.second > b.second; } );
-
-    if ( ( blockOffset == m_blockToDataOffsets.rend() ) || ( positiveOffset < blockOffset->second ) ) {
+    const auto blockInfo = m_blockMap.findDataOffset( positiveOffset );
+    if ( !blockInfo.contains( positiveOffset ) ) {
         throw std::runtime_error( "Could not find block to seek to for given offset" );
     }
-    const auto nBytesSeekInBlock = positiveOffset - blockOffset->second;
+    const auto nBytesSeekInBlock = positiveOffset - blockInfo.decodedOffsetInBytes;
 
     m_statistics.merge( m_lastHeader.statistics );
-    readBlockHeader( blockOffset->first );
+    readBlockHeader( blockInfo.encodedOffsetInBits );
     m_lastHeader.readBlockData();
     /* no decodeBzip2 necessary because we only seek inside one block! */
     const auto nBytesDecoded = decodeStream( {}, nBytesSeekInBlock );
@@ -422,10 +417,6 @@ inline void
 BZ2Reader::readBlockHeader( size_t offsetBits )
 {
     /* note that blocks are NOT byte-aligned! Only the end of the stream has a necessary padding. */
-    if ( !m_blockToDataOffsetsComplete ) {
-        m_blockToDataOffsets.insert( { offsetBits, m_decodedBytesCount } );
-    }
-
     m_bitReader.seekTo( offsetBits );
     m_lastHeader.reset( m_bitReader );
 
@@ -433,17 +424,26 @@ BZ2Reader::readBlockHeader( size_t offsetBits )
         /* EOS block contains CRC for whole stream */
         m_streamCRC = m_lastHeader.headerCRC();
 
-        if ( !m_blockToDataOffsetsComplete && ( m_streamCRC != m_calculatedStreamCRC ) ) {
+        if ( !m_blockMap.finalized() && ( m_streamCRC != m_calculatedStreamCRC ) ) {
             std::stringstream msg;
             msg << "[BZip2 block header] Stream CRC 0x" << std::hex << m_streamCRC
                 << " does not match calculated CRC 0x" << m_calculatedStreamCRC;
             throw std::runtime_error( std::move( msg ).str() );
         }
+
+        if ( !m_blockMap.finalized() ) {
+            m_blockMap.push( m_lastHeader.encodedOffsetInBits, m_lastHeader.encodedSizeInBits, 0 );
+            m_blockMap.finalize();
+        }
+        m_blockStartDecodedBytes.reset();
+    } else if ( !m_lastHeader.eof() ) {
+        m_blockStartDecodedBytes = m_decodedBytesCount;
     }
 
     m_atEndOfFile = m_lastHeader.eof();
     if ( m_lastHeader.eof() ) {
-        m_blockToDataOffsetsComplete = true;
+        m_blockMap.finalize();
+        m_blockStartDecodedBytes.reset();
     }
 }
 
@@ -483,6 +483,11 @@ BZ2Reader::decodeStream( WriteFunctor const& writeFunctor,
         /* If we need to refill dbuf, do it. Only won't be required for resuming interrupted decodations. */
         if ( m_lastHeader.eob() ) {
             m_statistics.merge( m_lastHeader.statistics );
+            if ( m_blockStartDecodedBytes && !m_blockMap.finalized() ) {
+                const auto decodedSize = m_decodedBytesCount - *m_blockStartDecodedBytes;
+                m_blockMap.push( m_lastHeader.encodedOffsetInBits, m_lastHeader.encodedSizeInBits, decodedSize );
+                m_blockStartDecodedBytes.reset();
+            }
             readBlockHeader( m_bitReader.tell() );
             if ( m_lastHeader.eos() ) {
                 return nBytesDecoded;
@@ -502,7 +507,7 @@ BZ2Reader::decodeStream( WriteFunctor const& writeFunctor,
         const auto nBytesToDecode = std::min( m_decodedBuffer.size(), nMaxBytesToDecode - nBytesDecoded );
         m_decodedBufferPos = m_lastHeader.read( nBytesToDecode, m_decodedBuffer.data() );
 
-        if ( m_lastHeader.eob() && !m_blockToDataOffsetsComplete ) {
+        if ( m_lastHeader.eob() && !m_blockMap.finalized() ) {
             m_calculatedStreamCRC = ( ( m_calculatedStreamCRC << 1U ) | ( m_calculatedStreamCRC >> 31U ) )
                                     ^ m_lastHeader.dataCRC();
         }
