@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <iostream>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -234,6 +235,10 @@ parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
         inputFilePath = parsedArgs["input"].as<std::string>();
         if ( !inputFilePath.empty() && !fileExists( inputFilePath ) ) {
             std::cerr << "Input file could not be found! Specified path: " << inputFilePath << "\n";
+            return {};
+        }
+        if ( !inputFilePath.empty() && std::filesystem::is_directory( inputFilePath ) ) {
+            std::cerr << "Input path is a directory: " << inputFilePath << "\n";
             return {};
         }
     }

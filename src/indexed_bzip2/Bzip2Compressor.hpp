@@ -320,6 +320,9 @@ compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
             const auto nBytesRead = inputFile.read(
                 reinterpret_cast<char*>( block.data() + bytesRead ), block.size() - bytesRead );
             if ( nBytesRead == 0 ) {
+                if ( inputFile.fail() ) {
+                    throw std::runtime_error( "Failed to read input for bzip2 compression!" );
+                }
                 break;
             }
             bytesRead += nBytesRead;

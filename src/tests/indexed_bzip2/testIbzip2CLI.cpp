@@ -260,6 +260,19 @@ testStreamingOffsets( const std::filesystem::path& dataFolder )
 }
 
 void
+testDirectoryInput( const std::filesystem::path& dataFolder )
+{
+    const auto decompress = callCLI( "./ibzip2", ibzip2CLI, { "-d", "-c", dataFolder.string() },
+                                     /* expectSuccess */ false );
+    REQUIRE( decompress.exitCode != 0 );
+
+    const auto compress = callCLI( "./ibzip2", ibzip2CLI, { "-z", "-c", dataFolder.string() },
+                                   /* expectSuccess */ false );
+    REQUIRE( compress.exitCode != 0 );
+}
+
+
+void
 testTestOption( const std::filesystem::path& dataFolder )
 {
     const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
@@ -293,6 +306,7 @@ main( int    argc,
     testStreamingOffsets( dataFolder );
     testCompressionIndex( dataFolder );
     testTestOption( dataFolder );
+    testDirectoryInput( dataFolder );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
     return gnTestErrors == 0 ? 0 : 1;
