@@ -285,7 +285,7 @@ ibzip2CLI( int argc, char const* const* argv )
     }
 
     if ( parsedArgs.count( "version" ) > 0 ) {
-        std::cout << "ibzip2, CLI to the indexed and seekable bzip2 decoding library indexed-bzip2 version 1.7.0.\n";
+        std::cout << "ibzip2, CLI to the indexed and seekable bzip2 decoding library indexed-bzip2 version 2.0.0.\n";
         return 0;
     }
 
