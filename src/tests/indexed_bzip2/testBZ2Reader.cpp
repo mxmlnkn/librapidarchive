@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -387,6 +389,80 @@ testRunLengthOverflow()
 
 
 void
+testConcatenatedStreams( const std::string& decodedTestFilePath,
+                         const std::string& encodedTestFilePath )
+{
+    const auto encoded = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+    const auto expected = readFile<std::vector<char> >( decodedTestFilePath );
+
+    auto concatenated = encoded;
+    concatenated.insert( concatenated.end(), encoded.begin(), encoded.end() );
+
+    BZ2Reader reader( std::make_unique<BufferViewFileReader>( concatenated ) );
+    std::vector<char> decoded;
+    std::array<char, 64_Ki> buffer{};
+    while ( true ) {
+        const auto nBytesRead = reader.read( buffer.data(), buffer.size() );
+        if ( nBytesRead == 0 ) {
+            break;
+        }
+        decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+    }
+
+    REQUIRE( reader.eof() );
+    REQUIRE( reader.blockOffsetsComplete() );
+    REQUIRE( reader.size().has_value() );
+    REQUIRE_EQUAL( reader.size().value(), 2 * expected.size() );
+    REQUIRE_EQUAL( decoded.size(), 2 * expected.size() );
+    REQUIRE( std::equal( expected.begin(), expected.end(), decoded.begin() ) );
+    REQUIRE( std::equal( expected.begin(), expected.end(),
+                         decoded.begin() + static_cast<std::ptrdiff_t>( expected.size() ) ) );
+
+    const auto singleOffsets =
+        std::make_unique<BZ2Reader>( std::make_unique<BufferViewFileReader>( encoded ) )->blockOffsets();
+    REQUIRE( reader.blockOffsets().size() > singleOffsets.size() );
+}
+
+
+void
+testImportedIndexVerifiesStreamCRC()
+{
+    /* bzip2 -c of the single byte 'A'. The EOS stream CRC follows the 48-bit EOS magic. */
+    const std::vector<uint8_t> compressed = {
+        0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x81, 0xb0,
+        0x2d, 0x8b, 0x00, 0x00, 0x00, 0x04, 0x00, 0x20, 0x00, 0x20, 0x00, 0x21,
+        0x18, 0x46, 0x82, 0xee, 0x48, 0xa7, 0x0a, 0x12, 0x10, 0x36, 0x05, 0xb1,
+        0x60
+    };
+
+    const auto offsets =
+        std::make_unique<BZ2Reader>( std::make_unique<BufferViewFileReader>( compressed ) )->blockOffsets();
+    REQUIRE( offsets.size() >= 3 );
+
+    /* The penultimate entry points at the EOS block, whose 32-bit stream CRC follows the 48-bit magic. */
+    const auto eosOffsetInBits = std::next( offsets.begin(), static_cast<std::ptrdiff_t>( offsets.size() ) - 2 )->first;
+    const auto crcBit = eosOffsetInBits + 48;
+    REQUIRE( crcBit / 8 < compressed.size() );
+
+    auto corrupted = compressed;
+    corrupted[crcBit / 8] ^= uint8_t( 1U << ( crcBit % 8 ) );
+
+    /* With an imported index, the reader still decodes every block from the beginning and therefore must
+     * verify the stream CRC instead of disabling verification because the block map is finalized. */
+    BZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ) );
+    reader.setBlockOffsets( offsets );
+    std::vector<char> buffer( 16 );
+    std::string message;
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        message = exception.what();
+    }
+    REQUIRE( message.find( "CRC" ) != std::string::npos );
+}
+
+
+void
 testBlockCRCVerification()
 {
     /* bzip2 -c of the single byte 'A'. The stored big-endian block CRC follows the 48-bit block magic. */
@@ -448,6 +524,7 @@ main()
     testHeaderOnlyInput();
     testRunLengthOverflow();
     testBlockCRCVerification();
+    testImportedIndexVerifiesStreamCRC();
     testOversizedCodeLength();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testBZ2Reader" );
@@ -473,6 +550,7 @@ main()
         /* This test works because any seeking back triggers the completion of the block offset map! */
         testSeekBeforeOffsetCompletion( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testIndexImportExport( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testConcatenatedStreams( decodedTestFilePath.string(), encodedTestFilePath.string() );
     } catch ( const std::exception& exception ) {
         /* Note that the destructor for TemporaryDirectory might not be called for uncaught exceptions!
          * @see https://stackoverflow.com/questions/222175/why-destructor-is-not-called-on-exception */

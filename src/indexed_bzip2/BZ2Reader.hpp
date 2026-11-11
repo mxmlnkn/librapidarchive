@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -164,7 +165,7 @@ public:
 
     /* BZip2 specific methods */
 
-    [[nodiscard]] uint32_t
+    [[nodiscard]] std::optional<uint32_t>
     crc() const
     {
         return m_calculatedStreamCRC;
@@ -178,6 +179,7 @@ public:
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
         m_blockMap.setBlockOffsets( offsets );
+        m_calculatedStreamCRC = ( m_currentPosition == 0 ) ? std::optional<uint32_t>{ 0 } : std::nullopt;
     }
 
     /**
@@ -286,7 +288,8 @@ protected:
 
     uint8_t m_blockSize100k = 0;
     uint32_t m_streamCRC = 0;  /** CRC of stream as last block says */
-    uint32_t m_calculatedStreamCRC = 0;
+    /** std::nullopt after seeking, because the CRCs of skipped blocks are then unknown. */
+    std::optional<uint32_t> m_calculatedStreamCRC{ 0 };
     size_t m_currentPosition = 0;  /** the current position as can only be modified with read or seek calls. */
     bool m_atEndOfFile = false;
 
@@ -342,6 +345,10 @@ BZ2Reader::seek( long long int offset,
 
     flushOutputBuffer();  // ensure that no old data is left over
 
+    /* Seeking into the middle of a stream loses the blocks before the target, so the stream CRC cannot be
+     * accumulated. Seeking to the start decodes every block again and can accumulate it from zero. */
+    m_calculatedStreamCRC = ( positiveOffset == 0 ) ? std::optional<uint32_t>{ 0 } : std::nullopt;
+
     m_atEndOfFile = positiveOffset >= size();
     if ( m_atEndOfFile ) {
         return tell();
@@ -381,16 +388,15 @@ BZ2Reader::readBlockHeader( size_t offsetBits )
         /* EOS block contains CRC for whole stream */
         m_streamCRC = m_lastHeader.headerCRC();
 
-        if ( !m_blockMap.finalized() && ( m_streamCRC != m_calculatedStreamCRC ) ) {
+        if ( m_calculatedStreamCRC && ( m_streamCRC != *m_calculatedStreamCRC ) ) {
             std::stringstream msg;
             msg << "[BZip2 block header] Stream CRC 0x" << std::hex << m_streamCRC
-                << " does not match calculated CRC 0x" << m_calculatedStreamCRC;
+                << " does not match calculated CRC 0x" << *m_calculatedStreamCRC;
             throw std::runtime_error( std::move( msg ).str() );
         }
 
         if ( !m_blockMap.finalized() ) {
             m_blockMap.push( m_lastHeader.encodedOffsetInBits, m_lastHeader.encodedSizeInBits, 0 );
-            m_blockMap.finalize();
         }
         m_blockStartDecodedBytes.reset();
     } else if ( !m_lastHeader.eof() ) {
@@ -464,8 +470,8 @@ BZ2Reader::decodeStream( WriteFunctor const& writeFunctor,
         const auto nBytesToDecode = std::min( m_decodedBuffer.size(), nMaxBytesToDecode - nBytesDecoded );
         m_decodedBufferPos = m_lastHeader.read( nBytesToDecode, m_decodedBuffer.data() );
 
-        if ( m_lastHeader.eob() && !m_blockMap.finalized() ) {
-            m_calculatedStreamCRC = ( ( m_calculatedStreamCRC << 1U ) | ( m_calculatedStreamCRC >> 31U ) )
+        if ( m_lastHeader.eob() && m_calculatedStreamCRC ) {
+            m_calculatedStreamCRC = ( ( *m_calculatedStreamCRC << 1U ) | ( *m_calculatedStreamCRC >> 31U ) )
                                     ^ m_lastHeader.dataCRC();
         }
 
