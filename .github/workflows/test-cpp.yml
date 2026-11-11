@@ -200,6 +200,8 @@ jobs:
 
     # And especially without -DSHORT_TESTS, which makes it non redundant to the sanitizer checks!
     runs-on: ${{ matrix.os }}
+    # A hung test must fail cleanly instead of occupying a runner for the default six hours.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -275,12 +277,14 @@ jobs:
         cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF .
         cmake --build build -- check
 
-    - name: Run Tests With Sanitizers
+    - name: Run Tests
       if: "startsWith(matrix.os , 'macos')"
       run: |
-        # For some reason MacOS ARM is much slower and runs into a timeout without -DSHORT_TESTS :/
+        # MacOS ARM is much slower and runs into a timeout without -DSHORT_TESTS. The Intel runners are
+        # slower still, so give each test a timeout and keep the runner from hanging indefinitely.
         cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF -DCMAKE_CXX_FLAGS="-DSHORT_TESTS" .
-        cmake --build build -- check
+        cmake --build build -j 4
+        ctest --test-dir build -j 1 --output-on-failure --timeout 1800
 
     - name: Enable Windows Crash Dumps
       if: "startsWith(matrix.os , 'windows')"
