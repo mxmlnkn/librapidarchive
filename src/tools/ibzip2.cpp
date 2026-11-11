@@ -654,8 +654,14 @@ ibzip2CLI( int argc, char const* const* argv )
         }
 
         if ( verbose ) {
-            /* The callback already delivered every offset, so avoid another full block-map copy here. */
-            const auto blockCount = offsetOutputRequested ? printedOffsetCount : reader->blockOffsets().size();
+            /* The callback already delivered every offset, so avoid another full block-map copy here.
+             * In range mode, blockOffsets() would decode the whole input and could fail on corruption
+             * outside the requested range. */
+            const auto blockCount = offsetOutputRequested
+                                    ? printedOffsetCount
+                                    : ( fileRanges
+                                        ? reader->availableBlockOffsets().size()
+                                        : reader->blockOffsets().size() );
             out << "Found " << blockCount << " blocks\n";
         }
 
