@@ -171,7 +171,9 @@ struct Bzip2ChunkScanResult
 [[nodiscard]] inline Bzip2ChunkScanResult
 scanBzip2ChunkOffsets( const std::vector<uint8_t>& compressed )
 {
-    if ( ( compressed.size() < 4U )
+    /* The stream header plus the first 48-bit magic must fit before readBzip2Bits may access the bytes. */
+    constexpr auto HEADER_AND_BLOCK_MAGIC_BYTES = ( 32U + bzip2::MAGIC_BITS_SIZE + CHAR_BIT - 1U ) / CHAR_BIT;
+    if ( ( compressed.size() < HEADER_AND_BLOCK_MAGIC_BYTES )
          || ( std::memcmp( compressed.data(), bzip2::MAGIC_BYTES_BZ2.data(),
                            bzip2::MAGIC_BYTES_BZ2.size() ) != 0 ) ) {
         throw std::logic_error( "Compressed bzip2 chunk does not start with a stream header." );

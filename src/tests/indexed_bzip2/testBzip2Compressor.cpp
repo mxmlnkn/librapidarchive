@@ -119,6 +119,27 @@ testScanChunkOffsets()
 
 
 void
+testShortChunkIsRejected()
+{
+    /* Reading the first 48-bit block magic needs the 32-bit stream header plus six more bytes. A shorter
+     * chunk starting with "BZh" must be rejected before readBzip2Bits indexes past its allocation. */
+    for ( const auto size : { 0U, 4U, 9U } ) {
+        std::vector<uint8_t> chunk( size );
+        static constexpr std::array<uint8_t, 4> MAGIC{ 'B', 'Z', 'h', '9' };
+        std::copy( MAGIC.begin(), MAGIC.begin() + static_cast<std::ptrdiff_t>( std::min<size_t>( size, MAGIC.size() ) ),
+                   chunk.begin() );
+        bool threw = false;
+        try {
+            (void)scanBzip2ChunkOffsets( chunk );
+        } catch ( const std::logic_error& ) {
+            threw = true;
+        }
+        REQUIRE( threw );
+    }
+}
+
+
+void
 testWorstCaseRleExpansionWithIndex()
 {
     /* Runs of exactly four bytes expand by 5/4 in RLE1. With the old 80% cap, an 80 kB chunk at level 1
@@ -208,6 +229,7 @@ main()
 {
     testStreams();
     testScanChunkOffsets();
+    testShortChunkIsRejected();
     testWorstCaseRleExpansionWithIndex();
 
     const auto text = std::vector<uint8_t>( 300000, static_cast<uint8_t>( 'B' ) );
