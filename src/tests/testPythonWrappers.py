@@ -421,6 +421,39 @@ def testNoReferenceLeak():
     assert sys.getrefcount(data) == baseline
 
 
+class RaisingReadFile:
+    def __init__(self, data):
+        self.buffer = io.BytesIO(data)
+
+    def read(self, size=-1):
+        raise ValueError("boom")
+
+    def write(self, data):
+        raise NotImplementedError
+
+    def tell(self):
+        return self.buffer.tell()
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        return self.buffer.seek(offset, whence)
+
+    def seekable(self):
+        return True
+
+    def close(self):
+        self.buffer.close()
+
+
+def testPythonExceptionIsPreserved():
+    file = RaisingReadFile(gzip.compress(b'x' * 1000))
+    try:
+        rapidgzip.RapidgzipFile(file).read(1)
+    except ValueError as exception:
+        assert "boom" in str(exception), str(exception)
+    else:
+        assert False, "The Python exception from read() was not propagated"
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -658,6 +691,7 @@ if __name__ == '__main__':
     testDetermineFileTypeKeepsFileDescriptor()
     testNonSeekableFileObjectWithoutFileno()
     testNoReferenceLeak()
+    testPythonExceptionIsPreserved()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
