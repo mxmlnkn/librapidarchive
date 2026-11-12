@@ -20,14 +20,13 @@
 #include <vector>
 
 #include <core/BitManipulation.hpp>
-#include <core/VectorView.hpp>
 #include <filereader/BitReader.hpp>
-#include <huffman/HuffmanCodingShortBitsCached.hpp>
-#include <libsais.h>
 
 #include "Bzip2Crc32.hpp"
 #include "Bzip2Format.hpp"
+#include "Bzip2InverseBWT.hpp"
 #include "Bzip2MoveToFront.hpp"
+#include "Bzip2SymbolDecoder.hpp"
 
 #if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
     /* The AVX-512 RLE scan uses the same compiler/architecture gate as the PCLMUL CRC header. */
@@ -252,33 +251,6 @@ public:
         Durations durations;
     };
 
-    //using HuffmanCoding = rapidgzip::HuffmanCodingLinearSearch<uint32_t, uint16_t>;
-    //using HuffmanCoding = rapidgzip::HuffmanCodingSymbolsPerLength<uint32_t, MAX_HUFCODE_BITS, uint16_t, MAX_SYMBOLS,
-    //                                                               /* CHECK_OPTIMALITY */ false>;
-    /**
-     * Some quick benchmarks with m ibzip2 && time src/tools/ibzip2 -v -P 1 -d -o /dev/null -f silesia.tar.bz2:
-     *  4-bit: 4.421 4.421 4.482 4.591 4.634
-     *  6-bit: 4.462 4.506 4.277 4.279 4.485
-     *  8-bit: 4.198 4.188 4.176 4.188 4.297
-     * 10-bit: 4.203 4.046 4.174 4.164 4.198
-     * 11-bit: 4.117 4.249 4.137 4.076 4.073
-     * 12-bit: 3.970 4.101 4.177 4.047 4.030 <-
-     * 13-bit: 4.199 4.188 4.144 4.102 4.162
-     * 14-bit: 4.134 4.217 4.240 4.108 4.244
-     * 16-bit: 4.438 4.415 4.306 4.476 4.577
-     * 18-bit: 4.542 4.624 4.562 4.581 4.862
-     * Tested on AMD Ryzen 3900X.
-     */
-    using HuffmanCoding = rapidgzip::HuffmanCodingShortBitsCached<
-        uint32_t, MAX_HUFCODE_BITS, uint16_t, MAX_SYMBOLS, /* LUT size */ 12,
-        /* REVERSE_BITS */ false, /* CHECK_OPTIMALITY */ false
-    >;
-    /* Won't work. It will cause a stack overflow because it contains a std::array of size 2^MAX_HUFCODE_BITS = 1 MiB.
-     * And the currently committed version also will not work because it reverses the bits as necessary for gzip.
-     * I think this step must be skipped for the bzip2 BitReader. */
-    //using HuffmanCoding =
-    //    rapidgzip::HuffmanCodingReversedBitsCached<uint32_t, MAX_HUFCODE_BITS, uint16_t, MAX_SYMBOLS>;
-
 public:
     Block() = default;
 
@@ -450,13 +422,6 @@ public:
         BurrowsWheelerTransformData( const BurrowsWheelerTransformData& ) = delete;
         BurrowsWheelerTransformData& operator=( const BurrowsWheelerTransformData& ) = delete;
 
-        ~BurrowsWheelerTransformData()
-        {
-            if ( unbwtContext != nullptr ) {
-                libsais_unbwt_free_ctx( unbwtContext );
-            }
-        }
-
         friend Block;
 
     public:
@@ -471,10 +436,7 @@ public:
         [[nodiscard]] constexpr bool
         hasData() const noexcept
         {
-            if ( inverseBWT ) {
-                return ( inverseBWT->position < writeCount ) || ( inverseBWT->repeatCount > 0 );
-            }
-            return ( writeCount > 0 ) || ( symbolRepeatCount > 0 );
+            return inverseBWT && ( ( inverseBWT->position < writeCount ) || ( inverseBWT->repeatCount > 0 ) );
         }
 
         /**
@@ -532,25 +494,22 @@ public:
         }
 
     private:
-        /** Must only be called after initializing the members from outside. */
+        /**
+         * Creates the inverse BWT of the block from the run records of the symbol decoder.
+         * Must only be called after initializing origPtr and the records.
+         */
         void
-        prepare();
+        prepare( size_t recordCount );
 
         /**
-         * Reset the per-block state while retaining the allocated dbuf and bwtData buffers for reuse.
+         * Reset the per-block state while retaining the allocated buffers for reuse.
          * The header and symbol pass of the next block overwrite everything that is read.
          */
         void
         resetState()
         {
             origPtr = 0;
-            byteCount.fill( 0 );
-            writePos = 0;
-            writeRun = 0;
             writeCount = 0;
-            writeCurrent = 0;
-            symbolToRepeat = 0;
-            symbolRepeatCount = 0;
             inverseBWT.reset();
             dataCRC = 0xFFFFFFFFL;
             headerCRC = 0;
@@ -558,20 +517,11 @@ public:
 
     private:
         uint32_t origPtr = 0;
-        std::array<uint32_t, 256> byteCount{};
-
-        /* These variables are saved when interrupting decode and are required for resuming */
-        uint32_t writePos = 0;
-        int writeRun = 0;
+        /** Size of the BWT string, i.e., of the block before the initial run-length encoding is undone. */
         uint32_t writeCount = 0;
-        int writeCurrent = 0;
 
-        /* This is for resuming run-length compression. */
-        uint8_t symbolToRepeat{ 0 };
-        uint8_t symbolRepeatCount{ 0 };
-
-        /* libsais inverts the whole block linearly. Its output is still run-length encoded, so one run may
-         * span several decodeBlock calls. The presence of this state selects the libsais path. */
+        /* The output of the inverse BWT is still run-length encoded, so one run may span several decodeBlock
+         * calls. This state only exists after prepare and is needed for resuming the expansion. */
         struct InverseBWTData
         {
             size_t position{ 0 };
@@ -581,27 +531,26 @@ public:
 
         std::optional<InverseBWTData> inverseBWT;
 
-        /* libsais allocates ~1 MB of inverse-BWT tables per call. Keep one context per Block/worker so that
-         * the tables and their pages are reused across blocks instead of being allocated and trimmed. */
-        void* unbwtContext{ nullptr };
-
         uint32_t dataCRC = 0xFFFFFFFFL;  /* CRC of block as calculated by us */
         uint32_t headerCRC = 0;  /* what the block data CRC should be */
 
-        /**
-         * Simply allocate the maximum block size so we won't run into problem when block sizes changes
-         * (e.g. in pbzip2 file). MAX_BLOCK_SIZE is nothing in today's age anyways.
-         * The extra element is required because libsais_unbwt_cyclic uses this buffer as its n + 1 element
-         * temporary P array when the inverse BWT is computed.
-         */
-        /* Not zero-initialized: the symbol pass and libsais overwrite every element that is read. The buffers
-         * are allocated once per reader or worker, so this saves a one-time 4.5 MiB of zeroing at startup. */
-        std::unique_ptr<uint32_t[]> dbuf{ new uint32_t[MAX_BLOCK_SIZE + 1] };
+        /* Keeps its bookkeeping buffers so that they are only allocated once per reader or worker. */
+        InverseBWT inverter;
 
-        /* BWT input bytes. libsais inverts them in place into the run-length encoded output; the classic
-         * chase fallback copies them into dbuf first. Not zero-initialized because the symbol pass and
-         * libsais overwrite every element that is read. The eight tail bytes are slack for the word-store
-         * run flush, which may write past the logical count. */
+        /**
+         * Simply allocate for the maximum block size so that there is no problem when the block size changes
+         * (e.g. in pbzip2 files). None of these buffers is zero-initialized because everything that is read
+         * has been written for the same block before. They are allocated once per reader or worker.
+         */
+        std::unique_ptr<uint32_t[]> lfMapping{ new uint32_t[LF_MAPPING_SIZE] };
+
+        /* The run records of the symbol decoder. They are not needed anymore when the BWT gets inverted, so
+         * the buffer doubles as its scratch space. */
+        std::unique_ptr<uint8_t[]> records{ new uint8_t[RUN_RECORD_BUFFER_SIZE] };
+        static_assert( RUN_RECORD_BUFFER_SIZE >= InverseBWT::ARENA_SIZE, "The buffer is reused as arena." );
+
+        /* The inverse BWT output, which is the block with its runs still encoded. The eight tail bytes are
+         * slack for vectorized readers. */
         std::unique_ptr<uint8_t[]> bwtData{ new uint8_t[MAX_BLOCK_SIZE + sizeof( uint64_t )] };
     };
 
@@ -627,8 +576,6 @@ private:
     std::array<uint8_t, 256> symbolToByte{};
     /** Used for the selectors, which are decoded before the block data. */
     std::array<uint8_t, 256> mtfSymbol{};
-    /** Used for the block data, which has a much larger and less skewed index distribution. */
-    PackedMTF mtfPacked{};
     unsigned int symbolCount{ 0 };
     /**
      * Every GROUP_SIZE many symbols we switch huffman coding tables.
@@ -640,8 +587,10 @@ private:
      */
     uint16_t selectorsCount{ 0 };
 
-    std::array<char, 32768> selectors{};  // nSelectors=15 bits
-    std::array<HuffmanCoding, MAX_GROUPS> huffmanCodings{};
+    std::array<uint8_t, 32768> selectors{};  // nSelectors=15 bits
+    std::array<SymbolTable, MAX_GROUPS> symbolTables{};
+    /** For each coding table, the result of @ref computeNearTailWeight. Used to choose the symbol kernel. */
+    std::array<uint32_t, MAX_GROUPS> nearTailWeights{};
     uint32_t groupCount = 0;
 
     /* Second pass decompression data (burrows-wheeler transform) */
@@ -833,7 +782,7 @@ Block::readSelectors()
         const auto uc = mtfSymbol[j];
         memmove( mtfSymbol.data() + 1, mtfSymbol.data(), j );
         mtfSymbol[0] = uc;
-        selectors[i] = static_cast<char>( uc );
+        selectors[i] = uc;
     }
 }
 
@@ -878,147 +827,101 @@ Block::readTrees()
             lengths[symbol] = static_cast<uint8_t>( hh );
         }
 
-        const auto error = huffmanCodings[j].initializeFromLengths(
-            rapidgzip::VectorView<uint8_t>( lengths.data(), symCount ) );
+        const auto error = symbolTables[j].initializeFromLengths( lengths.data(), symCount );
         if ( error != rapidgzip::Error::NONE ) {
             throw std::domain_error( toString( error ) );
         }
+        /* Only valid code lengths reach this. */
+        nearTailWeights[j] = computeNearTailWeight( lengths.data(), symCount );
     }
 }
 
 
 /**
- * This undoes the Huffman coding.
+ * This undoes the Huffman coding, the zero run-length encoding, and the Move-to-Front transform, and then
+ * inverts the Burrows-Wheeler transform.
  */
 inline void
 Block::readBlockData()
 {
-    // We've finished reading and digesting the block.  Now read this
-    // block's huffman coded symbols from the file and undo the huffman coding
-    // and run length encoding, saving the result into bwtData[bwtDataCount++] = uc
-
-    bwdata.byteCount.fill( 0 );
-    static constexpr auto PACKED_MTF_INITIAL = createPackedMTF();
-    mtfPacked = PACKED_MTF_INITIAL;
-
     const auto t0 = rapidgzip::now();
-    /** @note The loops inside this for-loop are all too short to be profiled.
-     *        The overhead becomes disastrously large! It takes 190s to decode instead of 20s. */
-    // Loop through compressed symbols.  This is the first "tight inner loop"
-    // that needs to be micro-optimized for speed.  (This one fills out bwtData[]
-    // linearly, staying in cache more, so isn't as limited by DRAM access.)
-    uint32_t bwtDataCount = 0;
     auto& reader = *m_bitReader;
 
-    /* The weight of the next RUNA/RUNB symbol. It starts at one after every literal, so each run
-     * symbol can emit its share immediately instead of accumulating a pending run that a later literal
-     * has to flush. Short runs use one 64-bit store and leave the slack bytes for the next write. */
-    uint32_t runWeight = 1;
-    const auto appendRunBytes =
-        [&] ( const uint8_t uc, const uint32_t count )
-        {
-            bwdata.byteCount[uc] += count;
-            if ( count <= sizeof( uint64_t ) ) {
-                const auto pattern = uint64_t( 0x0101'0101'0101'0101ULL ) * uc;
-                std::memcpy( bwdata.bwtData.get() + bwtDataCount, &pattern, sizeof( pattern ) );
-                bwtDataCount += count;
-            } else {
-                for ( uint32_t i = 0; i < count; ++i ) {
-                    bwdata.bwtData[bwtDataCount++] = uc;
-                }
-            }
-        };
+    SymbolDecoderState state;
+    state.mtf = createPackedMTF( symbolToByte.data(), symbolCount );
+    state.record = bwdata.records.get();
+    state.recordLimit = state.record + RUN_RECORD_SIZE * MAX_RUN_RECORDS;
+    /* The first record belongs to the byte that initially is at the front of the Move-to-Front list.
+     * It stays empty if the block does not start with a run of that byte. */
+    state.record[0] = symbolCount > 0 ? symbolToByte[0] : uint8_t( 0 );
+    state.record[1] = 0;
+    state.symbolCount = symbolCount;
+    state.selector = selectors.data();
+    state.selectorEnd = selectors.data() + selectorsCount;
+    state.tables = symbolTables.data();
 
-    // Determine which huffman coding group to use.
-    uint32_t selector = 0;
-    if ( selector >= selectorsCount ) {
-        std::stringstream msg;
-        msg << "[BZip2 block data] selector " << selector << " out of maximum range " << selectorsCount;
-        throw std::domain_error( std::move( msg ).str() );
+    /* See prefersPortableKernel for why some blocks are faster without SIMD. */
+    auto kernel = symbolKernel();
+    if ( ( kernel != SymbolKernel::PORTABLE ) && !isSymbolKernelOverridden() ) {
+        uint64_t nearTailWeight = 0;
+        for ( size_t i = 0; i < selectorsCount; ++i ) {
+            nearTailWeight += nearTailWeights[selectors[i]];
+        }
+        if ( prefersPortableKernel( nearTailWeight, selectorsCount ) ) {
+            kernel = SymbolKernel::PORTABLE;
+        }
     }
-    const auto* huffmanCoding = &huffmanCodings[selectors[selector]];
-    selector++;
 
-    auto nextSym = huffmanCoding->decodePacked( reader );
-    if ( UNLIKELY( nextSym == HuffmanCoding::INVALID_SYMBOL ) ) [[unlikely]] {
+    /** @note The loops for this are too short to be profiled individually. */
+    auto status = SymbolDecoderStatus::NEED_INPUT;
+    while ( status == SymbolDecoderStatus::NEED_INPUT ) {
+        /* Decode directly from the bytes that the bit reader has buffered as long as whole groups of
+         * symbols are available. This is where almost all symbols are decoded. */
+        if ( const auto bufferOffset = reader.bufferBitPosition(); bufferOffset.has_value() ) {
+            const auto& buffer = reader.buffer();
+            auto offset = *bufferOffset;
+            status = decodeSymbols( state, buffer.data(), buffer.size(), offset, kernel );
+            if ( offset != *bufferOffset ) {
+                reader.seekInsideBuffer( offset );
+            }
+            if ( status != SymbolDecoderStatus::NEED_INPUT ) {
+                break;
+            }
+        }
+
+        /* Decode one group with the bit reader, which refills its buffer when necessary and also works
+         * for the last bytes of the file. */
+        status = decodeSymbolGroup( state, reader );
+    }
+
+    switch ( status )
+    {
+    case SymbolDecoderStatus::NEED_INPUT:  // Not possible after the loop, but avoids a compiler warning.
+    case SymbolDecoderStatus::END_OF_BLOCK:
+        break;
+    case SymbolDecoderStatus::INVALID_CODE:
         throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
-    }
-
-    uint32_t symbolsInGroup = GROUP_SIZE;
-    while ( true ) {
-        // Is this the terminating symbol?
-        if ( nextSym > symbolCount ) {
-            break;
-        }
-
-        /* Select the group of the successor before decoding it, then decode the successor before consuming
-         * the current symbol. The successor's bit-reader and Huffman LUT loads then overlap the 64-byte
-         * move-to-front store of the current literal instead of waiting behind it. */
-        if ( --symbolsInGroup == 0 ) {
-            if ( selector >= selectorsCount ) {
-                std::stringstream msg;
-                msg << "[BZip2 block data] selector " << selector << " out of maximum range " << selectorsCount;
-                throw std::domain_error( std::move( msg ).str() );
-            }
-            huffmanCoding = &huffmanCodings[selectors[selector]];
-            selector++;
-            symbolsInGroup = GROUP_SIZE;
-        }
-
-        const auto currentSym = nextSym;
-        nextSym = huffmanCoding->decodePacked( reader );
-        if ( UNLIKELY( nextSym == HuffmanCoding::INVALID_SYMBOL ) ) [[unlikely]] {
-            throw std::domain_error( "[BZip2 block data] Invalid Huffman code" );
-        }
-
-        // If this is a repeated run, emit this symbol's share immediately.
-        if ( currentSym <= SYMBOL_RUNB ) {
-            /* The run length must fit into one block. Check in 64 bit because a crafted sequence of
-             * RUNA/RUNB symbols can wrap the 32-bit sum and bypass the block-size check, which would
-             * then write far past the block buffer. */
-            const auto count = static_cast<uint64_t>( runWeight ) << currentSym;
-            if ( static_cast<uint64_t>( bwtDataCount ) + count > MAX_BLOCK_SIZE ) {
-                std::stringstream msg;
-                msg << "[BZip2 block data] The run length exceeds the maximum block size " << MAX_BLOCK_SIZE;
-                throw std::domain_error( std::move( msg ).str() );
-            }
-            appendRunBytes( symbolToByte[mtfPacked[0] & 0xFFU], static_cast<uint32_t>( count ) );
-            runWeight <<= 1U;
-            continue;
-        }
-
-        /* At this point, the symbol we just decoded indicates a new literal
-         * character. Subtract one to get the position in the MTF array
-         * at which this literal is currently to be found. (Note that the
-         * result can't be -1 or 0, because 0 and 1 are RUNA and RUNB.
-         * Another instance of the first symbol in the mtf array, position 0,
-         * would have been handled as part of a run.) */
-        if ( bwtDataCount >= MAX_BLOCK_SIZE ) {
-            std::stringstream msg;
-            msg << "[BZip2 block data] bwtDataCount " << bwtDataCount
-                << " >= " << MAX_BLOCK_SIZE << " maximum block size";
-            throw std::domain_error( std::move( msg ).str() );
-        }
-        const auto uc = symbolToByte[moveToFront( mtfPacked, currentSym - 1 )];
-
-        // We have our literal byte.  Save it into bwtData.
-        bwdata.byteCount[uc]++;
-        bwdata.bwtData[bwtDataCount++] = uc;
-        runWeight = 1;
-    }
-
-    // Now we know what bwtDataCount is, do a better sanity check on origPtr.
-    bwdata.writeCount = bwtDataCount;
-    if ( bwdata.origPtr >= bwtDataCount ) {
+    case SymbolDecoderStatus::OUT_OF_SELECTORS:
+    {
+        /* All selectors have been used up without the end-of-block symbol. */
         std::stringstream msg;
-        msg << "[BZip2 block data] origPtr error " << bwdata.origPtr;
+        msg << "[BZip2 block data] selector " << selectorsCount << " out of maximum range " << selectorsCount;
         throw std::domain_error( std::move( msg ).str() );
     }
+    case SymbolDecoderStatus::BLOCK_TOO_LARGE:
+    {
+        std::stringstream msg;
+        msg << "[BZip2 block data] The run length exceeds the maximum block size " << MAX_BLOCK_SIZE;
+        throw std::domain_error( std::move( msg ).str() );
+    }
+    }
 
+    /* state.record points to the last record, not behind it. */
+    const auto recordCount = static_cast<size_t>( state.record - bwdata.records.get() ) / RUN_RECORD_SIZE + 1;
     statistics.durations.createHuffmanTable += rapidgzip::duration( t0 );
 
     const auto tPrepareStart = rapidgzip::now();
-    bwdata.prepare();
+    bwdata.prepare( recordCount );
     statistics.durations.burrowsWheelerPreparation += rapidgzip::duration( tPrepareStart );
 
     encodedSizeInBits = bitReader().tell() - encodedOffsetInBits;
@@ -1026,80 +929,37 @@ Block::readBlockData()
 
 
 inline void
-Block::BurrowsWheelerTransformData::prepare()
+Block::BurrowsWheelerTransformData::prepare( const size_t recordCount )
 {
     dataCRC = 0xFFFFFFFFL;
-    symbolRepeatCount = 0;
     inverseBWT.reset();
 
-    if ( writeCount == 0 ) {
-        return;
+    std::array<uint32_t, 256> byteCounts{};
+    const auto size = createLFMapping( records.get(), recordCount, lfMapping.get(), byteCounts );
+    if ( size == LF_MAPPING_TOO_LARGE ) {
+        std::stringstream msg;
+        msg << "[BZip2 block data] The block exceeds the maximum block size " << MAX_BLOCK_SIZE;
+        throw std::domain_error( std::move( msg ).str() );
     }
 
-    /* libsais builds a bi-gram LF table and decodes several chains in parallel, which hides most of the
-     * dependent-load latency of the classic one-step chase. The frequency table is already available from
-     * the symbol decoding pass. */
-    std::array<int32_t, 256> frequencies{};
-    for ( size_t i = 0; i < byteCount.size(); ++i ) {
-        frequencies[i] = static_cast<int32_t>( byteCount[i] );
+    // Now we know the size of the block, do a better sanity check on origPtr.
+    writeCount = size;
+    if ( origPtr >= size ) {
+        std::stringstream msg;
+        msg << "[BZip2 block data] origPtr error " << origPtr;
+        throw std::domain_error( std::move( msg ).str() );
     }
 
-    /* libsais requires n + 1 int32 elements of temporary space, which dbuf provides. Inverting in place
-     * removes the separate output buffer. On error, bwtData is still the unmodified input because libsais
-     * validates and allocates all of its tables before writing, so the chase fallback below stays valid. */
-    /* dbuf has MAX_BLOCK_SIZE + 1 elements; libsais needs n + 1. The symbol pass bounds writeCount, but
-     * keep the capacity assertion. */
-    assert( writeCount <= MAX_BLOCK_SIZE );
-    if ( unbwtContext == nullptr ) {
-        unbwtContext = libsais_unbwt_create_ctx();
-    }
-    const auto error = unbwtContext != nullptr
-                       ? libsais_unbwt_cyclic_ctx(
-        unbwtContext, bwtData.get(), bwtData.get(), reinterpret_cast<int32_t*>( dbuf.get() ),
-        static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) )
-                       : libsais_unbwt_cyclic(
-        bwtData.get(), bwtData.get(), reinterpret_cast<int32_t*>( dbuf.get() ),
-        static_cast<int32_t>( writeCount ), frequencies.data(), static_cast<int32_t>( origPtr ) );
-    if ( error == 0 ) {
-        inverseBWT = InverseBWTData{};
-        /* Keep dbuf allocated. The next block reuses it as libsais temporary space, which avoids a
-         * multi-megabyte allocation and page-fault storm for every block. */
-        return;
+    /* Turn the byte counts into the positions of the first occurrence of each byte in the sorted string. */
+    std::array<uint32_t, 256> cumulativeCounts{};
+    uint32_t sum = 0;
+    for ( size_t i = 0; i < byteCounts.size(); ++i ) {
+        cumulativeCounts[i] = sum;
+        sum += byteCounts[i];
     }
 
-    /* Fall back to the classic one-step LF build if libsais cannot allocate its temporary tables. */
-    for ( uint32_t i = 0; i < writeCount; ++i ) {
-        dbuf[i] = bwtData[i];
-    }
-
-    /**
-     * Turn byteCount into cumulative occurrence counts of 0 to n-1.
-     * @note This loop is fast because byteCount.size() is 256.
-     */
-    for ( size_t i = 0, cumulativeCount = 0; i < byteCount.size(); ++i ) {
-        const auto newCumulativeCount = cumulativeCount + byteCount[i];
-        byteCount[i] = static_cast<uint32_t>( cumulativeCount );
-        cumulativeCount = newCumulativeCount;
-    }
-
-    // Use occurrence counts to quickly figure out what order dbuf would be in
-    // if we sorted it.
-    // Using i as position, j as previous character, hh as current character,
-    // and uc as run count.
-    for ( uint32_t i = 0; i < writeCount; i++ ) {
-        const auto uc = static_cast<uint8_t>( dbuf[i] );
-        dbuf[byteCount[uc]] |= i << 8U;
-        byteCount[uc]++;
-    }
-
-    /* Decode first byte by hand to initialize "previous" byte. Note that it
-     * doesn't get output, and if the first three characters are identical
-     * it doesn't qualify as a run (hence uc=255, which will either wrap
-     * to 1 or get reset). */
-    writePos = dbuf[origPtr];
-    writeCurrent = static_cast<uint8_t>( writePos & 0xFFU );
-    writePos >>= 8U;
-    writeRun = -1;
+    inverter.decode( lfMapping.get(), cumulativeCounts, size, origPtr, records.get(), bwtData.get() );
+    inverseBWT = InverseBWTData{};
 }
 
 
@@ -1221,43 +1081,6 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 ++state.position;
             }
         }
-    } else {
-        const auto writeRepeatedSymbols =
-            [&, this] ()
-            {
-                while ( ( symbolRepeatCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
-                    --symbolRepeatCount;
-                    outputBuffer[nBytesDecoded++] = static_cast<char>( symbolToRepeat );
-                }
-            };
-
-        writeRepeatedSymbols();
-
-        while ( ( writeCount > 0 ) && ( nBytesDecoded < nMaxBytesToDecode ) ) {
-            writeCount--;
-
-            // Follow sequence vector to undo Burrows-Wheeler transform.
-            const auto previous = writeCurrent;
-            writePos = dbuf[writePos];
-            writeCurrent = static_cast<uint8_t>( writePos & 0xFFU );
-            writePos >>= 8U;
-
-            /* Whenever we see 3 consecutive copies of the same byte, the 4th is a repeat count */
-            if ( writeRun < 3 ) {
-                outputBuffer[nBytesDecoded++] = static_cast<char>( writeCurrent );
-                if ( writeCurrent != previous ) {
-                    writeRun = 0;
-                } else {
-                    ++writeRun;
-                }
-            } else {
-                symbolToRepeat = previous;
-                symbolRepeatCount = writeCurrent;
-                writeRepeatedSymbols();
-                writeCurrent = -1;
-                writeRun = 0;
-            }
-        }
     }
 
     /* The bytes of this call are contiguous in outputBuffer, so the CRC can be computed in one slicing
@@ -1266,8 +1089,7 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
     dataCRC = crc;
 
     /* decompression of this block completed successfully */
-    if ( ( inverseBWT && ( inverseBWT->position >= writeCount ) && ( inverseBWT->repeatCount == 0 ) )
-         || ( !inverseBWT && ( writeCount == 0 ) && ( symbolRepeatCount == 0 ) ) ) {
+    if ( inverseBWT && ( inverseBWT->position >= writeCount ) && ( inverseBWT->repeatCount == 0 ) ) {
         dataCRC = ~dataCRC;
         if ( dataCRC != headerCRC ) {
             std::stringstream msg;

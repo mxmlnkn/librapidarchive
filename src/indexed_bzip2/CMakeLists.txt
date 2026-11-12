@@ -5,7 +5,10 @@ target_sources(indexed_bzip2 INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/Bzip2Compressor.hpp
     ${CMAKE_CURRENT_LIST_DIR}/BZ2ReaderInterface.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Bzip2Format.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2InverseBWT.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Bzip2MoveToFront.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2SymbolDecoder.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2SymbolKernel.hpp
     ${CMAKE_CURRENT_LIST_DIR}/IndexFileFormat.hpp
     ${CMAKE_CURRENT_LIST_DIR}/bzip2.hpp
 )
@@ -22,7 +25,10 @@ target_sources(indexed_bzip2_parallel INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/BZ2Reader.hpp
     ${CMAKE_CURRENT_LIST_DIR}/BZ2ReaderInterface.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Bzip2Format.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2InverseBWT.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Bzip2MoveToFront.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2SymbolDecoder.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/Bzip2SymbolKernel.hpp
     ${CMAKE_CURRENT_LIST_DIR}/IndexFileFormat.hpp
     ${CMAKE_CURRENT_LIST_DIR}/bzip2.hpp
     ${CMAKE_CURRENT_LIST_DIR}/ParallelBZ2Reader.hpp
