@@ -214,19 +214,32 @@ class PythonFileReader :
 public:
     explicit
     PythonFileReader( PyObject* pythonObject ) :
-        m_pythonObject( checkNullptr( pythonObject ) ),
-        mpo_tell( getAttribute( m_pythonObject, "tell" ) ),
-        mpo_seek( getAttribute( m_pythonObject, "seek" ) ),
-        mpo_read( getAttribute( m_pythonObject, "read" ) ),
-        mpo_write( getAttribute( m_pythonObject, "write" ) ),
-        mpo_seekable( getAttribute( m_pythonObject, "seekable" ) ),
-        mpo_close( getAttribute( m_pythonObject, "close" ) ),
-        m_initialPosition( callPyObject<long long int>( mpo_tell ) ),
-        m_seekable( callPyObject<bool>( mpo_seekable ) )
+        m_pythonObject( checkNullptr( pythonObject ) )
     {
-        if ( m_seekable ) {
-            m_fileSizeBytes = seek( 0, SEEK_END );
-            seek( 0, SEEK_SET );
+        try {
+            const ScopedGILLock gilLock;
+
+            mpo_tell = getAttribute( m_pythonObject, "tell" );
+            mpo_seek = getAttribute( m_pythonObject, "seek" );
+            mpo_read = getAttribute( m_pythonObject, "read" );
+            mpo_write = getAttribute( m_pythonObject, "write" );
+            mpo_seekable = getAttribute( m_pythonObject, "seekable" );
+            mpo_close = getAttribute( m_pythonObject, "close" );
+
+            m_initialPosition = callPyObject<long long int>( mpo_tell );
+            m_seekable = callPyObject<bool>( mpo_seekable );
+
+            if ( m_seekable ) {
+                m_fileSizeBytes = seek( 0, SEEK_END );
+                seek( 0, SEEK_SET );
+            }
+        } catch ( ... ) {
+            /* The destructor is not called for a throwing constructor, so release the attributes acquired
+             * before the exception here. */
+            releaseNonLifetimeAttributes();
+            Py_XDECREF( mpo_close );
+            mpo_close = nullptr;
+            throw;
         }
 
         /* No throws should come after incrementing the reference count because an exception thrown inside the
@@ -481,6 +494,10 @@ private:
         if ( attribute == nullptr ) {
             std::stringstream message;
             message << "The given Python file-like object must have a '" << name << "' method!";
+            const auto detail = pythonErrorMessage();
+            if ( !detail.empty() ) {
+                message << " " << detail;
+            }
             throw std::invalid_argument( std::move( message ).str() );
         }
 
@@ -511,8 +528,8 @@ protected:
     PyObject* mpo_seekable{ nullptr };
     PyObject* mpo_close{ nullptr };
 
-    const long long int m_initialPosition;
-    const bool m_seekable;
+    long long int m_initialPosition{ 0 };
+    bool m_seekable{ false };
     size_t m_fileSizeBytes{ 0 };
 
     size_t m_currentPosition{ 0 };  /**< Only necessary for unseekable files. */

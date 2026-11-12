@@ -630,6 +630,9 @@ class RapidgzipFile(io.RawIOBase):
         # IOBase provides sane default implementations for read, readline, readlines, readall, ...
 
     def close(self):
+        # A failed __init__ may leave this object without a reader. RawIOBase.__del__ then calls close().
+        if getattr(self, 'gzipReader', None) is None:
+            return
         if self.closed:
             return
         super().close()
