@@ -246,10 +246,6 @@ isal_sources = ['src/external/isa-l/' + source for source in set(isal_sources)] 
 include_dirs = ['src']
 libraries = []
 
-# The rapidgzip extension always compiles indexed_bzip2, which needs libsais for the bzip2 block decoding.
-libsais_sources = ['src/external/libsais/src/libsais.c']
-include_dirs += ['src/external/libsais/include']
-
 # Vendor libbz2 so that the ibzip2 CLI has compression support without a system dependency.
 bzip2_sources = [
     'src/external/bzip2/blocksort.c',
@@ -296,7 +292,7 @@ extensions = [
     Extension(
         # fmt: off
         name         = 'rapidgzip',
-        sources      = ['rapidgzip.pyx'] + zlib_sources + isal_sources + rpmalloc_sources + libsais_sources
+        sources      = ['rapidgzip.pyx'] + zlib_sources + isal_sources + rpmalloc_sources
                        + bzip2_sources,
         include_dirs = include_dirs,
         libraries    = libraries,

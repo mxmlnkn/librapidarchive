@@ -1,7 +1,6 @@
 
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include/cxxopts.hpp OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/zlib-ng/inflate.h OR
-   NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/libsais/src/libsais.c OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2/bzlib.c OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/rpmalloc/rpmalloc.h)
     find_package(Git REQUIRED)
@@ -144,32 +143,6 @@ elseif(NOT LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB)
     #   470 |         footer.crc32 += static_cast<uint32_t>( subbyte ) << ( i * BYTE_SIZE );
     # Furthermore, it accidentally changes the symbols of the public librapidarchive API! We can't have that.
     #target_compile_definitions(zlibstatic PUBLIC Z_PREFIX=LIBRAPIDARCHIVE_)
-endif()
-
-
-# libsais (inverse Burrows-Wheeler transform for bzip2)
-
-add_library(libsais STATIC)
-set(LIBSAIS_HOME "${CMAKE_CURRENT_SOURCE_DIR}/external/libsais")
-target_include_directories(libsais SYSTEM PUBLIC ${LIBSAIS_HOME}/include)
-target_sources(libsais PRIVATE
-    ${LIBSAIS_HOME}/src/libsais.c
-    ${LIBSAIS_HOME}/include/libsais.h
-)
-set_target_properties(libsais PROPERTIES C_STANDARD 11)
-set_target_properties(libsais PROPERTIES LINKER_LANGUAGE C)
-
-set(LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE "" CACHE STRING
-    "Compile-time UNBWT_CHUNK_SIZE for the vendored libsais inverse BWT (empty uses the libsais default)")
-if(NOT LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE STREQUAL "")
-    file(READ "${LIBSAIS_HOME}/src/libsais.c" LIBSAIS_SOURCE)
-    if(NOT LIBSAIS_SOURCE MATCHES "#ifndef UNBWT_CHUNK_SIZE")
-        message(FATAL_ERROR
-            "LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE is set, but ${LIBSAIS_HOME}/src/libsais.c does not guard "
-            "UNBWT_CHUNK_SIZE with #ifndef. Update the libsais submodule or unset the option.")
-    endif()
-    target_compile_definitions(libsais PRIVATE
-        UNBWT_CHUNK_SIZE=${LIBRAPIDARCHIVE_LIBSAIS_UNBWT_CHUNK_SIZE})
 endif()
 
 

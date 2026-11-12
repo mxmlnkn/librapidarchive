@@ -43,8 +43,8 @@ extensions = [
     Extension(
         # fmt: off
         name         = 'indexed_bzip2',
-        sources      = ['indexed_bzip2.pyx', 'src/external/libsais/src/libsais.c'] + bzip2_sources,
-        include_dirs = ['src', 'src/external/cxxopts/include', 'src/external/libsais/include',
+        sources      = ['indexed_bzip2.pyx'] + bzip2_sources,
+        include_dirs = ['src', 'src/external/cxxopts/include',
                         'src/external/bzip2', 'src/external/bzip2_version'],
         language     = 'c++',
         define_macros = define_macros,

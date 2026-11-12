@@ -11,7 +11,7 @@
 #include <core/common.hpp>
 
 /* ARM64EC also defines _M_X64 and _M_AMD64, but it is an ARM64 target and must not take the x64
- * SSE2 path. The vendored libsais uses the same condition. */
+ * SSE2 path. libsais uses the same condition. */
 #if ( defined( __SSE2__ ) || ( defined( _M_IX86_FP ) && ( _M_IX86_FP >= 2 ) ) \
       || defined( _M_AMD64 ) || defined( _M_X64 ) ) && !defined( _M_ARM64EC )
     #define LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 1
