@@ -64,6 +64,22 @@ createPackedMTF() noexcept
 
 
 /**
+ * @param bytes The byte values that are used in the block in ascending order.
+ * @return the initial Move-to-Front list of a block, which contains byte values instead of symbol indexes.
+ */
+[[nodiscard]] inline PackedMTF
+createPackedMTF( const uint8_t* const bytes,
+                 const size_t         count ) noexcept
+{
+    PackedMTF result{};
+    for ( size_t i = 0; ( i < count ) && ( i < 256 ); ++i ) {
+        result[i / 8] |= static_cast<uint64_t>( bytes[i] ) << ( ( i % 8 ) * 8U );
+    }
+    return result;
+}
+
+
+/**
  * bzip2's Move-to-Front (MTF) list is a recency-ordered cache of the 256 byte values.
  * Encoding a symbol writes its current list position and then moves it to the front.
  * For the input "bzipbzip" and the reduced alphabet "abc...z" the positions are:

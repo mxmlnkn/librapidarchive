@@ -549,6 +549,41 @@ public:
         return m_inputBuffer;
     }
 
+    /**
+     * Together with @ref buffer and @ref seekInsideBuffer, this lets decoders extract the bits from the
+     * buffered bytes with their own specialized loop.
+     *
+     * @return The offset of the next unread bit inside @ref buffer in bits, or nothing if the bit buffer
+     *         still holds bits of the previous buffer contents, which is the case right after a refill.
+     */
+    [[nodiscard]] std::optional<size_t>
+    bufferBitPosition() const noexcept
+    {
+        const auto bitsMovedToBitBuffer = m_inputBufferPosition * CHAR_BIT;
+        const auto unreadBits = static_cast<size_t>( bitBufferSize() );
+        if ( bitsMovedToBitBuffer < unreadBits ) {
+            return std::nullopt;
+        }
+        return bitsMovedToBitBuffer - unreadBits;
+    }
+
+    /**
+     * Continues reading at the given bit offset inside @ref buffer.
+     */
+    void
+    seekInsideBuffer( const size_t offsetInBits )
+    {
+        if ( offsetInBits > m_inputBuffer.size() * CHAR_BIT ) {
+            throw std::out_of_range( "The bit offset is outside of the buffered data!" );
+        }
+
+        clearBitBuffer();
+        m_inputBufferPosition = offsetInBits / CHAR_BIT;
+        if ( const auto bitsToSkip = offsetInBits % CHAR_BIT; bitsToSkip > 0 ) {
+            read( static_cast<bit_count_t>( bitsToSkip ) );
+        }
+    }
+
     [[nodiscard]] constexpr uint64_t
     bufferRefillSize() const
     {
