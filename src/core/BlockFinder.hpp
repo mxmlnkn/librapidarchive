@@ -76,6 +76,11 @@ public:
         }
 
         if ( m_blockFinder && m_blockFinder->joinable() ) {
+        #ifdef WITH_PYTHON_SUPPORT
+            /* The finder thread reacquires the GIL when its find() call returns. A caller such as close()
+             * or joinThreads() may hold it, which would deadlock this join. */
+            const ScopedGILUnlock unlockedGIL;
+        #endif
             m_blockFinder->join();
         }
         m_blockFinder.reset();

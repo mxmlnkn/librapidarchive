@@ -509,6 +509,54 @@ def testCloseAfterUnderlyingFileIsClosed():
     assert task.exitcode == 0, f"Closing a reader after its Python file was closed exited with {task.exitcode}"
 
 
+class SlowReadFile:
+    """File-like object that keeps an asynchronous block finder busy while join_threads() is called."""
+
+    def __init__(self, data):
+        self.buffer = io.BytesIO(data)
+
+    def read(self, size=-1):
+        time.sleep(0.01)
+        return self.buffer.read(size)
+
+    def write(self, data):
+        raise NotImplementedError
+
+    def tell(self):
+        return self.buffer.tell()
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        return self.buffer.seek(offset, whence)
+
+    def seekable(self):
+        return True
+
+    def close(self):
+        self.buffer.close()
+
+
+def joinThreadsAfterPartialRead():
+    data = bz2.compress(os.urandom(4 * 1024 * 1024), compresslevel=1)
+    reader = indexed_bzip2.open(SlowReadFile(data), parallelization=4)
+    try:
+        reader.read(1)
+        reader.join_threads()
+    finally:
+        reader.close()
+
+
+def testJoinThreadsDoesNotDeadlock():
+    # join_threads() joins the block finder, whose worker reacquires the GIL after reading a Python file.
+    task = multiprocessing.Process(target=joinThreadsAfterPartialRead)
+    task.start()
+    task.join(30)
+    if task.is_alive():
+        task.terminate()
+        task.join()
+        raise AssertionError("join_threads() deadlocked while the block finder was reading a Python file")
+    assert task.exitcode == 0, f"join_threads() test exited with {task.exitcode}"
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -749,6 +797,7 @@ if __name__ == '__main__':
     testPythonExceptionIsPreserved()
     testFailedPythonFileConstruction()
     testCloseAfterUnderlyingFileIsClosed()
+    testJoinThreadsDoesNotDeadlock()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
