@@ -837,10 +837,11 @@ GzipReader::readFooter()
     {
         const auto remainder = m_bitReader.tell() % BYTE_SIZE;
         if ( remainder != 0 ) {
-            /* Try to read the remaining bits and the start of the next byte to determine whether we should
-             * regard the remaining bits as end-of-file padding for the end of the raw deflate stream. */
+            /* Peek for a whole byte, not only the maximum seven padding bits. If no full byte remains, the
+             * remaining bits can only be final padding. Consume them so that the reader enters the EOF state.
+             * A truncated stream with fewer than BYTE_SIZE - remainder padding bits still throws in read(). */
             try {
-                m_bitReader.peek<7>();
+                m_bitReader.peek<8>();
             } catch ( const EndOfFileReached& ) {
                 /* Skip the padding bits to get into correct EOF state. */
                 m_bitReader.read( BYTE_SIZE - remainder );

@@ -561,6 +561,26 @@ testSerialDecoderTrailingZeroPadding( const std::filesystem::path& rootFolder )
 
 
 void
+testSerialDecoderRawDeflateSevenPaddingBits()
+{
+    /* Fixed-Huffman block with seven 9-bit literals and the 7-bit EOB: 3 + 7 * 9 + 7 = 73 bits, i.e., the
+     * final byte contains exactly one significant bit and seven padding bits. zlib generated this stream with
+     * Z_FIXED. Peeking for seven bits used to succeed and the padding was then parsed as another stream. */
+    const std::vector<uint8_t> encoded = {
+        0x9B, 0x30, 0x71, 0xD2, 0xE4, 0x29, 0x53, 0xA7, 0x01, 0x00
+    };
+    const std::vector<char> expected = {
+        static_cast<char>( 0x90 ), static_cast<char>( 0x91 ), static_cast<char>( 0x92 ),
+        static_cast<char>( 0x93 ), static_cast<char>( 0x94 ), static_cast<char>( 0x95 ),
+        static_cast<char>( 0x96 )
+    };
+    const auto decoded = decodeAllWithGzipReader( encoded );
+    REQUIRE_EQUAL( decoded.size(), expected.size() );
+    REQUIRE( decoded == expected );
+}
+
+
+void
 testGzipHeaderFieldLengthLimit()
 {
     std::vector<uint8_t> header = { 0x1F, 0x8B, 0x08, 0x08, 0, 0, 0, 0, 0, 3 };
@@ -713,6 +733,7 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testGzipHeaderFieldLengthLimit();
+    testSerialDecoderRawDeflateSevenPaddingBits();
     testZlibHeaderWindowSize();
     testSerialDecoderZlibAdler32( testsFolder );
     testSerialDecoderTrailingZeroPadding( testsFolder );
