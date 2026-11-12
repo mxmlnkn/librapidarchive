@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
@@ -7,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include <core/AffinityHelpers.hpp>
 #include <core/ParallelBitStringFinder.hpp>
 #include <core/FileUtils.hpp>
 #include <core/common.hpp>
@@ -174,6 +176,8 @@ testSingleByteAtFileBufferBoundary()
 int
 main()
 {
+    REQUIRE( availablePhysicalCores() >= 1 );
+    REQUIRE( availablePhysicalCores() <= std::max( 1U, availableCores() ) );
 #ifndef SHORT_TESTS
     /* These tests take too long because the buffer is too large. */
     testSingleByteAtFileBufferBoundary();

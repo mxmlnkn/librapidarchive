@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 
 #ifndef __linux__
 
@@ -19,13 +21,22 @@ availableCores()
 {
     return std::thread::hardware_concurrency();
 }
+
+
+[[nodiscard]] inline unsigned int
+availablePhysicalCores()
+{
+    return std::max( 1U, availableCores() );
+}
 }  // namespace rapidgzip
 
 #else
 
 #include <cstring>
+#include <fstream>
 #include <stdexcept>
 #include <sstream>
+#include <string>
 #include <utility>
 
 #ifndef _GNU_SOURCE
@@ -121,6 +132,27 @@ availableCores()
     const auto coreCount = CPU_COUNT( pCpuSet );
     CPU_FREE( pCpuSet );
     return static_cast<unsigned int>( coreCount );
+}
+
+
+/**
+ * @return a best-effort number of physical cores available to the calling thread.
+ *
+ * There is no portable C++ API for this. Reading the topology of every CPU is too expensive on large
+ * systems, so only read the kernel's single SMT-active flag and assume a two-way SMT width. If the flag
+ * is unavailable, keep the logical count. Restricted affinity masks that expose only one sibling of each
+ * core are underestimated, which is acceptable for a best-effort default.
+ */
+[[nodiscard]] inline unsigned int
+availablePhysicalCores()
+{
+    const auto logicalCores = availableCores();
+    std::ifstream smtActive( "/sys/devices/system/cpu/smt/active" );
+    int active = 0;
+    if ( smtActive >> active ) {
+        return active == 0 ? logicalCores : std::max( 1U, logicalCores / 2U );
+    }
+    return logicalCores;
 }
 }  // namespace rapidgzip
 

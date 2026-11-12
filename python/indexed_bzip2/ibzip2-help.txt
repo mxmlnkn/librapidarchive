@@ -24,16 +24,17 @@ Usage:
                                 optional integer >= 1 is given, then that
                                 is the number of threads to use for finding
                                 bzip2 blocks. If 0 is given, then the
-                                parallelism will be determined
-                                automatically. (default: 1)
+                                number of physical cores available to this
+                                process is used. (default: 1)
   -P, --decoder-parallelism arg
                                 Use the parallel decoder or compressor. If
                                 an optional integer >= 1 is given, then
                                 that is the number of worker threads to
                                 use. Note that there might be further
                                 threads being started with non-worker work.
-                                If 0 is given, then the parallelism will be
-                                determined automatically. (default: 0)
+                                If 0 is given, then the number of physical
+                                cores available to this process is used.
+                                (default: 0)
 
  Actions options:
       --count             Print the decompressed size.

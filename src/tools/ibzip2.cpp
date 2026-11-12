@@ -198,14 +198,14 @@ ibzip2CLI( int argc, char const* const* argv )
     ( "p,block-finder-parallelism",
       "This only has an effect if the parallel decoder is used with the -P option. "
       "If an optional integer >= 1 is given, then that is the number of threads to use for finding bzip2 blocks. "
-      "If 0 is given, then the parallelism will be determined automatically.",
+      "If 0 is given, then the number of physical cores available to this process is used.",
       cxxopts::value<unsigned int>()->default_value( "1" ) )
 
     ( "P,decoder-parallelism",
       "Use the parallel decoder or compressor. "
       "If an optional integer >= 1 is given, then that is the number of worker threads to use. "
       "Note that there might be further threads being started with non-worker work. "
-      "If 0 is given, then the parallelism will be determined automatically.",
+      "If 0 is given, then the number of physical cores available to this process is used.",
       cxxopts::value<unsigned int>()->default_value( "0" ) );
 
     options.add_options( "Actions" )
@@ -260,7 +260,7 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto test    = parsedArgs["test"].as<bool>();
     const auto verbose = parsedArgs["verbose"].as<bool>();
 
-    const auto getParallelism = [] ( const auto p ) { return p > 0 ? p : availableCores(); };
+    const auto getParallelism = [] ( const auto p ) { return p > 0 ? p : availablePhysicalCores(); };
     const auto blockFinderParallelism = getParallelism( parsedArgs["block-finder-parallelism"].as<unsigned int>() );
     const auto decoderParallelism     = getParallelism( parsedArgs["decoder-parallelism"].as<unsigned int>() );
 

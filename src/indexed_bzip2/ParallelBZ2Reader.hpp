@@ -53,7 +53,7 @@ public:
     ParallelBZ2Reader( rapidgzip::UniqueFileReader fileReader,
                        size_t                      parallelization = 0 ) :
         m_sharedFileReader( ensureSharedFileReader( std::move( fileReader ) ) ),
-        m_fetcherParallelization( parallelization == 0 ? rapidgzip::availableCores() : parallelization ),
+        m_fetcherParallelization( parallelization == 0 ? rapidgzip::availablePhysicalCores() : parallelization ),
         m_startBlockFinder(
             [&] ()
             {
