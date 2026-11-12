@@ -410,6 +410,17 @@ def testNonSeekableFileObjectWithoutFileno():
         assert reader.read() == contents
 
 
+def testNoReferenceLeak():
+    data = io.BytesIO(gzip.compress(b'x' * 1000))
+    baseline = sys.getrefcount(data)
+    for _ in range(5):
+        file = rapidgzip.RapidgzipFile(data)
+        file.read(10)
+        file.close()
+        del file
+    assert sys.getrefcount(data) == baseline
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -646,6 +657,7 @@ if __name__ == '__main__':
     testFileTypeAPI()
     testDetermineFileTypeKeepsFileDescriptor()
     testNonSeekableFileObjectWithoutFileno()
+    testNoReferenceLeak()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
