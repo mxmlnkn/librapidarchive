@@ -97,6 +97,34 @@ fromPyObject<PyObject*>( PyObject* pythonObject )
 }
 
 
+[[nodiscard]] inline std::string
+pythonErrorMessage()
+{
+    PyObject* type{ nullptr };
+    PyObject* value{ nullptr };
+    PyObject* traceback{ nullptr };
+    PyErr_Fetch( &type, &value, &traceback );
+    PyErr_NormalizeException( &type, &value, &traceback );
+
+    std::string message;
+    if ( value != nullptr ) {
+        if ( auto* const string = PyObject_Str( value ); string != nullptr ) {
+            Py_ssize_t size{ 0 };
+            if ( const auto* const utf8 = PyUnicode_AsUTF8AndSize( string, &size ); utf8 != nullptr ) {
+                message.assign( utf8, static_cast<size_t>( size ) );
+            }
+            Py_DECREF( string );
+        }
+    }
+
+    Py_XDECREF( type );
+    Py_XDECREF( value );
+    Py_XDECREF( traceback );
+    PyErr_Clear();
+    return message;
+}
+
+
 /** Build an argument tuple from new references returned by toPyObject(). */
 template<typename... Args>
 [[nodiscard]] PyObject*
@@ -147,7 +175,7 @@ callPyObject( PyObject* pythonObject,
 
     auto* const arguments = packPyArguments( args... );
     if ( arguments == nullptr ) {
-        throw std::invalid_argument( "[callPyObject] Failed to build the argument tuple!" );
+        throw std::invalid_argument( "[callPyObject] Failed to build the argument tuple: " + pythonErrorMessage() );
     }
 
     auto* const result = PyObject_Call( pythonObject, arguments, nullptr );
@@ -155,13 +183,16 @@ callPyObject( PyObject* pythonObject,
 
     if ( result == nullptr ) {
         std::stringstream message;
-        message << "Cannot convert nullptr Python object to the requested result type ("
-                << typeid( Result ).name() << ")!";
+        message << "Python call failed";
     #if !defined( Py_LIMITED_API )
         if ( ( pythonObject != nullptr ) && ( pythonObject->ob_type != nullptr ) ) {
-            message << " Got no result when calling: " << pythonObject->ob_type->tp_name;
+            message << " for " << pythonObject->ob_type->tp_name;
         }
     #endif
+        const auto detail = pythonErrorMessage();
+        if ( !detail.empty() ) {
+            message << ": " << detail;
+        }
         throw std::invalid_argument( std::move( message ).str() );
     }
 
