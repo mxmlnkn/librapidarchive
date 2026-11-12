@@ -107,6 +107,31 @@ validateBzip2BlockOffsets( const std::map<std::size_t, std::size_t>& offsets,
             throw std::invalid_argument( "The block offset index is incomplete: the last entry is not "
                                          "preceded by an EOS block!" );
         }
+
+        /* An index for only the first of several concatenated streams also ends with a valid EOS. Check whether
+         * a further stream starts at the sentinel so that such an index is not accepted as a complete file. */
+        const auto sentinelOffsetInBits = std::prev( offsets.end() )->first;
+        const auto sizeInBits = bitReader.size();
+        bool followsAnotherStream = false;
+        if ( sizeInBits && ( sentinelOffsetInBits <= *sizeInBits )
+             && ( *sizeInBits - sentinelOffsetInBits >= 32 ) ) {
+            try {
+                bitReader.seek( static_cast<long long int>( sentinelOffsetInBits ) );
+                constexpr auto BZH = ( uint32_t( 'B' ) << 16U ) | ( uint32_t( 'Z' ) << 8U ) | uint32_t( 'h' );
+                const auto header = bitReader.read( 32 );
+                const auto level = header & 0xFFU;
+                followsAnotherStream = ( ( header >> 8U ) == BZH )
+                                       && ( level >= static_cast<uint32_t>( '1' ) )
+                                       && ( level <= static_cast<uint32_t>( '9' ) );
+            } catch ( const std::exception& ) {
+                followsAnotherStream = false;
+            }
+        }
+        bitReader.seek( static_cast<long long int>( oldPosition ) );
+        if ( followsAnotherStream ) {
+            throw std::invalid_argument( "The block offset index is incomplete: another bzip2 stream "
+                                         "follows the last indexed one!" );
+        }
     }
 }
 }  // namespace bzip2

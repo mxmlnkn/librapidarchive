@@ -588,6 +588,36 @@ testImportedDecodedSizesAreValidated( const std::string& encodedTestFilePath )
 
 
 void
+testRejectsIndexForFirstConcatenatedStream( const std::string& encodedTestFilePath )
+{
+    const auto singleStream = readFile<std::vector<char> >( encodedTestFilePath );
+    auto concatenated = singleStream;
+    concatenated.insert( concatenated.end(), singleStream.begin(), singleStream.end() );
+
+    std::map<size_t, size_t> firstStreamOffsets;
+    {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( singleStream ),
+                                 /* parallelization */ 2 );
+        firstStreamOffsets = reader.blockOffsets();
+    }
+    REQUIRE( firstStreamOffsets.size() >= 2 );
+
+    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( concatenated ),
+                             /* parallelization */ 2 );
+    std::string message;
+    bool threw = false;
+    try {
+        reader.setBlockOffsets( firstStreamOffsets );
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        message = exception.what();
+    }
+    REQUIRE( threw );
+    REQUIRE( message.find( "another bzip2 stream" ) != std::string::npos );
+}
+
+
+void
 testJoinThreadsMidStream( const std::string& decodedTestFilePath,
                           const std::string& encodedTestFilePath )
 {
@@ -714,6 +744,7 @@ main( int    argc,
         testStreamCRCVerification( encodedTestFilePath.string() );
         testStreamCRCVerificationWithImportedOffsets( encodedTestFilePath.string() );
         testImportedDecodedSizesAreValidated( encodedTestFilePath.string() );
+        testRejectsIndexForFirstConcatenatedStream( encodedTestFilePath.string() );
         testJoinThreadsMidStream( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testIndexImportExport( decodedTestFilePath.string(), encodedTestFilePath.string() );
