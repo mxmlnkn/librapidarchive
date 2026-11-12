@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -91,6 +92,38 @@ testNonSeekableCompleteStream( const std::string& encodedTestFilePath,
     }
 
     REQUIRE( decoded == readFile<std::vector<char> >( decodedTestFilePath ) );
+}
+
+
+void
+testAllSymbolKernels( const std::string& decodedPath,
+                      const std::string& encodedPath )
+{
+    const auto expected = readFile<std::vector<char> >( decodedPath );
+
+    std::vector<bzip2::SymbolKernel> kernels{ bzip2::SymbolKernel::PORTABLE };
+    if ( bzip2::isSupported( bzip2::SymbolKernel::SSE41 ) ) {
+        kernels.emplace_back( bzip2::SymbolKernel::SSE41 );
+    }
+    if ( bzip2::isSupported( bzip2::SymbolKernel::AVX2 ) ) {
+        kernels.emplace_back( bzip2::SymbolKernel::AVX2 );
+    }
+
+    for ( const auto kernel : kernels ) {
+        bzip2::setSymbolKernel( kernel );
+        BZ2Reader reader( std::make_unique<StandardFileReader>( encodedPath ) );
+        std::vector<char> decoded;
+        std::array<char, 4_Ki> buffer{};
+        while ( true ) {
+            const auto nBytesRead = reader.read( -1, buffer.data(), buffer.size() );
+            if ( nBytesRead == 0 ) {
+                break;
+            }
+            decoded.insert( decoded.end(), buffer.data(), buffer.data() + nBytesRead );
+        }
+        REQUIRE( decoded == expected );
+    }
+    bzip2::setSymbolKernel( bzip2::SymbolKernel::AUTOMATIC );
 }
 
 
@@ -708,10 +741,27 @@ main()
     const auto encodedTestFilePath = tmpFolder.path() / "encoded-sample.bz2";
     std::filesystem::rename( tmpFolder.path() / "decoded.bz2", encodedTestFilePath );
 
+    const auto zerosDecodedPath = tmpFolder.path() / "zeros";
+    {
+        std::ofstream zerosFile( zerosDecodedPath, std::ios_base::out | std::ios_base::binary );
+        const std::array<char, 4_Ki> zeros{};
+        for ( size_t i = 0; i < 512; ++i ) {
+            zerosFile.write( zeros.data(), zeros.size() );
+        }
+    }
+    const auto zerosCommand = "bzip2 -k -- '" + zerosDecodedPath.string() + "'";
+    if ( std::system( zerosCommand.c_str() ) != 0 ) {
+        std::cerr << "Failed to compress zeros sample file\n";
+        return 1;
+    }
+    const auto zerosEncodedPath = tmpFolder.path() / "zeros.bz2";
+
     try
     {
         testSimpleOpenAndClose( encodedTestFilePath.string() );
         testNonSeekableCompleteStream( encodedTestFilePath.string(), decodedTestFilePath.string() );
+        testAllSymbolKernels( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testAllSymbolKernels( zerosDecodedPath.string(), zerosEncodedPath.string() );
 
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
 
