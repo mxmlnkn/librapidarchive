@@ -41,6 +41,10 @@ public:
      */
     virtual std::optional<Index>
     evict( std::optional<Index> indexToEvict = {} ) = 0;
+
+    /** Forget all tracked keys without affecting cache statistics. */
+    virtual void
+    clear() = 0;
 };
 
 
@@ -92,6 +96,14 @@ public:
             }
         }
         return evictedIndex;
+    }
+
+    void
+    clear() override
+    {
+        m_lastUsage.clear();
+        m_sortedIndexes.clear();
+        usageNonce = 0;
     }
 
 private:
@@ -196,6 +208,8 @@ public:
     clear()
     {
         m_cache.clear();
+        m_accesses.clear();
+        m_cacheStrategy.clear();
     }
 
     void
