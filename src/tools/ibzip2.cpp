@@ -592,6 +592,7 @@ ibzip2CLI( int argc, char const* const* argv )
             }
         }
 
+        std::optional<int> writeError;
         const auto process =
             [&] ( const char* const data,
                   const size_t size )
@@ -604,17 +605,12 @@ ibzip2CLI( int argc, char const* const* argv )
                     return;
                 }
 
-                size_t offset = 0;
-                while ( offset < size ) {
-                    const auto nBytesWritten = write( outputFileDescriptor, data + offset,
-                                                      size - offset );
-                    if ( nBytesWritten <= 0 ) {
-                        std::cerr << "Could not write all the decoded data to the specified output!\n";
-                        return;
-                    }
-                    offset += static_cast<size_t>( nBytesWritten );
-                    nBytesWrittenTotal += static_cast<size_t>( nBytesWritten );
+                const auto errorCode = writeAllToFd( outputFileDescriptor, data, size );
+                if ( errorCode != 0 ) {
+                    writeError = errorCode;
+                    return;
                 }
+                nBytesWrittenTotal += size;
             };
 
         if ( fileRanges ) {
@@ -628,7 +624,13 @@ ibzip2CLI( int argc, char const* const* argv )
                         break;
                     }
                     process( buffer.data(), nBytesRead );
+                    if ( writeError ) {
+                        break;
+                    }
                     remaining -= nBytesRead;
+                }
+                if ( writeError ) {
+                    break;
                 }
             }
         } else {
@@ -638,7 +640,15 @@ ibzip2CLI( int argc, char const* const* argv )
                     break;
                 }
                 process( buffer.data(), nBytesRead );
+                if ( writeError ) {
+                    break;
+                }
             }
+        }
+
+        if ( writeError ) {
+            std::cerr << "Could not write all the decoded data to the specified output: errno " << *writeError << "\n";
+            return *writeError == EPIPE ? 128 + /* SIGPIPE */ 13 : 1;
         }
 
         if ( compressedOffsetsFile ) {

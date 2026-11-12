@@ -80,6 +80,23 @@ testCount( const std::filesystem::path& dataFolder )
 }
 
 
+#if !defined( _WIN32 )
+void
+testWriteFailure( const std::filesystem::path& dataFolder )
+{
+    if ( !std::filesystem::exists( "/dev/full" ) ) {
+        return;
+    }
+
+    const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
+    const ScopedStandardOutputRedirect redirect( "/dev/full" );
+    const auto result = callCLI( "./ibzip2", ibzip2CLI, { "-d", "-c", compressedPath }, /* expectSuccess */ false );
+    REQUIRE( result.exitCode != 0 );
+    REQUIRE( result.err.find( "Could not write all the decoded data" ) != std::string::npos );
+}
+#endif
+
+
 void
 testRanges( const std::filesystem::path& dataFolder )
 {
@@ -301,6 +318,9 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testCount( dataFolder );
+#if !defined( _WIN32 )
+    testWriteFailure( dataFolder );
+#endif
     testRanges( dataFolder );
     testIndex( dataFolder );
     testStreamingOffsets( dataFolder );
