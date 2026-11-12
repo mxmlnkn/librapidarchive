@@ -22,10 +22,25 @@ testCacheReinsertion()
 }
 
 
+void
+testCacheClearResetsStrategy()
+{
+    Cache<size_t, double> cache( /* capacity */ 1 );
+    cache.insert( 10, 1.0 );
+    cache.clear();
+    cache.insert( 20, 2.0 );
+
+    /* The cleared key must not remain in the eviction strategy, otherwise it would be reported as the next
+     * eviction although it is not in the cache anymore. */
+    REQUIRE( cache.cacheStrategy().nextEviction() == std::optional<size_t>{ 20 } );
+}
+
+
 int
 main()
 {
     testCacheReinsertion();
+    testCacheClearResetsStrategy();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
