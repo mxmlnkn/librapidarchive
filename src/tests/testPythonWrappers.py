@@ -489,6 +489,26 @@ def testFailedPythonFileConstruction():
     assert sys.getrefcount(file) == baseline, "Failed construction leaked references"
 
 
+def closeReaderAfterUnderlyingFileIsClosed():
+    data = io.BytesIO(gzip.compress(b'x' * 1000))
+    reader = rapidgzip.RapidgzipFile(data, parallelization=1)
+    reader.read(1)
+    data.close()
+    reader.close()
+
+
+def testCloseAfterUnderlyingFileIsClosed():
+    # close() runs from destructors, so it must not let an exception escape (currently this aborts).
+    task = multiprocessing.Process(target=closeReaderAfterUnderlyingFileIsClosed)
+    task.start()
+    task.join(10)
+    if task.is_alive():
+        task.terminate()
+        task.join()
+        raise AssertionError("Closing a reader after its Python file was closed hangs")
+    assert task.exitcode == 0, f"Closing a reader after its Python file was closed exited with {task.exitcode}"
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -728,6 +748,7 @@ if __name__ == '__main__':
     testNoReferenceLeak()
     testPythonExceptionIsPreserved()
     testFailedPythonFileConstruction()
+    testCloseAfterUnderlyingFileIsClosed()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()

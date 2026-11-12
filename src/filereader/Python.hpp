@@ -275,10 +275,14 @@ public:
             return;
         }
 
-        /* Try to restore the file position the file had before it was given to us. */
-        if ( m_seekable ) {
-            seek( m_initialPosition );
-        }
+        /* Try to restore the file position the file had before it was given to us. This is best-effort:
+         * close() is called from the destructor and from a noexcept shared_ptr deleter, so it must never
+         * propagate an exception. */
+        try {
+            if ( m_seekable ) {
+                seek( m_initialPosition );
+            }
+        } catch ( ... ) {}
 
         const ScopedGILLock gilLock;
 
@@ -287,7 +291,11 @@ public:
         releaseNonLifetimeAttributes();
 
         if ( Py_REFCNT( m_pythonObject ) == 2 ) {
-            callPyObject<void>( mpo_close );
+            /* A file-like object's close() may raise, e.g., when flushing fails. That must not escape a
+             * destructor either. */
+            try {
+                callPyObject<void>( mpo_close );
+            } catch ( ... ) {}
         }
 
         Py_XDECREF( mpo_close );
