@@ -199,6 +199,14 @@ public:
         size_t nBytesDecoded = 0;
         while ( ( nBytesDecoded < nBytesToRead ) && !eof() ) {
             if ( m_bitReader.eof() ) {
+                /* A complete EOS is a successful end of the stream even when the input is not seekable and
+                 * therefore has not reported EOF yet. */
+                if ( m_lastHeader.eos() ) {
+                    m_atEndOfFile = true;
+                    m_blockMap.finalize();
+                    break;
+                }
+
                 /* An empty input has no header at all. Report EOF so that callers looping on read() == 0
                  * while !eof() terminate. If input was consumed but no EOS block was found, the stream is
                  * truncated and must not be reported as a successfully decoded empty stream. */
@@ -219,11 +227,19 @@ public:
             if ( m_bitReader.tell() == 0 ) {
                 readBzip2Header();
             } else if ( m_lastHeader.eos() ) {
+                const auto nextHeaderOffset = m_bitReader.tell();
                 try {
                     readBzip2Header();
+                } catch ( const rapidgzip::EndOfFileReached& ) {
+                    /* EOF directly after a complete EOS is a normal end of a non-seekable stream. A partial
+                     * next header advances the bit position and remains a truncation error. */
+                    if ( m_bitReader.tell() != nextHeaderOffset ) {
+                        throw std::domain_error( "Truncated bzip2 stream: input ended inside the next stream header." );
+                    }
+                    m_atEndOfFile = true;
+                    m_blockMap.finalize();
+                    break;
                 } catch ( const std::domain_error& ) {
-                    /* @TODO MIGHT THIS lead to a bug if the bzip2 file ends perfectly on a byte boundary
-                     * such that m_bitReader.eof() will be true before this code part has been reached?! */
                     std::cerr << "[Warning] Trailing garbage after EOF ignored!\n";
                     m_atEndOfFile = true;
                     m_blockMap.finalize();
