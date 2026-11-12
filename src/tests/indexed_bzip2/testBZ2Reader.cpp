@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <core/common.hpp>
@@ -538,6 +539,58 @@ testConcatenatedStreams( const std::string& decodedTestFilePath,
 
 
 void
+testLastToFirstMappingKernels()
+{
+    /* Deterministic run records, including runs longer than the 8- and 16-entry vector stores. */
+    std::vector<uint8_t> records;
+    size_t totalSize = 0;
+    for ( size_t i = 0; i < 4000 && totalSize < 800000; ++i ) {
+        const auto count = static_cast<uint8_t>( 1 + ( i * 13 ) % 255 );
+        records.push_back( static_cast<uint8_t>( ( i * 37 ) % 256 ) );
+        records.push_back( count );
+        totalSize += count;
+    }
+    const auto recordCount = records.size() / 2;
+
+    const auto reference =
+        [&] ( const auto& function )
+        {
+            std::vector<uint32_t> mapping( bzip2::LAST_TO_FIRST_MAPPING_SIZE );
+            std::array<uint32_t, 256> byteCounts{};
+            const auto size = function( records.data(), recordCount, mapping.data(), byteCounts );
+            return std::make_tuple( size, mapping, byteCounts );
+        };
+
+    const auto referenceResult = reference( bzip2::createLastToFirstMappingPortable );
+    const auto referenceSize = std::get<0>( referenceResult );
+    const auto& referenceMapping = std::get<1>( referenceResult );
+    const auto& referenceCounts = std::get<2>( referenceResult );
+    REQUIRE_EQUAL( referenceSize, totalSize );
+
+    const auto compare =
+        [&] ( const auto& function )
+        {
+            std::vector<uint32_t> mapping( bzip2::LAST_TO_FIRST_MAPPING_SIZE );
+            std::array<uint32_t, 256> byteCounts{};
+            const auto size = function( records.data(), recordCount, mapping.data(), byteCounts );
+            REQUIRE_EQUAL( size, referenceSize );
+            REQUIRE( byteCounts == referenceCounts );
+            REQUIRE( std::equal( mapping.begin(), mapping.begin() + size, referenceMapping.begin() ) );
+        };
+
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    compare( bzip2::createLastToFirstMappingSSE2 );
+    if ( __builtin_cpu_supports( "avx2" ) ) {
+        compare( bzip2::createLastToFirstMappingAVX2 );
+    }
+    if ( __builtin_cpu_supports( "avx512f" ) ) {
+        compare( bzip2::createLastToFirstMappingAVX512 );
+    }
+#endif
+}
+
+
+void
 testImportedIndexVerifiesStreamCRC()
 {
     /* bzip2 -c of the single byte 'A'. The EOS stream CRC follows the 48-bit EOS magic. */
@@ -638,6 +691,7 @@ main()
     testRunLengthOverflow();
     testBlockCRCVerification();
     testImportedIndexVerifiesStreamCRC();
+    testLastToFirstMappingKernels();
     testOversizedCodeLength();
 
     const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testBZ2Reader" );

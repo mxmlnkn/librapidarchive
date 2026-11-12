@@ -633,20 +633,14 @@ static constexpr uint32_t LAST_TO_FIRST_MAPPING_TOO_LARGE = std::numeric_limits<
  * @return the size of the BWT string or LAST_TO_FIRST_MAPPING_TOO_LARGE if it is longer than MAX_BLOCK_SIZE.
  */
 [[nodiscard]] inline uint32_t
-createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
-                          const size_t                                   recordCount,
-                          uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
-                          std::array<uint32_t, 256>&                     byteCounts ) noexcept
+createLastToFirstMappingPortable( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
+                                  const size_t                                   recordCount,
+                                  uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
+                                  std::array<uint32_t, 256>&                     byteCounts ) noexcept
 {
     std::array<uint32_t, 256> counts{};
     auto* target = lastToFirstMapping;
     const auto* const limit = lastToFirstMapping + MAX_BLOCK_SIZE;
-
-#if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
-    const auto offsets0 = _mm_setr_epi32( 0 << 8, 1 << 8, 2 << 8, 3 << 8 );
-    const auto offsets1 = _mm_setr_epi32( 4 << 8, 5 << 8, 6 << 8, 7 << 8 );
-    const auto step = _mm_set1_epi32( 8 << 8 );
-#endif
 
     for ( size_t i = 0; i < recordCount; ++i ) {
         const uint32_t byte = records[RUN_RECORD_SIZE * i];
@@ -656,7 +650,47 @@ createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records
         const auto first = ( rank << 8U ) | byte;
 
         /* Always write eight entries. Those behind the run are overwritten by the next record. */
-    #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+        for ( uint32_t k = 0; k < 8; ++k ) {
+            target[k] = first + ( k << 8U );
+        }
+        for ( uint32_t k = 8; k < count; ++k ) {
+            target[k] = first + ( k << 8U );
+        }
+
+        target += count;
+        if ( UNLIKELY( target > limit ) ) [[unlikely]] {
+            return LAST_TO_FIRST_MAPPING_TOO_LARGE;
+        }
+    }
+
+    byteCounts = counts;
+    return static_cast<uint32_t>( target - lastToFirstMapping );
+}
+
+
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+
+[[nodiscard]] inline uint32_t
+createLastToFirstMappingSSE2( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
+                              const size_t                                   recordCount,
+                              uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
+                              std::array<uint32_t, 256>&                     byteCounts ) noexcept
+{
+    std::array<uint32_t, 256> counts{};
+    auto* target = lastToFirstMapping;
+    const auto* const limit = lastToFirstMapping + MAX_BLOCK_SIZE;
+
+    const auto offsets0 = _mm_setr_epi32( 0 << 8, 1 << 8, 2 << 8, 3 << 8 );
+    const auto offsets1 = _mm_setr_epi32( 4 << 8, 5 << 8, 6 << 8, 7 << 8 );
+    const auto step = _mm_set1_epi32( 8 << 8 );
+
+    for ( size_t i = 0; i < recordCount; ++i ) {
+        const uint32_t byte = records[RUN_RECORD_SIZE * i];
+        const uint32_t count = records[RUN_RECORD_SIZE * i + 1];
+        const auto rank = counts[byte];
+        counts[byte] = rank + count;
+        const auto first = ( rank << 8U ) | byte;
+
         auto entries0 = _mm_add_epi32( _mm_set1_epi32( static_cast<int>( first ) ), offsets0 );
         auto entries1 = _mm_add_epi32( _mm_set1_epi32( static_cast<int>( first ) ), offsets1 );
         _mm_storeu_si128( reinterpret_cast<__m128i*>( target ), entries0 );
@@ -669,14 +703,6 @@ createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records
                 _mm_storeu_si128( reinterpret_cast<__m128i*>( target + k + 4 ), entries1 );
             }
         }
-    #else
-        for ( uint32_t k = 0; k < 8; ++k ) {
-            target[k] = first + ( k << 8U );
-        }
-        for ( uint32_t k = 8; k < count; ++k ) {
-            target[k] = first + ( k << 8U );
-        }
-    #endif
 
         target += count;
         if ( UNLIKELY( target > limit ) ) [[unlikely]] {
@@ -686,5 +712,123 @@ createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records
 
     byteCounts = counts;
     return static_cast<uint32_t>( target - lastToFirstMapping );
+}
+
+
+[[nodiscard]] inline __attribute__( ( target( "avx2" ) ) ) uint32_t
+createLastToFirstMappingAVX2( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
+                              const size_t                                   recordCount,
+                              uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
+                              std::array<uint32_t, 256>&                     byteCounts ) noexcept
+{
+    std::array<uint32_t, 256> counts{};
+    auto* target = lastToFirstMapping;
+    const auto* const limit = lastToFirstMapping + MAX_BLOCK_SIZE;
+
+    const auto offsets = _mm256_setr_epi32( 0 << 8, 1 << 8, 2 << 8, 3 << 8,
+                                            4 << 8, 5 << 8, 6 << 8, 7 << 8 );
+    const auto step = _mm256_set1_epi32( 8 << 8 );
+
+    for ( size_t i = 0; i < recordCount; ++i ) {
+        const uint32_t byte = records[RUN_RECORD_SIZE * i];
+        const uint32_t count = records[RUN_RECORD_SIZE * i + 1];
+        const auto rank = counts[byte];
+        counts[byte] = rank + count;
+        const auto first = ( rank << 8U ) | byte;
+
+        auto entries = _mm256_add_epi32( _mm256_set1_epi32( static_cast<int>( first ) ), offsets );
+        _mm256_storeu_si256( reinterpret_cast<__m256i*>( target ), entries );
+        if ( UNLIKELY( count > 8 ) ) [[unlikely]] {
+            for ( uint32_t k = 8; k < count; k += 8 ) {
+                entries = _mm256_add_epi32( entries, step );
+                _mm256_storeu_si256( reinterpret_cast<__m256i*>( target + k ), entries );
+            }
+        }
+
+        target += count;
+        if ( UNLIKELY( target > limit ) ) [[unlikely]] {
+            return LAST_TO_FIRST_MAPPING_TOO_LARGE;
+        }
+    }
+
+    byteCounts = counts;
+    return static_cast<uint32_t>( target - lastToFirstMapping );
+}
+
+
+[[nodiscard]] inline __attribute__( ( target( "avx512f" ) ) ) uint32_t
+createLastToFirstMappingAVX512( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
+                                const size_t                                   recordCount,
+                                uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
+                                std::array<uint32_t, 256>&                     byteCounts ) noexcept
+{
+    std::array<uint32_t, 256> counts{};
+    auto* target = lastToFirstMapping;
+    const auto* const limit = lastToFirstMapping + MAX_BLOCK_SIZE;
+
+    const auto offsets = _mm512_setr_epi32( 0 << 8, 1 << 8, 2 << 8, 3 << 8,
+                                            4 << 8, 5 << 8, 6 << 8, 7 << 8,
+                                            8 << 8, 9 << 8, 10 << 8, 11 << 8,
+                                            12 << 8, 13 << 8, 14 << 8, 15 << 8 );
+    const auto step = _mm512_set1_epi32( 16 << 8 );
+
+    for ( size_t i = 0; i < recordCount; ++i ) {
+        const uint32_t byte = records[RUN_RECORD_SIZE * i];
+        const uint32_t count = records[RUN_RECORD_SIZE * i + 1];
+        const auto rank = counts[byte];
+        counts[byte] = rank + count;
+        const auto first = ( rank << 8U ) | byte;
+
+        auto entries = _mm512_add_epi32( _mm512_set1_epi32( static_cast<int>( first ) ), offsets );
+        _mm512_storeu_si512( reinterpret_cast<void*>( target ), entries );
+        if ( UNLIKELY( count > 16 ) ) [[unlikely]] {
+            for ( uint32_t k = 16; k < count; k += 16 ) {
+                entries = _mm512_add_epi32( entries, step );
+                _mm512_storeu_si512( reinterpret_cast<void*>( target + k ), entries );
+            }
+        }
+
+        target += count;
+        if ( UNLIKELY( target > limit ) ) [[unlikely]] {
+            return LAST_TO_FIRST_MAPPING_TOO_LARGE;
+        }
+    }
+
+    byteCounts = counts;
+    return static_cast<uint32_t>( target - lastToFirstMapping );
+}
+
+#endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+
+
+/**
+ * @brief Expands run records into the last-to-first mapping used by the inverse BWT.
+ *
+ * The vectorized variants use target attributes and are selected at runtime so that a prebuilt wheel still
+ * uses AVX2 or AVX-512 on CPUs that support them.
+ */
+[[nodiscard]] inline uint32_t
+createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
+                          const size_t                                   recordCount,
+                          uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
+                          std::array<uint32_t, 256>&                     byteCounts ) noexcept
+{
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    using Function = uint32_t ( * )( const uint8_t*, size_t, uint32_t*, std::array<uint32_t, 256>& ) noexcept;
+    static const auto function =
+        [] () -> Function
+        {
+            if ( __builtin_cpu_supports( "avx512f" ) ) {
+                return createLastToFirstMappingAVX512;
+            }
+            if ( __builtin_cpu_supports( "avx2" ) ) {
+                return createLastToFirstMappingAVX2;
+            }
+            return createLastToFirstMappingSSE2;
+        }();
+    return function( records, recordCount, lastToFirstMapping, byteCounts );
+#else
+    return createLastToFirstMappingPortable( records, recordCount, lastToFirstMapping, byteCounts );
+#endif
 }
 }  // namespace bzip2
