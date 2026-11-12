@@ -738,6 +738,9 @@ class RapidgzipFile(io.RawIOBase):
         return b''.join(chunks)
 
     def close(self) -> None:
+        # A failed __init__ may leave this object without a reader. RawIOBase.__del__ then calls close().
+        if getattr(self, 'gzipReader', None) is None:
+            return
         if self.closed:
             return
         super().close()

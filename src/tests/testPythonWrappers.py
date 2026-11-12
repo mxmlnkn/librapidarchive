@@ -454,6 +454,41 @@ def testPythonExceptionIsPreserved():
         assert False, "The Python exception from read() was not propagated"
 
 
+class MissingWriteFile:
+    """File-like object with all methods PythonFileReader acquires except write()."""
+
+    def __init__(self, data):
+        self.buffer = io.BytesIO(data)
+
+    def read(self, size=-1):
+        return self.buffer.read(size)
+
+    def tell(self):
+        return self.buffer.tell()
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        return self.buffer.seek(offset, whence)
+
+    def seekable(self):
+        return True
+
+    def close(self):
+        self.buffer.close()
+
+
+def testFailedPythonFileConstruction():
+    file = MissingWriteFile(gzip.compress(b'x' * 1000))
+    baseline = sys.getrefcount(file)
+    for _ in range(5):
+        try:
+            rapidgzip.RapidgzipFile(file)
+        except ValueError:
+            pass
+        else:
+            assert False, "A file object without write() must be rejected"
+    assert sys.getrefcount(file) == baseline, "Failed construction leaked references"
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -692,6 +727,7 @@ if __name__ == '__main__':
     testNonSeekableFileObjectWithoutFileno()
     testNoReferenceLeak()
     testPythonExceptionIsPreserved()
+    testFailedPythonFileConstruction()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
