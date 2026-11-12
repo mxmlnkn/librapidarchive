@@ -594,6 +594,8 @@ private:
 
     std::array<uint8_t, 32768> selectors{};  // nSelectors=15 bits
     std::array<SymbolTable, MAX_GROUPS> symbolTables{};
+    /** For each coding table, the result of @ref computeNearTailWeight. Used to choose the symbol kernel. */
+    std::array<uint32_t, MAX_GROUPS> nearTailWeights{};
     uint32_t groupCount = 0;
 
     /* Second pass decompression data (burrows-wheeler transform) */
@@ -834,6 +836,8 @@ Block::readTrees()
         if ( error != rapidgzip::Error::NONE ) {
             throw std::domain_error( toString( error ) );
         }
+        /* Only valid code lengths reach this. */
+        nearTailWeights[j] = computeNearTailWeight( lengths.data(), symCount );
     }
 }
 
@@ -861,6 +865,18 @@ Block::readBlockData()
     state.selectorEnd = selectors.data() + selectorsCount;
     state.tables = symbolTables.data();
 
+    /* See prefersPortableKernel for why some blocks are faster without SIMD. */
+    auto kernel = symbolKernel();
+    if ( ( kernel != SymbolKernel::PORTABLE ) && !isSymbolKernelOverridden() ) {
+        uint64_t nearTailWeight = 0;
+        for ( size_t i = 0; i < selectorsCount; ++i ) {
+            nearTailWeight += nearTailWeights[selectors[i]];
+        }
+        if ( prefersPortableKernel( nearTailWeight, selectorsCount ) ) {
+            kernel = SymbolKernel::PORTABLE;
+        }
+    }
+
     /** @note The loops for this are too short to be profiled individually. */
     auto status = SymbolDecoderStatus::NEED_INPUT;
     while ( status == SymbolDecoderStatus::NEED_INPUT ) {
@@ -869,7 +885,7 @@ Block::readBlockData()
         if ( const auto bufferOffset = reader.bufferBitPosition(); bufferOffset.has_value() ) {
             const auto& buffer = reader.buffer();
             auto offset = *bufferOffset;
-            status = decodeSymbolsPortable( state, buffer.data(), buffer.size(), offset );
+            status = decodeSymbols( state, buffer.data(), buffer.size(), offset, kernel );
             if ( offset != *bufferOffset ) {
                 reader.seekInsideBuffer( offset );
             }

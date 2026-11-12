@@ -62,9 +62,23 @@ parseArguments( int    argc,
             } else {
                 throw std::invalid_argument( "Invalid mode: " + mode );
             }
+        } else if ( ( argument == "--kernel" ) && ( i + 1 < argc ) ) {
+            const std::string kernel = argv[++i];
+            if ( kernel == "automatic" ) {
+                bzip2::setSymbolKernel( bzip2::SymbolKernel::AUTOMATIC );
+            } else if ( kernel == "portable" ) {
+                bzip2::setSymbolKernel( bzip2::SymbolKernel::PORTABLE );
+            } else if ( kernel == "sse4.1" ) {
+                bzip2::setSymbolKernel( bzip2::SymbolKernel::SSE41 );
+            } else if ( kernel == "avx2" ) {
+                bzip2::setSymbolKernel( bzip2::SymbolKernel::AVX2 );
+            } else {
+                throw std::invalid_argument( "Invalid kernel: " + kernel );
+            }
         } else if ( argument == "--help" ) {
             std::cout << "Usage: " << argv[0]
-                      << " [--iterations N] [--parallel N] [--mode discard|copy] FILE.bz2...\n";
+                      << " [--iterations N] [--parallel N] [--mode discard|copy]"
+                      << " [--kernel automatic|portable|sse4.1|avx2] FILE.bz2...\n";
             std::exit( 0 );
         } else {
             arguments.files.emplace_back( argument );
@@ -147,7 +161,8 @@ benchmarkFile( const std::string& fileName,
 
     std::cout << fileName << " (" << compressedData.size() << " B compressed, " << decodedSize
               << " B decoded, parallelization " << arguments.parallelization << ", "
-              << ( arguments.mode == Mode::COPY ? "copy" : "discard" ) << "):\n";
+              << ( arguments.mode == Mode::COPY ? "copy" : "discard" ) << ", "
+              << toString( bzip2::symbolKernel() ) << " symbol kernel):\n";
     std::cout << "    MB/s: [";
     for ( size_t i = 0; i < bandwidths.size(); ++i ) {
         std::cout << ( i == 0 ? "" : ", " ) << bandwidths[i];

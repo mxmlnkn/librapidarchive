@@ -11,7 +11,7 @@
 
 #include <algorithm>
 #include <array>
-#include <cstring>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -25,6 +25,15 @@
 #include "Bzip2Format.hpp"
 /* Also provides LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 and the SSE2 intrinsics used by createLastToFirstMapping. */
 #include "Bzip2MoveToFront.hpp"
+
+/* The SIMD kernels are compiled with function target attributes and selected at runtime, which needs GCC or
+ * Clang. Other compilers and architectures use the portable kernel. */
+#if ( defined( __GNUC__ ) || defined( __clang__ ) ) && defined( __x86_64__ )
+    #include <immintrin.h>
+    #define LIBRAPIDARCHIVE_BZIP2_X86_KERNELS 1
+#else
+    #define LIBRAPIDARCHIVE_BZIP2_X86_KERNELS 0
+#endif
 
 #if defined( __GNUC__ ) || defined( __clang__ )
     #define LIBRAPIDARCHIVE_BZIP2_RESTRICT __restrict__
@@ -289,6 +298,107 @@ static_assert( SYMBOL_KERNEL_MINIMUM_INPUT >= ( GROUP_SIZE * MAX_HUFCODE_BITS + 
                "A whole group must be decodable without bounds checks." );
 
 
+/** Number of Move-to-Front list entries that the SIMD kernels keep in registers. */
+static constexpr uint32_t SIMD_KERNEL_FRONT_SIZE = 32;
+
+
+/**
+ * The SIMD kernels take a branch for literals behind the first SIMD_KERNEL_FRONT_SIZE list entries. That
+ * branch mispredicts often when many literals lie just behind the front, as they do for alphabets of about 64
+ * equally likely bytes such as base64 or the quality scores of FASTQ files. The portable kernel treats the
+ * first 64 entries alike and is faster for such blocks.
+ *
+ * Code lengths approximate probabilities: a code of length L is used with probability 2^-L. This returns the
+ * probability of the list positions [SIMD_KERNEL_FRONT_SIZE, 2 * SIMD_KERNEL_FRONT_SIZE) in units of
+ * 2^-MAX_HUFCODE_BITS so that it can be computed with integers.
+ *
+ * @param codeLengths Code lengths of one coding table in [1, MAX_HUFCODE_BITS].
+ * @param symbolCount Alphabet size including RUNA, RUNB, and the end-of-block symbol.
+ */
+[[nodiscard]] inline uint32_t
+computeNearTailWeight( const uint8_t* const codeLengths,
+                       const size_t         symbolCount ) noexcept
+{
+    /* Symbol s >= 2 stands for list position s - 1 and the last symbol is the end of the block. */
+    const size_t firstSymbol = SIMD_KERNEL_FRONT_SIZE + 1;
+    const size_t endSymbol = std::min<size_t>( symbolCount - 1, 2 * SIMD_KERNEL_FRONT_SIZE + 1 );
+    uint32_t weight = 0;
+    for ( size_t symbol = firstSymbol; symbol < endSymbol; ++symbol ) {
+        weight += uint32_t( 1 ) << ( MAX_HUFCODE_BITS - codeLengths[symbol] );
+    }
+    return weight;
+}
+
+
+/**
+ * @param totalWeight Sum of @ref computeNearTailWeight over the coding tables of all selectors of a block.
+ * @return true if more than a quarter of the symbols of the block are expected behind the front.
+ */
+[[nodiscard]] constexpr bool
+prefersPortableKernel( const uint64_t totalWeight,
+                       const size_t   selectorCount ) noexcept
+{
+    return totalWeight > ( static_cast<uint64_t>( selectorCount ) << MAX_HUFCODE_BITS ) / 4U;
+}
+
+
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+
+/**
+ * Byte shuffle controls that move one of the first 32 entries of the Move-to-Front list to the front.
+ * There is one row of four 16-byte controls per symbol: how the first and the second half of the list are
+ * permuted in place, which byte of the second half moves to the very front, and which byte of the first half
+ * moves to the start of the second half. A control byte of 0x80 yields zero so that both sources can be ORed.
+ * RUNA and RUNB (symbols 0 and 1) do not change the list. Symbol s >= 2 stands for list position s - 1.
+ */
+alignas( 64 ) static constexpr std::array<uint8_t, ( SIMD_KERNEL_FRONT_SIZE + 1 ) * 64>
+SYMBOL_KERNEL_FRONT_SHUFFLES =
+    [] ()
+    {
+        static_assert( SIMD_KERNEL_FRONT_SIZE == 32, "The controls are laid out for two 16-byte halves." );
+        std::array<uint8_t, ( SIMD_KERNEL_FRONT_SIZE + 1 ) * 64> result{};
+        for ( size_t symbol = 0; symbol <= SIMD_KERNEL_FRONT_SIZE; ++symbol ) {
+            const size_t position = symbol < 2 ? 0 : symbol - 1;
+            const size_t offset = position & 15U;
+            auto* const firstHalf = result.data() + symbol * 64;
+            auto* const secondHalf = firstHalf + 16;
+            auto* const pickFromSecondHalf = firstHalf + 32;
+            auto* const carryFromFirstHalf = firstHalf + 48;
+            for ( size_t i = 0; i < 16; ++i ) {
+                /* Byte i of the half that contains the position: the selected byte goes to the front, the bytes
+                 * before it move back by one, and the bytes behind it stay. */
+                const auto moveToFrontControl =
+                    static_cast<uint8_t>( i == 0 ? offset : ( i <= offset ? i - 1 : i ) );
+                if ( position < 16 ) {
+                    firstHalf[i] = moveToFrontControl;
+                    secondHalf[i] = static_cast<uint8_t>( i );
+                    pickFromSecondHalf[i] = 0x80;
+                    carryFromFirstHalf[i] = 0x80;
+                } else {
+                    firstHalf[i] = static_cast<uint8_t>( i == 0 ? 0x80 : i - 1 );
+                    secondHalf[i] = i == 0 ? uint8_t( 0x80 ) : moveToFrontControl;
+                    pickFromSecondHalf[i] = static_cast<uint8_t>( i == 0 ? offset : 0x80 );
+                    carryFromFirstHalf[i] = static_cast<uint8_t>( i == 0 ? 15 : 0x80 );
+                }
+            }
+        }
+        return result;
+    }();
+
+/** List positions minus 128 so that they can be compared as signed bytes, for which SSE has a comparison. */
+alignas( 64 ) static constexpr std::array<int8_t, 256> SYMBOL_KERNEL_BIASED_POSITIONS =
+    [] ()
+    {
+        std::array<int8_t, 256> result{};
+        for ( size_t i = 0; i < result.size(); ++i ) {
+            result[i] = static_cast<int8_t>( static_cast<int>( i ) - 128 );
+        }
+        return result;
+    }();
+
+#endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+
+
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 0
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsPortable
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
@@ -296,6 +406,163 @@ static_assert( SYMBOL_KERNEL_MINIMUM_INPUT >= ( GROUP_SIZE * MAX_HUFCODE_BITS + 
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
+
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 1
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsSSE41
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET __attribute__( ( target( "sse4.1" ) ) )
+#include "Bzip2SymbolKernel.hpp"
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
+
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 2
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsAVX2
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET __attribute__( ( target( "avx2" ) ) )
+#include "Bzip2SymbolKernel.hpp"
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
+
+#endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+
+
+enum class SymbolKernel
+{
+    AUTOMATIC,
+    PORTABLE,
+    SSE41,
+    AVX2,
+};
+
+
+[[nodiscard]] constexpr const char*
+toString( const SymbolKernel kernel ) noexcept
+{
+    switch ( kernel )
+    {
+    case SymbolKernel::AUTOMATIC:
+        return "automatic";
+    case SymbolKernel::PORTABLE:
+        return "portable";
+    case SymbolKernel::SSE41:
+        return "sse4.1";
+    case SymbolKernel::AVX2:
+        return "avx2";
+    }
+    return "unknown";
+}
+
+
+[[nodiscard]] inline bool
+isSupported( const SymbolKernel kernel ) noexcept
+{
+    switch ( kernel )
+    {
+    case SymbolKernel::AUTOMATIC:
+    case SymbolKernel::PORTABLE:
+        return true;
+    #if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    case SymbolKernel::SSE41:
+    {
+        static const bool supported = __builtin_cpu_supports( "sse4.1" ) != 0;
+        return supported;
+    }
+    case SymbolKernel::AVX2:
+    {
+        static const bool supported = __builtin_cpu_supports( "avx2" ) != 0;
+        return supported;
+    }
+    #else
+    case SymbolKernel::SSE41:
+    case SymbolKernel::AVX2:
+        break;
+    #endif
+    }
+    return false;
+}
+
+
+namespace detail
+{
+inline std::atomic<SymbolKernel> g_symbolKernel{ SymbolKernel::AUTOMATIC };
+}  // namespace detail
+
+
+/**
+ * Overrides the automatic choice of the symbol decoder for the whole process. This is meant for tests and
+ * benchmarks. All kernels produce the same results.
+ */
+inline void
+setSymbolKernel( const SymbolKernel kernel )
+{
+    if ( !isSupported( kernel ) ) {
+        throw std::invalid_argument( std::string( "The symbol kernel is not supported on this system: " )
+                                     + toString( kernel ) );
+    }
+    detail::g_symbolKernel.store( kernel, std::memory_order_relaxed );
+}
+
+
+/**
+ * @return true if @ref setSymbolKernel has been used to force one kernel for all blocks.
+ */
+[[nodiscard]] inline bool
+isSymbolKernelOverridden() noexcept
+{
+    return detail::g_symbolKernel.load( std::memory_order_relaxed ) != SymbolKernel::AUTOMATIC;
+}
+
+
+/**
+ * @return the fastest supported kernel or the one chosen with @ref setSymbolKernel, never AUTOMATIC.
+ */
+[[nodiscard]] inline SymbolKernel
+symbolKernel() noexcept
+{
+    const auto kernel = detail::g_symbolKernel.load( std::memory_order_relaxed );
+    if ( kernel != SymbolKernel::AUTOMATIC ) {
+        return kernel;
+    }
+    static const auto fastest = isSupported( SymbolKernel::AVX2 )
+                                ? SymbolKernel::AVX2
+                                : ( isSupported( SymbolKernel::SSE41 ) ? SymbolKernel::SSE41 : SymbolKernel::PORTABLE );
+    return fastest;
+}
+
+
+/**
+ * Decodes whole groups of symbols from @p buffer and appends them to the run records until the block ends or
+ * fewer than SYMBOL_KERNEL_MINIMUM_INPUT bytes are left.
+ *
+ * @param bitOffset Offset of the next symbol in @p buffer in bits. Must be at the start of a group. It is
+ *                  updated to the position after the last decoded symbol.
+ * @param kernel A supported kernel, see @ref symbolKernel. Anything else uses the portable one.
+ * @return NEED_INPUT if the block has not ended yet. The caller then must decode at least one group with
+ *         @ref decodeSymbolGroup, which can refill the buffer, before it calls this again.
+ */
+[[nodiscard]] inline SymbolDecoderStatus
+decodeSymbols( SymbolDecoderState&  state,
+               const uint8_t* const buffer,
+               const size_t         bufferSize,
+               size_t&              bitOffset,
+               const SymbolKernel   kernel ) noexcept
+{
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    switch ( kernel )
+    {
+    case SymbolKernel::AVX2:
+        return decodeSymbolsAVX2( state, buffer, bufferSize, bitOffset );
+    case SymbolKernel::SSE41:
+        return decodeSymbolsSSE41( state, buffer, bufferSize, bitOffset );
+    default:
+        break;
+    }
+#endif
+    static_cast<void>( kernel );
+    return decodeSymbolsPortable( state, buffer, bufferSize, bitOffset );
+}
 
 
 /**
