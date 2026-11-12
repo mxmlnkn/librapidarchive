@@ -552,6 +552,42 @@ testStreamCRCVerificationWithImportedOffsets( const std::string& encodedTestFile
 
 
 void
+testImportedDecodedSizesAreValidated( const std::string& encodedTestFilePath )
+{
+    std::map<size_t, size_t> offsets;
+    {
+        ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( encodedTestFilePath ),
+                                 /* parallelization */ 2 );
+        offsets = reader.blockOffsets();
+    }
+
+    REQUIRE( offsets.size() >= 3 );
+    /* Shift every decoded offset after the first block by one byte. The compressed offsets still form a valid
+     * map, so only comparing the claimed size against the fetched block can reject it. */
+    for ( auto it = std::next( offsets.begin() ); it != offsets.end(); ++it ) {
+        REQUIRE( it->second > 0 );
+        it->second -= 1;
+    }
+
+    ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( encodedTestFilePath ),
+                             /* parallelization */ 2 );
+    reader.setBlockOffsets( offsets );
+
+    std::vector<char> buffer( 4_Ki );
+    std::string message;
+    bool threw = false;
+    try {
+        while ( reader.read( -1, buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::exception& exception ) {
+        threw = true;
+        message = exception.what();
+    }
+    REQUIRE( threw );
+    REQUIRE( message.find( "decoded block size" ) != std::string::npos );
+}
+
+
+void
 testJoinThreadsMidStream( const std::string& decodedTestFilePath,
                           const std::string& encodedTestFilePath )
 {
@@ -677,6 +713,7 @@ main( int    argc,
         testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string() );
         testStreamCRCVerification( encodedTestFilePath.string() );
         testStreamCRCVerificationWithImportedOffsets( encodedTestFilePath.string() );
+        testImportedDecodedSizesAreValidated( encodedTestFilePath.string() );
         testJoinThreadsMidStream( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testDecodingBz2ForFirstTime( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testIndexImportExport( decodedTestFilePath.string(), encodedTestFilePath.string() );

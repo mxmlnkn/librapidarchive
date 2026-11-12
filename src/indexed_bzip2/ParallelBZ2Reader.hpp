@@ -250,6 +250,12 @@ public:
                 }
             } else {
                 blockData = blockFetcher().get( blockInfo.encodedOffsetInBits );
+                /* Imported offsets only provide the difference of two decoded offsets. If that does not match
+                 * the actual block, copying from the block would silently shift all following output while the
+                 * stream CRC is accumulated with the wrong offsets and still passes. */
+                if ( blockInfo.decodedSizeInBytes != blockData->data.size() ) {
+                    throw std::invalid_argument( "Imported block offsets do not match the decoded block size!" );
+                }
                 m_streamCRCVerifier.appendBlock( blockInfo.decodedOffsetInBytes, blockInfo.decodedSizeInBytes,
                                                  blockData->calculatedCRC );
 

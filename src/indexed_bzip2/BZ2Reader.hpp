@@ -360,6 +360,11 @@ BZ2Reader::seek( long long int offset,
     m_statistics.merge( m_lastHeader.statistics );
     readBlockHeader( blockInfo.encodedOffsetInBits );
     m_lastHeader.readBlockData();
+    /* Imported offsets only provide the difference of two decoded offsets. If it does not match the actual
+     * block, decoding from the requested in-block offset would silently shift the output. */
+    if ( blockInfo.decodedSizeInBytes != m_lastHeader.decodedSize() ) {
+        throw std::invalid_argument( "Imported block offsets do not match the decoded block size!" );
+    }
     /* no decodeBzip2 necessary because we only seek inside one block! */
     const auto nBytesDecoded = decodeStream( {}, nBytesSeekInBlock );
 
