@@ -63,6 +63,27 @@ namespace bzip2
  *
  * Each table entry is still only visited once, so this does the same work as the single chain and nothing that
  * depends on the content is assumed about the marks: unfavorable inputs only make it as slow as one chain.
+ *
+ * The serial walk is the standard inverse BWT (Burrows and Wheeler, 1994; Ferragina and Manzini, 2000).
+ * Splitting the last-to-first permutation into marked chains is splitter-based parallel list ranking
+ * (Helman and JáJá, 2001) applied to the last-to-first cycle: the marks are splitters, the chain segments are
+ * sublists, and the successor links are the sublist links. The closest published parallel inverse BWT is
+ * Weißenberger and Schmidt's GPU decoder (ICPP 2024, DOI 10.1145/3673038.3673067), which also uses splitters,
+ * sublist links, and a global prefix pass. The regular row-index marks and fixed per-lane buffers here are a
+ * CPU-specific variation; libsais 2.12 uses the same chunk/chain strategy (libsais_unbwt_init_single,
+ * libsais_unbwt_decode_chains in src/libsais.c). Its README's SA-IS papers do not describe inverse BWT.
+ *
+ * libsais uses a general bi-gram P table, a 256x256 bucket2 table, fastbits, chunk slots, and per-chunk links.
+ * This implementation instead expands the run records into a plain (rank, byte) table and uses fixed 8/24
+ * lanes with one buffer per lane. The chain decomposition is the same; most of the measured gain comes from
+ * avoiding libsais's initialization and chunk bookkeeping, not from a faster per-byte walk.
+ *
+ * @verbatim
+ * one chain (serial):  origPtr -> ... -> origPtr
+ * marked rows:         origPtr -> ... -> A -> ... -> B -> ... -> origPtr
+ * lanes:               lane 0: origPtr..A, lane 1: A..B, lane 2: B..origPtr
+ * successor links:     0 -> 1 -> 2 -> 0   (text order is the reverse)
+ * @endverbatim
  */
 class InverseBWT
 {
