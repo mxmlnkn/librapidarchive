@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <map>
 #include <stdexcept>
@@ -12,6 +13,17 @@ constexpr auto MAGIC_BITS_BLOCK = 0x314159265359ULL;  /* bcd(pi) */
 constexpr auto MAGIC_BITS_EOS = 0x177245385090ULL;    /* bcd(sqrt(pi)) */
 constexpr auto MAGIC_BITS_SIZE = 48;
 constexpr std::string_view MAGIC_BYTES_BZ2 = "BZh";
+
+/* Constants for huffman coding */
+static constexpr uint32_t MAX_GROUPS = 6;
+static constexpr int GROUP_SIZE = 50;       /* 64 would have been more efficient */
+static constexpr int MAX_HUFCODE_BITS = 20; /* Longest huffman code allowed */
+static constexpr size_t MAX_SYMBOLS = 258;  /* 256 literals + RUNA + RUNB */
+static constexpr uint16_t SYMBOL_RUNA = 0;
+static constexpr uint16_t SYMBOL_RUNB = 1;
+
+/* bzip2 levels 1-9 use blocks of at most 100000 to 900000 bytes before the BWT. */
+static constexpr size_t MAX_BLOCK_SIZE = 900000;
 
 /**
  * @return Whether @p offsets is the canonical single-entry index of an empty bzip2 stream.
