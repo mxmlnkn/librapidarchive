@@ -118,6 +118,8 @@ cdef class _IndexedBzip2File():
             self.bz2reader = new BZ2Reader(<int>file.fileno())
         elif _isFileObject(file):
             self.bz2reader = new BZ2Reader(<PyObject*>file)
+        elif isinstance(file, bytes):
+            self.bz2reader = new BZ2Reader(<string>file)
         elif isinstance(file, basestring) and hasattr(file, 'encode'):
             # Note that BytesIO also is an instance of basestring but fortunately has no encode method!
             self.bz2reader = new BZ2Reader(<string>file.encode())
@@ -237,6 +239,8 @@ cdef class _IndexedBzip2FileParallel():
             self.bz2reader = new ParallelBZ2Reader(<int>file.fileno(), <int>parallelization)
         elif _isFileObject(file):
             self.bz2reader = new ParallelBZ2Reader(<PyObject*>file, <int>parallelization)
+        elif isinstance(file, bytes):
+            self.bz2reader = new ParallelBZ2Reader(<string>file, <int>parallelization)
         elif isinstance(file, basestring) and hasattr(file, 'encode'):
             # Note that BytesIO also is an instance of basestring but fortunately has no encode method!
             self.bz2reader = new ParallelBZ2Reader(<string>file.encode(), <int>parallelization)

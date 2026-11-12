@@ -557,6 +557,21 @@ def testJoinThreadsDoesNotDeadlock():
     assert task.exitcode == 0, f"join_threads() test exited with {task.exitcode}"
 
 
+def testIndexedBzip2BytesPath():
+    contents = b'bytes path test\n' * 1000
+    with tempfile.NamedTemporaryFile(suffix='.bz2', delete=False) as file:
+        file.write(bz2.compress(contents))
+        path = file.name
+    try:
+        encodedPath = os.fsencode(path)
+        with indexed_bzip2.IndexedBzip2File(encodedPath, parallelization=1) as file:
+            assert file.read() == contents
+        with indexed_bzip2.IndexedBzip2File(encodedPath, parallelization=2) as file:
+            assert file.read() == contents
+    finally:
+        os.remove(path)
+
+
 class OversizedReadFile:
     """File-like object violating the read(size) contract by returning more data than requested."""
 
@@ -798,6 +813,7 @@ if __name__ == '__main__':
     testFailedPythonFileConstruction()
     testCloseAfterUnderlyingFileIsClosed()
     testJoinThreadsDoesNotDeadlock()
+    testIndexedBzip2BytesPath()
     testUnclosedFileAtInterpreterShutdown()
     testReadReturnsMoreThanRequested()
     testIndexImportExport()
