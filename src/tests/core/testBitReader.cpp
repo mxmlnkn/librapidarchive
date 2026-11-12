@@ -539,6 +539,21 @@ testDirectFileReadingBitReaderBug( const std::filesystem::path& path )
 
 
 void
+testSkipBytes()
+{
+    const std::vector<char> fileContents = { 'a', 'b', 'c', 'd', 'e' };
+    BitReader<true, uint64_t> bitReader( std::make_unique<BufferedFileReader>( fileContents ) );
+
+    /* FileReader::read(nullptr, n) skips bytes. BitReader::seek works in bits, so this used to skip n bits. */
+    REQUIRE_EQUAL( bitReader.read( nullptr, 2 ), size_t( 2 ) );
+    REQUIRE_EQUAL( bitReader.tell(), size_t( 16 ) );
+    REQUIRE_EQUAL( bitReader.read( nullptr, 3 ), size_t( 3 ) );
+    REQUIRE_EQUAL( bitReader.tell(), size_t( 40 ) );
+    REQUIRE( bitReader.eof() );
+}
+
+
+void
 testPeekAvailableWithEmptyBuffer()
 {
     /* peekAvailable on a BitReader with no bits must return {0, 0} and must not trigger the
@@ -579,6 +594,7 @@ main( int    argc,
     testMSBBitReaderPeek();
     testLSBBitReaderPeek();
     testPeekAvailableWithEmptyBuffer();
+    testSkipBytes();
 
     testBitReader<true>();
     testBitReader<false>();

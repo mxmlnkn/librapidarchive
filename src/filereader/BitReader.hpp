@@ -307,7 +307,11 @@ public:
         const auto oldTell = tell();
 
         if ( UNLIKELY( outputBuffer == nullptr ) ) [[unlikely]] {
-            seek( nBytesToRead, SEEK_CUR );
+            /* FileReader::read(nullptr, n) skips n bytes. seek() works in bits here, so convert and avoid
+             * wrapping the signed multiplication for very large requests. */
+            const auto maxSkippableBytes = static_cast<size_t>( std::numeric_limits<long long int>::max() / CHAR_BIT );
+            const auto bytesToSkip = std::min( nBytesToRead, maxSkippableBytes );
+            seek( static_cast<long long int>( bytesToSkip ) * CHAR_BIT, SEEK_CUR );
         } else if ( UNLIKELY( oldTell % CHAR_BIT != 0 ) ) [[unlikely]] {
             for ( size_t i = 0; i < nBytesToRead; ++i ) {
                 outputBuffer[i] = static_cast<char>( read( CHAR_BIT ) );
