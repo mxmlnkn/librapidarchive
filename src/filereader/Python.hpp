@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <functional>
 #include <sstream>
@@ -45,12 +46,13 @@ toPyObject( Value value )
 }
 
 
-[[nodiscard]] PyObject*
+[[nodiscard]] inline PyObject*
 toPyObject( PyObject* value )
 {
     if ( value == nullptr ) {
         throw std::runtime_error( "Got null PyObject as argument to toPyObject!" );
     }
+    Py_INCREF( value );
     return value;
 }
 
@@ -95,36 +97,82 @@ fromPyObject<PyObject*>( PyObject* pythonObject )
 }
 
 
+/** Build an argument tuple from new references returned by toPyObject(). */
+template<typename... Args>
+[[nodiscard]] PyObject*
+packPyArguments( Args... args )
+{
+    std::array<PyObject*, sizeof...( Args )> objects{ toPyObject( args )... };
+    auto* const tuple = PyTuple_New( static_cast<Py_ssize_t>( objects.size() ) );
+    if ( tuple == nullptr ) {
+        for ( auto* const object : objects ) {
+            Py_XDECREF( object );
+        }
+        return nullptr;
+    }
+
+    for ( size_t i = 0; i < objects.size(); ++i ) {
+        if ( objects[i] == nullptr ) {
+            Py_DECREF( tuple );
+            for ( size_t j = i; j < objects.size(); ++j ) {
+                Py_XDECREF( objects[j] );
+            }
+            return nullptr;
+        }
+        if ( PyTuple_SetItem( tuple, static_cast<Py_ssize_t>( i ), objects[i] ) != 0 ) {
+            /* PyTuple_SetItem steals the reference on success and failure. */
+            Py_DECREF( tuple );
+            for ( size_t j = i + 1; j < objects.size(); ++j ) {
+                Py_XDECREF( objects[j] );
+            }
+            return nullptr;
+        }
+    }
+
+    return tuple;
+}
+
+
 template<typename Result,
          typename... Args>
 Result
 callPyObject( PyObject* pythonObject,
               Args...   args )
 {
-    constexpr auto nArgs = sizeof...( Args );
-
     if ( pythonObject == nullptr ) {
         throw std::invalid_argument( "[callPyObject] Got null PyObject!" );
     }
 
     const ScopedGILLock gilLock;
 
-    if constexpr ( std::is_same_v<Result, void> ) {
-        PyObject_Call( pythonObject, PyTuple_Pack( nArgs, toPyObject( args )... ), nullptr );
-    } else {
-        const auto result = PyObject_Call( pythonObject, PyTuple_Pack( nArgs, toPyObject( args )... ), nullptr );
-        if ( result == nullptr ) {
-            std::stringstream message;
-            message << "Cannot convert nullptr Python object to the requested result type ("
-                    << typeid( Result ).name() << ")!";
-        #if !defined( Py_LIMITED_API )
-            if ( ( pythonObject != nullptr ) && ( pythonObject->ob_type != nullptr ) ) {
-                message << " Got no result when calling: " << pythonObject->ob_type->tp_name;
-            }
-        #endif
-            throw std::invalid_argument( std::move( message ).str() );
+    auto* const arguments = packPyArguments( args... );
+    if ( arguments == nullptr ) {
+        throw std::invalid_argument( "[callPyObject] Failed to build the argument tuple!" );
+    }
+
+    auto* const result = PyObject_Call( pythonObject, arguments, nullptr );
+    Py_DECREF( arguments );
+
+    if ( result == nullptr ) {
+        std::stringstream message;
+        message << "Cannot convert nullptr Python object to the requested result type ("
+                << typeid( Result ).name() << ")!";
+    #if !defined( Py_LIMITED_API )
+        if ( ( pythonObject != nullptr ) && ( pythonObject->ob_type != nullptr ) ) {
+            message << " Got no result when calling: " << pythonObject->ob_type->tp_name;
         }
-        return fromPyObject<Result>( result );
+    #endif
+        throw std::invalid_argument( std::move( message ).str() );
+    }
+
+    if constexpr ( std::is_same_v<Result, void> ) {
+        Py_DECREF( result );
+    } else if constexpr ( std::is_same_v<Result, PyObject*> ) {
+        return result;
+    } else {
+        const auto converted = fromPyObject<Result>( result );
+        Py_DECREF( result );
+        return converted;
     }
 }
 
@@ -189,9 +237,17 @@ public:
         }
 
         const ScopedGILLock gilLock;
-        if ( Py_REFCNT( m_pythonObject ) == 1 ) {
+
+        /* The bound methods keep the instance alive. Release all except close() first so that the
+         * reference count tells us whether the caller still owns the object. */
+        releaseNonLifetimeAttributes();
+
+        if ( Py_REFCNT( m_pythonObject ) == 2 ) {
             callPyObject<void>( mpo_close );
         }
+
+        Py_XDECREF( mpo_close );
+        mpo_close = nullptr;
         Py_DECREF( m_pythonObject );
         m_pythonObject = nullptr;
     }
@@ -303,7 +359,14 @@ public:
         const ScopedGILLock gilLock;
 
         auto* const bytes = PyBytes_FromStringAndSize( buffer, nBytesToWrite );
-        const auto nBytesWritten = callPyObject<long long int>( mpo_write, bytes );
+        long long int nBytesWritten{ -1 };
+        try {
+            nBytesWritten = callPyObject<long long int>( mpo_write, bytes );
+        } catch ( ... ) {
+            Py_XDECREF( bytes );
+            throw;
+        }
+        Py_XDECREF( bytes );
 
         if ( ( nBytesWritten < 0 ) || ( static_cast<size_t>( nBytesWritten ) < nBytesToWrite ) ) {
             std::stringstream message;
@@ -393,14 +456,29 @@ private:
         return attribute;
     }
 
+    void
+    releaseNonLifetimeAttributes() noexcept
+    {
+        Py_XDECREF( mpo_tell );
+        mpo_tell = nullptr;
+        Py_XDECREF( mpo_seek );
+        mpo_seek = nullptr;
+        Py_XDECREF( mpo_read );
+        mpo_read = nullptr;
+        Py_XDECREF( mpo_write );
+        mpo_write = nullptr;
+        Py_XDECREF( mpo_seekable );
+        mpo_seekable = nullptr;
+    }
+
 protected:
     PyObject* m_pythonObject{ nullptr };
-    PyObject* const mpo_tell;
-    PyObject* const mpo_seek;
-    PyObject* const mpo_read;
-    PyObject* const mpo_write;
-    PyObject* const mpo_seekable;
-    PyObject* const mpo_close;
+    PyObject* mpo_tell{ nullptr };
+    PyObject* mpo_seek{ nullptr };
+    PyObject* mpo_read{ nullptr };
+    PyObject* mpo_write{ nullptr };
+    PyObject* mpo_seekable{ nullptr };
+    PyObject* mpo_close{ nullptr };
 
     const long long int m_initialPosition;
     const bool m_seekable;
