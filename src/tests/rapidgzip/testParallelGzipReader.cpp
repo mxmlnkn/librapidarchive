@@ -1194,6 +1194,23 @@ testClearCacheWithInFlightMarkerReplacements()
 
 
 void
+testGatherLineOffsetsWithoutIndex( const std::filesystem::path& rootFolder )
+{
+    ParallelGzipReader reader(
+        std::make_unique<StandardFileReader>( ( rootFolder / "base64-32KiB.gz" ).string() ) );
+    reader.setNewlineCharacter( '\n' );
+    reader.setKeepIndex( false );
+
+    std::array<char, 1_Ki> buffer{};
+    REQUIRE( reader.read( buffer.data(), buffer.size() ) > 0 );
+
+    /* Reading to the end and then restoring the previous position is impossible without an index, but that
+     * must not throw from the cleanup path. */
+    reader.gatherLineOffsets();
+}
+
+
+void
 testJoinThreadsMidStream( const std::filesystem::path& rootFolder )
 {
     const auto compressed = readFile<std::vector<uint8_t> >( rootFolder / "base64-256KiB.gz" );
@@ -1880,6 +1897,7 @@ main( int    argc,
     testPrefetchingAfterSplit();
     testCachedChunkReuseAfterSplit();
     testClearCacheWithInFlightMarkerReplacements();
+    testGatherLineOffsetsWithoutIndex( rootFolder );
     testJoinThreadsMidStream( rootFolder );
     testParallelDecoderNano();
 
