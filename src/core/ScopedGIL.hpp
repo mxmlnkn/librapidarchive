@@ -203,7 +203,7 @@ public:
 };
 
 
-void
+inline void
 checkPythonSignalHandlers()
 {
     const ScopedGILLock gilLock;
