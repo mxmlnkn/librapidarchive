@@ -300,7 +300,9 @@ BitStringFinder<bitStringSize>::refillBuffer()
         return 0;
     }
 
-    /* Read chunk of data from file into buffer. */
+    /* Read chunk of data from file into buffer. File readers may legally return fewer bytes than requested,
+     * including at EOF. The next refill clamps the moving window to the actual buffer size, so a short read
+     * must not shrink the requested read size. */
     size_t nBytesRead = 0;
     if ( m_buffer.empty() ) {
         assert( m_nTotalBytesRead == 0 );
@@ -310,15 +312,18 @@ BitStringFinder<bitStringSize>::refillBuffer()
         nBytesRead = m_fileReader->read( m_buffer.data(), m_buffer.size() );
         m_buffer.resize( nBytesRead );
     } else {
-        m_nTotalBytesRead += m_buffer.size() - m_movingBytesToKeep;
-        m_bufferBitsRead = m_movingBytesToKeep * CHAR_BIT - m_movingBitsToKeep;
+        const auto nBytesToKeep = std::min<size_t>( m_movingBytesToKeep, m_buffer.size() );
+        m_nTotalBytesRead += m_buffer.size() - nBytesToKeep;
+        m_bufferBitsRead = ( nBytesToKeep * CHAR_BIT > m_movingBitsToKeep )
+                           ? nBytesToKeep * CHAR_BIT - m_movingBitsToKeep
+                           : 0;
 
         /* On subsequent refills, keep the last bits in order to find bit strings on buffer boundaries. */
-        std::memmove( m_buffer.data(), m_buffer.data() + m_buffer.size() - m_movingBytesToKeep, m_movingBytesToKeep );
+        std::memmove( m_buffer.data(), m_buffer.data() + m_buffer.size() - nBytesToKeep, nBytesToKeep );
 
-        const auto nBytesToRead = m_buffer.size() - m_movingBytesToKeep;
-        nBytesRead = m_fileReader->read( m_buffer.data() + m_movingBytesToKeep, nBytesToRead );
-        m_buffer.resize( m_movingBytesToKeep + nBytesRead );
+        m_buffer.resize( m_fileChunksInBytes );
+        nBytesRead = m_fileReader->read( m_buffer.data() + nBytesToKeep, m_fileChunksInBytes - nBytesToKeep );
+        m_buffer.resize( nBytesToKeep + nBytesRead );
     }
 
     return nBytesRead;

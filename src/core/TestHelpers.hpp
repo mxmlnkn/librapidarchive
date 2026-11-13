@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include <filereader/BufferView.hpp>
 #include <filereader/FileReader.hpp>
 
 #include "common.hpp"  // duration
@@ -74,6 +75,40 @@ private:
     size_t m_position{ 0 };
     const size_t m_throwAfterBytes;
     bool m_closed{ false };
+};
+
+
+/**
+ * A seekable in-memory reader that returns at most a configured number of bytes per read, for testing
+ * algorithms that must handle short reads.
+ */
+class ShortReadFileReader final :
+    public BufferViewFileReader
+{
+public:
+    ShortReadFileReader( std::vector<unsigned char> data,
+                         const size_t               maxBytesPerRead ) :
+        BufferViewFileReader( data.data(), data.size() ),
+        m_data( std::move( data ) ),
+        m_maxBytesPerRead( maxBytesPerRead )
+    {}
+
+    [[nodiscard]] UniqueFileReader
+    cloneRaw() const override
+    {
+        return std::make_unique<ShortReadFileReader>( m_data, m_maxBytesPerRead );
+    }
+
+    [[nodiscard]] size_t
+    read( char* const  buffer,
+          const size_t nMaxBytesToRead ) override
+    {
+        return BufferViewFileReader::read( buffer, std::min( nMaxBytesToRead, m_maxBytesPerRead ) );
+    }
+
+private:
+    std::vector<unsigned char> m_data;
+    const size_t m_maxBytesPerRead;
 };
 
 
