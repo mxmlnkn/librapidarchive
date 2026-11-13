@@ -55,6 +55,8 @@ endif()
 # rpmalloc 2.0.2 does not support 32-bit builds.
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     set(LIBRAPIDARCHIVE_WITH_RPMALLOC OFF)
+    # Let stat/fstat report 64-bit sizes on 32-bit targets.
+    add_compile_definitions(_FILE_OFFSET_BITS=64)
 endif()
 
 # Fuzzing targets should exercise the instrumented C++ decoder. ISA-L is assembly and cannot be
