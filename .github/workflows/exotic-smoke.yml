@@ -1,0 +1,58 @@
+name: Exotic Platform Smoke
+
+# Manual only. QEMU emulation is slow (often 5-30x), so this must not run on
+# pull requests or on every push to master. Use it to check that the 32-bit,
+# big-endian and non-x86 paths at least import, decompress and seek.
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "cibuildwheel architecture"
+        type: choice
+        options: [i686, aarch64, ppc64le, s390x, armv7l]
+        default: i686
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: recursive
+
+    - uses: docker/setup-qemu-action@v3
+      if: inputs.arch != 'i686'
+      with:
+        platforms: all
+
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.14'
+
+    - name: Install cibuildwheel
+      run: python3 -m pip install 'cibuildwheel==4.3.5'
+
+    - name: Build and execute one wheel
+      shell: bash
+      env:
+        CIBW_ARCHS: ${{ inputs.arch }}
+        CIBW_BUILD: cp314-*
+        CIBW_ENVIRONMENT: INDEXED_BZIP2_ABI3=disable
+        CIBW_TEST_COMMAND: >-
+          python -c "import bz2, io, indexed_bzip2;
+          data = bytes(range(256)) * 512;
+          reader = indexed_bzip2.IndexedBzip2File(io.BytesIO(bz2.compress(data)));
+          assert reader.read() == data;
+          reader.seek(65536);
+          assert reader.read(16) == data[65536:65552];
+          print('indexed_bzip2 smoke test passed', indexed_bzip2.__version__)"
+      run: |
+        python3 -m cibuildwheel --output-dir wheelhouse \
+          --print-build-identifiers python/indexed_bzip2
+        python3 -m cibuildwheel --output-dir wheelhouse python/indexed_bzip2
