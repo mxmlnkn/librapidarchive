@@ -225,7 +225,19 @@ public:
             /* The input may be a concatenation of multiple BZip2 files (like produced by pbzip2).
              * Therefore, iterate over those multiple files and decode them to the specified output. */
             if ( m_bitReader.tell() == 0 ) {
-                readBzip2Header();
+                try
+                {
+                    readBzip2Header();
+                } catch ( const rapidgzip::EndOfFileReached& ) {
+                    /* Non-seekable inputs only report EOF after a failed read, so the empty-input branch above,
+                     * which checks m_bitReader.eof(), is not reached before the first header read. */
+                    if ( m_bitReader.tell() != 0 ) {
+                        throw std::domain_error( "Truncated bzip2 stream: input ended inside the stream header." );
+                    }
+                    m_atEndOfFile = true;
+                    m_blockMap.finalize();
+                    break;
+                }
             } else if ( m_lastHeader.eos() ) {
                 const auto nextHeaderOffset = m_bitReader.tell();
                 try {

@@ -118,6 +118,18 @@ testNonSeekableCompleteStream( const std::string& encodedTestFilePath,
 
 
 void
+testNonSeekableEmptyInput()
+{
+    /* Non-seekable readers only report EOF after a failed read. The first read must still report an empty
+     * archive instead of throwing from the stream header parsing. */
+    BZ2Reader reader( std::make_unique<NonSeekableFileReader>( std::vector<char>{} ) );
+    std::array<char, 16> buffer{};
+    REQUIRE_EQUAL( reader.read( buffer.data(), buffer.size() ), 0U );
+    REQUIRE( reader.eof() );
+}
+
+
+void
 createUniformByteFile( const std::string& path,
                        const size_t       size )
 {
@@ -284,6 +296,7 @@ testExactSizeReadNeedsExtraReadForStreamCRC()
 int
 main()
 {
+    testNonSeekableEmptyInput();
     testLastToFirstMappingKernels();
     testExactSizeReadNeedsExtraReadForStreamCRC();
 
