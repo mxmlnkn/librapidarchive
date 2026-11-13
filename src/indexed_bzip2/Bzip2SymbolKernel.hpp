@@ -120,6 +120,48 @@
                 front0 = _mm_or_si128( _mm_slli_si128( front0, 1 ), insertedByte ); \
             } while ( false )
 
+#elif LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT == 3
+
+    #define BZIP2_KERNEL_CHUNK_SIZE 16U
+
+    #define BZIP2_KERNEL_LOAD_FRONT() \
+            uint8x16_t front0 = vld1q_u8( mtf ); \
+            uint8x16_t front1 = vld1q_u8( mtf + 16 )
+
+    #define BZIP2_KERNEL_STORE_FRONT() \
+            vst1q_u8( mtf, front0 ); \
+            vst1q_u8( mtf + 16, front1 )
+
+    #define BZIP2_KERNEL_FRONT_UPDATE( SYMBOL ) \
+            do { \
+                const auto* const control = SYMBOL_KERNEL_FRONT_SHUFFLES_NEON.data() + ( SYMBOL ) * 32U; \
+                uint8x16x2_t table; \
+                table.val[0] = front0; \
+                table.val[1] = front1; \
+                front0 = vqtbl2q_u8( table, vld1q_u8( control ) ); \
+                front1 = vqtbl2q_u8( table, vld1q_u8( control + 16 ) ); \
+            } while ( false )
+
+    #define BZIP2_KERNEL_FRONT_BYTE() static_cast<uint32_t>( vgetq_lane_u8( front0, 0 ) )
+
+    /* See the AVX2 variant above. vbslq_u8 selects the first operand where the mask is set. */
+    #define BZIP2_KERNEL_MOVE_TAIL_TO_FRONT( POSITION, BYTE ) \
+            do { \
+                auto previousChunk = front1; \
+                for ( uint32_t chunkIndex = 2; chunkIndex < chunkCount; ++chunkIndex ) { \
+                    auto* const chunkData = mtf + 16U * chunkIndex; \
+                    const auto currentChunk = vld1q_u8( chunkData ); \
+                    const auto* const positions = SYMBOL_KERNEL_POSITIONS_NEON.data() + 16U * chunkIndex; \
+                    const auto keepMask = vcgtq_u8( \
+                        vld1q_u8( positions ), vdupq_n_u8( static_cast<uint8_t>( POSITION ) ) ); \
+                    const auto shiftedChunk = vextq_u8( previousChunk, currentChunk, 15 ); \
+                    vst1q_u8( chunkData, vbslq_u8( keepMask, currentChunk, shiftedChunk ) ); \
+                    previousChunk = currentChunk; \
+                } \
+                front1 = vextq_u8( front0, front1, 15 ); \
+                front0 = vextq_u8( vdupq_n_u8( static_cast<uint8_t>( BYTE ) ), front0, 15 ); \
+            } while ( false )
+
 #endif
 
 #if LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT != 0

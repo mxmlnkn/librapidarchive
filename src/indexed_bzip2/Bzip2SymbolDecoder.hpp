@@ -35,6 +35,15 @@
     #define LIBRAPIDARCHIVE_BZIP2_X86_KERNELS 0
 #endif
 
+/* AArch64 has the table lookup and byte-extension instructions the NEON kernel needs. ARMv7 keeps the
+ * portable kernel; its NEON Move-to-Front helper is still used by it. */
+#if defined( __aarch64__ ) && defined( __ARM_NEON )
+    #include <arm_neon.h>
+    #define LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS 1
+#else
+    #define LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS 0
+#endif
+
 #if defined( __GNUC__ ) || defined( __clang__ )
     #define LIBRAPIDARCHIVE_BZIP2_RESTRICT __restrict__
 #elif defined( _MSC_VER )
@@ -398,6 +407,38 @@ alignas( 64 ) static constexpr std::array<int8_t, 256> SYMBOL_KERNEL_BIASED_POSI
 
 #endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
 
+#if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+
+/* Two 16-byte table lookup controls per symbol: how to permute the 32 front list entries. */
+alignas( 16 ) static constexpr std::array<uint8_t, ( SIMD_KERNEL_FRONT_SIZE + 1 ) * 32>
+SYMBOL_KERNEL_FRONT_SHUFFLES_NEON =
+    [] ()
+    {
+        static_assert( SIMD_KERNEL_FRONT_SIZE == 32, "The controls are laid out for two 16-byte halves." );
+        std::array<uint8_t, ( SIMD_KERNEL_FRONT_SIZE + 1 ) * 32> result{};
+        for ( size_t symbol = 0; symbol <= SIMD_KERNEL_FRONT_SIZE; ++symbol ) {
+            const size_t position = symbol < 2 ? 0 : symbol - 1;
+            for ( size_t i = 0; i < 32; ++i ) {
+                result[symbol * 32 + i] = static_cast<uint8_t>(
+                    i == 0 ? position : ( i <= position ? i - 1 : i ) );
+            }
+        }
+        return result;
+    }();
+
+/** List positions for the unsigned NEON comparison in the deep Move-to-Front update. */
+alignas( 16 ) static constexpr std::array<uint8_t, 256> SYMBOL_KERNEL_POSITIONS_NEON =
+    [] ()
+    {
+        std::array<uint8_t, 256> result{};
+        for ( size_t i = 0; i < result.size(); ++i ) {
+            result[i] = static_cast<uint8_t>( i );
+        }
+        return result;
+    }();
+
+#endif  // LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+
 
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 0
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsPortable
@@ -427,6 +468,18 @@ alignas( 64 ) static constexpr std::array<int8_t, 256> SYMBOL_KERNEL_BIASED_POSI
 
 #endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
 
+#if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 3
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsNEON
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
+#include "Bzip2SymbolKernel.hpp"
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
+
+#endif  // LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+
 
 enum class SymbolKernel
 {
@@ -434,6 +487,7 @@ enum class SymbolKernel
     PORTABLE,
     SSE41,
     AVX2,
+    NEON,
 };
 
 
@@ -450,6 +504,8 @@ toString( const SymbolKernel kernel ) noexcept
         return "sse4.1";
     case SymbolKernel::AVX2:
         return "avx2";
+    case SymbolKernel::NEON:
+        return "neon";
     }
     return "unknown";
 }
@@ -477,6 +533,13 @@ isSupported( const SymbolKernel kernel ) noexcept
     #else
     case SymbolKernel::SSE41:
     case SymbolKernel::AVX2:
+        break;
+    #endif
+    #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+    case SymbolKernel::NEON:
+        return true;
+    #else
+    case SymbolKernel::NEON:
         break;
     #endif
     }
@@ -527,7 +590,10 @@ symbolKernel() noexcept
     }
     static const auto fastest = isSupported( SymbolKernel::AVX2 )
                                 ? SymbolKernel::AVX2
-                                : ( isSupported( SymbolKernel::SSE41 ) ? SymbolKernel::SSE41 : SymbolKernel::PORTABLE );
+                                : ( isSupported( SymbolKernel::SSE41 )
+                                    ? SymbolKernel::SSE41
+                                    : ( isSupported( SymbolKernel::NEON ) ? SymbolKernel::NEON
+                                                                          : SymbolKernel::PORTABLE ) );
     return fastest;
 }
 
@@ -549,13 +615,19 @@ decodeSymbols( SymbolDecoderState&  state,
                size_t&              bitOffset,
                const SymbolKernel   kernel ) noexcept
 {
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS || LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
     switch ( kernel )
     {
+    #if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
     case SymbolKernel::AVX2:
         return decodeSymbolsAVX2( state, buffer, bufferSize, bitOffset );
     case SymbolKernel::SSE41:
         return decodeSymbolsSSE41( state, buffer, bufferSize, bitOffset );
+    #endif
+    #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+    case SymbolKernel::NEON:
+        return decodeSymbolsNEON( state, buffer, bufferSize, bitOffset );
+    #endif
     default:
         break;
     }
@@ -800,6 +872,70 @@ createLastToFirstMappingAVX512( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  r
 
 #endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
 
+#if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+
+[[nodiscard]] inline uint32_t
+createLastToFirstMappingNEON( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
+                              const size_t                                   recordCount,
+                              uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
+                              std::array<uint32_t, 256>&                     byteCounts ) noexcept
+{
+    std::array<uint32_t, 256> counts{};
+    auto* target = lastToFirstMapping;
+    const auto* const limit = lastToFirstMapping + MAX_BLOCK_SIZE;
+
+    static constexpr std::array<uint32_t, 16> OFFSETS{
+        0 << 8, 1 << 8, 2 << 8, 3 << 8,
+        4 << 8, 5 << 8, 6 << 8, 7 << 8,
+        8 << 8, 9 << 8, 10 << 8, 11 << 8,
+        12 << 8, 13 << 8, 14 << 8, 15 << 8
+    };
+    const auto offsets0 = vld1q_u32( OFFSETS.data() );
+    const auto offsets1 = vld1q_u32( OFFSETS.data() + 4 );
+    const auto offsets2 = vld1q_u32( OFFSETS.data() + 8 );
+    const auto offsets3 = vld1q_u32( OFFSETS.data() + 12 );
+    const auto step = vdupq_n_u32( 16U << 8U );
+
+    for ( size_t i = 0; i < recordCount; ++i ) {
+        const uint32_t byte = records[RUN_RECORD_SIZE * i];
+        const uint32_t count = records[RUN_RECORD_SIZE * i + 1];
+        const auto rank = counts[byte];
+        counts[byte] = rank + count;
+        const auto first = ( rank << 8U ) | byte;
+
+        auto entries0 = vaddq_u32( vdupq_n_u32( first ), offsets0 );
+        auto entries1 = vaddq_u32( vdupq_n_u32( first ), offsets1 );
+        auto entries2 = vaddq_u32( vdupq_n_u32( first ), offsets2 );
+        auto entries3 = vaddq_u32( vdupq_n_u32( first ), offsets3 );
+        vst1q_u32( target, entries0 );
+        vst1q_u32( target + 4, entries1 );
+        vst1q_u32( target + 8, entries2 );
+        vst1q_u32( target + 12, entries3 );
+        if ( UNLIKELY( count > 16 ) ) [[unlikely]] {
+            for ( uint32_t k = 16; k < count; k += 16 ) {
+                entries0 = vaddq_u32( entries0, step );
+                entries1 = vaddq_u32( entries1, step );
+                entries2 = vaddq_u32( entries2, step );
+                entries3 = vaddq_u32( entries3, step );
+                vst1q_u32( target + k, entries0 );
+                vst1q_u32( target + k + 4, entries1 );
+                vst1q_u32( target + k + 8, entries2 );
+                vst1q_u32( target + k + 12, entries3 );
+            }
+        }
+
+        target += count;
+        if ( UNLIKELY( target > limit ) ) [[unlikely]] {
+            return LAST_TO_FIRST_MAPPING_TOO_LARGE;
+        }
+    }
+
+    byteCounts = counts;
+    return static_cast<uint32_t>( target - lastToFirstMapping );
+}
+
+#endif  // LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+
 
 /**
  * @brief Expands run records into the last-to-first mapping used by the inverse BWT.
@@ -813,7 +949,9 @@ createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records
                           uint32_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT const lastToFirstMapping,
                           std::array<uint32_t, 256>&                     byteCounts ) noexcept
 {
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+    return createLastToFirstMappingNEON( records, recordCount, lastToFirstMapping, byteCounts );
+#elif LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
     using Function = uint32_t ( * )( const uint8_t*, size_t, uint32_t*, std::array<uint32_t, 256>& ) noexcept;
     static const auto function =
         [] () -> Function

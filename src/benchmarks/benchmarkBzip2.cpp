@@ -72,13 +72,15 @@ parseArguments( int    argc,
                 bzip2::setSymbolKernel( bzip2::SymbolKernel::SSE41 );
             } else if ( kernel == "avx2" ) {
                 bzip2::setSymbolKernel( bzip2::SymbolKernel::AVX2 );
+            } else if ( kernel == "neon" ) {
+                bzip2::setSymbolKernel( bzip2::SymbolKernel::NEON );
             } else {
                 throw std::invalid_argument( "Invalid kernel: " + kernel );
             }
         } else if ( argument == "--help" ) {
             std::cout << "Usage: " << argv[0]
                       << " [--iterations N] [--parallel N] [--mode discard|copy]"
-                      << " [--kernel automatic|portable|sse4.1|avx2] FILE.bz2...\n";
+                      << " [--kernel automatic|portable|sse4.1|avx2|neon] FILE.bz2...\n";
             std::exit( 0 );
         } else {
             arguments.files.emplace_back( argument );
