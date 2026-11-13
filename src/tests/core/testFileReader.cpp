@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,8 @@
 #include <filereader/BufferView.hpp>
 #include <filereader/FileReader.hpp>
 #include <filereader/Shared.hpp>
+#include <core/BitStringFinder.hpp>
+#include <filereader/SinglePass.hpp>
 #include <filereader/Standard.hpp>
 
 
@@ -616,6 +619,39 @@ testEmptyInMemoryBufferedFileReaderIsNotClosed()
 
 
 void
+testSinglePassReaderPropagatesReadFailure()
+{
+    SinglePassFileReader reader( std::make_unique<ThrowingFileReader>( 100 ) );
+    std::array<char, 16> buffer{};
+
+    bool threw{ false };
+    try {
+        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+    } catch ( const std::runtime_error& exception ) {
+        threw = std::string( exception.what() ).find( "Simulated read failure" ) != std::string::npos;
+    }
+    REQUIRE( threw );
+}
+
+
+void
+testSinglePassReaderFailureIsNotEof()
+{
+    auto reader = std::make_unique<SinglePassFileReader>(
+        std::make_unique<ThrowingFileReader>( 100 ) );
+    BitStringFinder<48> finder( std::move( reader ), 0x314159265359ULL, /* fileBufferSizeBytes */ 4_Ki );
+
+    bool threw{ false };
+    try {
+        while ( finder.find() != std::numeric_limits<size_t>::max() ) {}
+    } catch ( const std::runtime_error& exception ) {
+        threw = std::string( exception.what() ).find( "Simulated read failure" ) != std::string::npos;
+    }
+    REQUIRE( threw );
+}
+
+
+void
 testSharedFileReaderCloneAndClose( const std::string& fileName )
 {
     auto reader = std::make_unique<SharedFileReader>( std::make_unique<StandardFileReader>( fileName ) );
@@ -703,6 +739,8 @@ main()
     testBufferedFileReaderRetainsCacheOnPipe();
 #endif
 
+    testSinglePassReaderPropagatesReadFailure();
+    testSinglePassReaderFailureIsNotEof();
     testSharedFileReaderCloneAndClose( tmpFileName );
     testBufferViewFileReaderNullBuffer();
     testBufferViewFileReaderRejectsSeeksOutsideRange();
