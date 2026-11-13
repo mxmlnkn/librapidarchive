@@ -17,6 +17,8 @@
 #include <indexed_bzip2/IndexFileFormat.hpp>
 #include <indexed_bzip2/ParallelBZ2Reader.hpp>
 
+#include "Bzip2TestHelpers.hpp"
+
 
 using namespace rapidgzip;
 using namespace indexed_bzip2;
@@ -407,34 +409,166 @@ testTruncatedStreamWithoutBlocks()
 
 
 void
-testBlockCRCVerification()
+testSingleBlockCRCs()
 {
-    /* bzip2 -c of the single byte 'A'. The stored big-endian block CRC follows the 48-bit block magic. */
-    const std::vector<uint8_t> compressed = {
-        0x42, 0x5a, 0x68, 0x39, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0x81, 0xb0,
-        0x2d, 0x8b, 0x00, 0x00, 0x00, 0x04, 0x00, 0x20, 0x00, 0x20, 0x00, 0x21,
-        0x18, 0x46, 0x82, 0xee, 0x48, 0xa7, 0x0a, 0x12, 0x10, 0x36, 0x05, 0xb1,
-        0x60
-    };
+    for ( const auto parallelization : { 1U, 2U } ) {
+        bzip2_test::checkSingleBlockCRCs(
+            [parallelization] ( const std::vector<uint8_t>& data )
+            {
+                return std::make_unique<ParallelBZ2Reader>(
+                    std::make_unique<BufferViewFileReader>( data ), parallelization );
+            } );
+    }
+}
+
+
+void
+testMultiBlockCRCs( const std::string& decodedTestFilePath,
+                    const std::string& encodedTestFilePath )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+    const auto expected = readFile<std::vector<char> >( decodedTestFilePath );
+    for ( const auto parallelization : { 1U, 2U, 4U } ) {
+        bzip2_test::checkMultiBlockCRCs(
+            compressed, expected,
+            [parallelization] ( const std::vector<uint8_t>& data )
+            {
+                return std::make_unique<ParallelBZ2Reader>(
+                    std::make_unique<BufferViewFileReader>( data ), parallelization );
+            } );
+    }
+}
+
+
+void
+testStreamCRCVerificationWithImportedOffsets( const std::string& decodedTestFilePath,
+                                              const std::string& encodedTestFilePath )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+    const auto expected = readFile<std::vector<char> >( decodedTestFilePath );
+
+    std::map<size_t, size_t> offsets;
     {
         ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
-        std::vector<char> buffer( 1 );
-        REQUIRE_EQUAL( reader.read( buffer.data(), buffer.size() ), buffer.size() );
-        REQUIRE_EQUAL( buffer.front(), 'A' );
+        offsets = reader.blockOffsets();
+    }
+    REQUIRE( offsets.size() >= 4 );
+
+    auto corrupted = compressed;
+    bzip2_test::corruptStreamCRC( corrupted );
+
+    /* Reading the whole stream sequentially must still verify the stream CRC with imported offsets. */
+    for ( const auto parallelization : { 1U, 2U } ) {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), parallelization );
+        reader.setBlockOffsets( offsets );
+        const auto message = bzip2_test::readToEndAndCaptureMessage( reader );
+        bzip2_test::requireStreamCRCError( message );
     }
 
-    /* A mismatching block CRC must be rejected after the block has been fully decoded. */
-    auto corrupted = compressed;
-    corrupted[13] ^= uint8_t( 1U << 0U );
-    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), /* parallelization */ 2 );
-    std::vector<char> buffer( 16 );
-    std::string message;
-    try {
-        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
-    } catch ( const std::exception& exception ) {
-        message = exception.what();
+    /* A valid stream must still decode completely with imported offsets. */
+    {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+        reader.setBlockOffsets( offsets );
+        REQUIRE( bzip2_test::readAll( reader ) == expected );
     }
-    REQUIRE( message.find( "CRC" ) != std::string::npos );
+
+    /* Skipping blocks makes the stream CRC unverifiable, but a valid stream must not be rejected. */
+    {
+        const auto secondBlock = std::next( offsets.begin() );
+        const auto seekOffset = secondBlock->second + 1;
+
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+        reader.setBlockOffsets( offsets );
+        REQUIRE_EQUAL( reader.seek( static_cast<long long int>( seekOffset ) ), seekOffset );
+
+        std::vector<char> buffer( 4_Ki );
+        bool threw = false;
+        try {
+            while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
+        } catch ( const std::exception& ) {
+            threw = true;
+        }
+        REQUIRE( !threw );
+    }
+}
+
+
+void
+testStreamCRCVerificationAfterSeekToStart( const std::string& decodedTestFilePath,
+                                           const std::string& encodedTestFilePath )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+    const auto expected = readFile<std::vector<char> >( decodedTestFilePath );
+
+    std::map<size_t, size_t> offsets;
+    {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
+        offsets = reader.blockOffsets();
+    }
+    REQUIRE( offsets.size() >= 4 );
+
+    auto corrupted = compressed;
+    bzip2_test::corruptStreamCRC( corrupted );
+
+    for ( const auto parallelization : { 1U, 2U } ) {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), parallelization );
+        reader.setBlockOffsets( offsets );
+        /* Cross the first block boundary so that the stream CRC accumulator is non-zero before the seek. */
+        const auto firstBlockSize = std::next( offsets.begin() )->second;
+        REQUIRE( firstBlockSize > 0 );
+        std::vector<char> prefix( firstBlockSize + 128 );
+        REQUIRE_EQUAL( reader.read( prefix.data(), prefix.size() ), prefix.size() );
+        REQUIRE_EQUAL( reader.seek( 0 ), 0U );
+        const auto message = bzip2_test::readToEndAndCaptureMessage( reader );
+        bzip2_test::requireStreamCRCError( message );
+    }
+
+    /* Seeking back to the start must not make a valid stream fail the stream CRC check. */
+    for ( const auto parallelization : { 1U, 2U } ) {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), parallelization );
+        reader.setBlockOffsets( offsets );
+        /* Cross the first block boundary so that the stream CRC accumulator is non-zero before the seek. */
+        const auto firstBlockSize = std::next( offsets.begin() )->second;
+        REQUIRE( firstBlockSize > 0 );
+        std::vector<char> prefix( firstBlockSize + 128 );
+        REQUIRE_EQUAL( reader.read( prefix.data(), prefix.size() ), prefix.size() );
+        REQUIRE_EQUAL( reader.seek( 0 ), 0U );
+        REQUIRE( bzip2_test::readAll( reader ) == expected );
+    }
+}
+
+
+void
+testConcatenatedStreamCRCVerification( const std::string& decodedTestFilePath,
+                                       const std::string& encodedTestFilePath )
+{
+    const auto encoded = readFile<std::vector<uint8_t> >( encodedTestFilePath );
+    const auto expected = readFile<std::vector<char> >( decodedTestFilePath );
+
+    auto concatenated = encoded;
+    concatenated.insert( concatenated.end(), encoded.begin(), encoded.end() );
+
+    /* corruptStreamCRC flips the last EOS, which belongs to the second stream. */
+    bzip2_test::corruptStreamCRC( concatenated );
+
+    for ( const auto parallelization : { 1U, 2U } ) {
+        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( concatenated ), parallelization );
+        std::vector<char> firstStream( expected.size() );
+        size_t nBytesRead = 0;
+        while ( nBytesRead < firstStream.size() ) {
+            const auto nBytesReadNow = reader.read( firstStream.data() + nBytesRead,
+                                                    firstStream.size() - nBytesRead );
+            if ( nBytesReadNow == 0 ) {
+                break;
+            }
+            nBytesRead += nBytesReadNow;
+        }
+        REQUIRE_EQUAL( nBytesRead, firstStream.size() );
+        REQUIRE( firstStream == expected );
+
+        const auto message = bzip2_test::readToEndAndCaptureMessage( reader );
+        bzip2_test::requireStreamCRCError( message );
+    }
 }
 
 
@@ -458,96 +592,6 @@ testOversizedCodeLength()
         message = exception.what();
     }
     REQUIRE( message.find( "start_huffman_length 21" ) != std::string::npos );
-}
-
-
-void
-corruptStreamCRC( std::vector<uint8_t>& compressed )
-{
-    /* Find the EOS magic at its last occurrence and flip the first bit of the following stream CRC. */
-    size_t eosBitOffset{ std::numeric_limits<size_t>::max() };
-    uint64_t window{ 0 };
-    for ( size_t bit = 0; bit < compressed.size() * 8; ++bit ) {
-        window = ( ( window << 1U ) | ( ( compressed[bit / 8] >> ( 7 - bit % 8 ) ) & 1U ) )
-                 & ( ( uint64_t( 1 ) << bzip2::MAGIC_BITS_SIZE ) - 1U );
-        if ( ( bit + 1 >= bzip2::MAGIC_BITS_SIZE ) && ( window == bzip2::MAGIC_BITS_EOS ) ) {
-            eosBitOffset = bit + 1 - bzip2::MAGIC_BITS_SIZE;
-        }
-    }
-    REQUIRE( eosBitOffset != std::numeric_limits<size_t>::max() );
-
-    const auto crcBitOffset = eosBitOffset + bzip2::MAGIC_BITS_SIZE;
-    compressed[crcBitOffset / 8] ^= static_cast<uint8_t>( 1U << ( 7 - crcBitOffset % 8 ) );
-}
-
-
-void
-testStreamCRCVerification( const std::string& encodedTestFilePath )
-{
-    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
-
-    auto corrupted = compressed;
-    corruptStreamCRC( corrupted );
-
-    ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), /* parallelization */ 2 );
-    std::vector<char> buffer( 4_Ki );
-    std::string message;
-    try {
-        while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
-    } catch ( const std::exception& exception ) {
-        message = exception.what();
-    }
-    REQUIRE( message.find( "Stream CRC" ) != std::string::npos );
-}
-
-
-void
-testStreamCRCVerificationWithImportedOffsets( const std::string& encodedTestFilePath )
-{
-    const auto compressed = readFile<std::vector<uint8_t> >( encodedTestFilePath );
-
-    std::map<size_t, size_t> offsets;
-    {
-        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
-        offsets = reader.blockOffsets();
-    }
-
-    auto corrupted = compressed;
-    corruptStreamCRC( corrupted );
-
-    /* Reading the whole stream sequentially must still verify the stream CRC with imported offsets. */
-    {
-        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( corrupted ), /* parallelization */ 2 );
-        reader.setBlockOffsets( offsets );
-        std::vector<char> buffer( 4_Ki );
-        std::string message;
-        try {
-            while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
-        } catch ( const std::exception& exception ) {
-            message = exception.what();
-        }
-        REQUIRE( message.find( "Stream CRC" ) != std::string::npos );
-    }
-
-    /* Skipping blocks makes the stream CRC unverifiable, but a valid stream must not be rejected. */
-    {
-        REQUIRE( offsets.size() >= 3 );
-        const auto secondBlock = std::next( offsets.begin() );
-        const auto seekOffset = secondBlock->second + 1;
-
-        ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ), /* parallelization */ 2 );
-        reader.setBlockOffsets( offsets );
-        REQUIRE_EQUAL( reader.seek( static_cast<long long int>( seekOffset ) ), seekOffset );
-
-        std::vector<char> buffer( 4_Ki );
-        bool threw = false;
-        try {
-            while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
-        } catch ( const std::exception& ) {
-            threw = true;
-        }
-        REQUIRE( !threw );
-    }
 }
 
 
@@ -670,12 +714,7 @@ testExactDecodedSize( const std::filesystem::path& tmpFolder )
         file.write( expected.data(), static_cast<std::streamsize>( expected.size() ) );
     }
 
-    const auto command = "bzip2 -9 -c -- '" + decodedPath.string() + "' > '" + encodedPath.string() + "'";
-    if ( std::system( command.c_str() ) != 0 ) {
-        std::cerr << "Failed to compress exact-size test file\n";
-        REQUIRE( false );
-        return;
-    }
+    bzip2_test::compressFile( decodedPath, encodedPath );
 
     for ( const auto parallelization : { 1U, 2U, 8U } ) {
         ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( encodedPath.string() ), parallelization );
@@ -717,7 +756,7 @@ main( int    argc,
     testMalformedBzip2( dataFolder, "bzip2-block-finder-false-positive.bz2" );
     testMalformedBzip2( dataFolder, "bzip2-invalid-huffman-code.bz2", "Invalid Huffman code" );
     testRunLengthOverflow();
-    testBlockCRCVerification();
+    testSingleBlockCRCs();
     testOversizedCodeLength();
     testTruncatedStreamWithoutBlocks();
 
@@ -728,21 +767,17 @@ main( int    argc,
     const auto decodedTestFilePath = tmpFolder.path() / "decoded";
     createRandomTextFile( decodedTestFilePath.string(), 2_Mi );
 
-    const auto command = "bzip2 -k -- '" + decodedTestFilePath.string() + "'";
-    const auto returnCode = std::system( command.c_str() );
-    if ( returnCode != 0 ) {
-        std::cerr << "Failed to compress sample file\n";
-        return 1;
-    }
     const auto encodedTestFilePath = tmpFolder.path() / "encoded-sample.bz2";
-    std::filesystem::rename( tmpFolder.path() / "decoded.bz2", encodedTestFilePath );
+    bzip2_test::compressFile( decodedTestFilePath, encodedTestFilePath );
 
     try
     {
         testSimpleOpenAndClose( encodedTestFilePath.string() );
         testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string() );
-        testStreamCRCVerification( encodedTestFilePath.string() );
-        testStreamCRCVerificationWithImportedOffsets( encodedTestFilePath.string() );
+        testMultiBlockCRCs( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testStreamCRCVerificationWithImportedOffsets( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testStreamCRCVerificationAfterSeekToStart( decodedTestFilePath.string(), encodedTestFilePath.string() );
+        testConcatenatedStreamCRCVerification( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testImportedDecodedSizesAreValidated( encodedTestFilePath.string() );
         testRejectsIndexForFirstConcatenatedStream( encodedTestFilePath.string() );
         testJoinThreadsMidStream( decodedTestFilePath.string(), encodedTestFilePath.string() );

@@ -10,11 +10,14 @@ function(addIndexedBzip2Test name)
 endfunction()
 
 
-# Calling bzip2.exe via std::system does not work for some reason on the Windows Github CI runners.
-# It quits with: bzip2: Can't open input file 'decoded': Invalid argument.
+# The reader tests use the built-in compressor. Keep the Windows guard until they are verified there.
 if(NOT WIN32)
 addIndexedBzip2Test(testBZ2Reader)
 addIndexedBzip2Test(testParallelBZ2Reader)
+if(TARGET bzip2_compression)
+    target_link_libraries(testBZ2Reader PRIVATE bzip2_compression)
+    target_link_libraries(testParallelBZ2Reader PRIVATE bzip2_compression)
+endif()
 endif()
 
 addIndexedBzip2Test(testIbzip2CLI)

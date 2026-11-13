@@ -21,6 +21,8 @@
 #include <ibzip2.cpp>
 #undef WITHOUT_MAIN
 
+#include "Bzip2TestHelpers.hpp"
+
 
 using namespace rapidgzip;
 
@@ -60,6 +62,41 @@ private:
     int m_oldFileDescriptor{ -1 };
 };
 #endif
+
+
+struct CLIInvocation
+{
+    int exitCode{ 0 };
+    std::string exceptionMessage;
+};
+
+
+/**
+ * The CLI lets reader exceptions escape and main translates them into a nonzero exit code. Keep that behavior
+ * observable here so that the CRC error message can be checked as well.
+ */
+CLIInvocation
+callIbzip2CLICapturingException( const std::vector<std::string>& arguments )
+{
+    std::vector<const char*> rawArguments;
+    rawArguments.reserve( arguments.size() + 1U );
+    rawArguments.emplace_back( "./ibzip2" );
+    for ( const auto& argument : arguments ) {
+        rawArguments.emplace_back( argument.c_str() );
+    }
+
+    StreamInterceptor coutInterceptor{ std::cout };
+    StreamInterceptor cerrInterceptor{ std::cerr };
+
+    CLIInvocation result;
+    try {
+        result.exitCode = ibzip2CLI( static_cast<int>( rawArguments.size() ), rawArguments.data() );
+    } catch ( const std::exception& exception ) {
+        result.exitCode = 1;
+        result.exceptionMessage = exception.what();
+    }
+    return result;
+}
 
 
 void
@@ -293,7 +330,39 @@ void
 testTestOption( const std::filesystem::path& dataFolder )
 {
     const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
+    const auto compressed = readFile<std::vector<uint8_t> >( compressedPath );
+
+    /* A valid file must pass the integrity test. */
     callCLI( "./ibzip2", ibzip2CLI, { "--test", compressedPath } );
+
+    const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testIbzip2CLI" );
+    const auto writeBinaryFile =
+        [&tmpFolder] ( const std::string&          name,
+                       const std::vector<uint8_t>& data )
+        {
+            const auto path = ( tmpFolder.path() / name ).string();
+            std::ofstream file( path, std::ios_base::out | std::ios_base::binary );
+            file.write( reinterpret_cast<const char*>( data.data() ),
+                        static_cast<std::streamsize>( data.size() ) );
+            return path;
+        };
+
+    auto streamCorrupted = compressed;
+    bzip2_test::corruptStreamCRC( streamCorrupted );
+    const auto streamCorruptedPath = writeBinaryFile( "stream-crc-corrupted.bz2", streamCorrupted );
+
+    const auto streamResult = callIbzip2CLICapturingException( { "--test", streamCorruptedPath } );
+    REQUIRE( streamResult.exitCode != 0 );
+    bzip2_test::requireStreamCRCError( streamResult.exceptionMessage );
+
+    /* -t is the short form of --test and must also verify the per-block CRC. */
+    auto blockCorrupted = compressed;
+    bzip2_test::corruptBlockCRC( blockCorrupted );
+    const auto blockCorruptedPath = writeBinaryFile( "block-crc-corrupted.bz2", blockCorrupted );
+
+    const auto blockResult = callIbzip2CLICapturingException( { "-t", blockCorruptedPath } );
+    REQUIRE( blockResult.exitCode != 0 );
+    bzip2_test::requireBlockCRCError( blockResult.exceptionMessage );
 }
 }  // namespace
 
