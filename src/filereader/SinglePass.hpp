@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstring>
 #include <deque>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <sstream>
@@ -155,7 +156,10 @@ public:
     [[nodiscard]] bool
     eof() const override
     {
-        return m_underlyingFileEOF && ( m_currentPosition >= m_numberOfBytesRead );
+        /* A reader-thread failure is not a clean EOF. Keep the loop trying to read so that the stored
+         * exception is rethrown instead of silently truncating the output. */
+        return !m_readerThreadFailed && m_underlyingFileEOF
+               && ( m_currentPosition >= m_numberOfBytesRead );
     }
 
     [[nodiscard]] bool
@@ -304,9 +308,23 @@ public:
 
 private:
     void
+    rethrowReaderThreadException() const
+    {
+        std::exception_ptr exception;
+        {
+            const std::lock_guard lock( m_bufferMutex );
+            exception = m_readerThreadException;
+        }
+        if ( exception ) {
+            std::rethrow_exception( exception );
+        }
+    }
+
+    void
     bufferUpTo( const uintmax_t untilOffset )
     {
         if ( m_underlyingFileEOF || ( untilOffset <= m_bufferUntilOffset ) ) {
+            rethrowReaderThreadException();
             return;
         }
 
@@ -326,12 +344,16 @@ private:
         m_bufferChanged.wait(
             lock,
             [this, untilOffset] () {
-                return m_underlyingFileEOF || ( m_buffer.size() * CHUNK_SIZE >= untilOffset );
+                return m_underlyingFileEOF || m_readerThreadFailed
+                       || ( m_buffer.size() * CHUNK_SIZE >= untilOffset );
             } );
+        lock.unlock();
+        rethrowReaderThreadException();
     }
 
     void
     readerThreadMain()
+    try
     {
         /* The smart pointer m_file must never change while this thread runs!
          * The FileReader object it points to might change, e.g., via clearerr. */
@@ -407,6 +429,15 @@ private:
             }
             m_bufferChanged.notify_all();
         }
+    } catch ( ... ) {
+        /* An exception escaping a std::thread entry function terminates the process. Store it, mark EOF
+         * so that waiting readers wake up, and rethrow on the caller thread. */
+        {
+            const std::lock_guard lock( m_bufferMutex );
+            m_readerThreadException = std::current_exception();
+            m_readerThreadFailed = true;
+        }
+        m_bufferChanged.notify_all();
     }
 
     [[nodiscard]] size_t
@@ -492,6 +523,10 @@ protected:
     std::deque<Chunk> m_reusableChunks;
 
     std::atomic<bool> m_cancelReaderThread{ false };
+
+    /** Set by the reader thread when the underlying file read throws. Guarded by m_bufferMutex. */
+    std::exception_ptr m_readerThreadException;
+    std::atomic<bool> m_readerThreadFailed{ false };
 
     /** Signaled on m_bufferUntilOffset and also m_cancelReaderThread changes. */
     std::condition_variable m_notifyReaderThread;
