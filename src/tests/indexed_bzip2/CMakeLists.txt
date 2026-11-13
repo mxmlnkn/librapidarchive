@@ -25,6 +25,7 @@ if(TARGET bzip2_compression)
 endif()
 
 addIndexedBzip2Test(testCrc32)
+addIndexedBzip2Test(testEmptySymbolMap)
 addIndexedBzip2Test(testMoveToFront)
 
 if(TARGET bzip2_compression)

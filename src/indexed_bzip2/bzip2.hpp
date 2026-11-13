@@ -424,6 +424,11 @@ private:
     {
         const auto tReadSymbolMaps = rapidgzip::now();
         readSymbolMaps();
+        /* A data block needs at least one used byte. With an empty symbol map there is no front byte for a
+         * run and no literal symbol, but the decoder would silently produce zero bytes. */
+        if ( symbolCount == 0 ) {
+            throw std::domain_error( "[BZip2 block header] The block's symbol map is empty" );
+        }
         const auto tReadSelectors = rapidgzip::now();
         readSelectors();
         const auto tReadTrees = rapidgzip::now();
