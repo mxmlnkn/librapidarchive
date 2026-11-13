@@ -331,6 +331,11 @@ public:
         if ( positiveOffset < tell() ) {
             m_atEndOfFile = false;
             m_currentPosition = positiveOffset;
+            /* Seeking forward with imported offsets may have skipped blocks and invalidated the accumulator.
+             * Seeking to the start decodes every block again and can verify the stream CRC from zero. */
+            if ( positiveOffset == 0 ) {
+                m_streamCRCVerifier.reset();
+            }
             return positiveOffset;
         }
 

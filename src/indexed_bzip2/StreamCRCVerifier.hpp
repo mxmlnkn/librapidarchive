@@ -39,6 +39,15 @@ public:
         }
     }
 
+    /** Re-enable verification after seeking back to the start of the stream. */
+    void
+    reset()
+    {
+        m_calculatedCRC = 0U;
+        m_nextDecodedOffset = 0;
+        m_lastHandledEOSOffset.reset();
+    }
+
     void
     finishStream( const size_t   eosOffsetInBits,
                   const size_t   decodedOffsetInBytes,

@@ -603,6 +603,19 @@ testStreamCRCVerificationAfterSeekToStart( const std::string& decodedTestFilePat
         bzip2_test::requireStreamCRCError( bzip2_test::readToEndAndCaptureMessage( *reader ) );
     }
 
+    /* Seeking forward, reading a block, and seeking back to the start must re-enable verification. */
+    {
+        auto reader = Policy::make( std::make_unique<BufferViewFileReader>( corrupted ), parallelization );
+        reader->setBlockOffsets( offsets );
+        const auto secondBlockDecodedOffset = std::next( offsets.begin() )->second;
+        REQUIRE_EQUAL( reader->seek( static_cast<long long int>( secondBlockDecodedOffset + 1 ) ),
+                       secondBlockDecodedOffset + 1 );
+        std::vector<char> buffer( 64 );
+        REQUIRE( reader->read( buffer.data(), buffer.size() ) > 0 );
+        REQUIRE_EQUAL( reader->seek( 0 ), 0U );
+        bzip2_test::requireStreamCRCError( bzip2_test::readToEndAndCaptureMessage( *reader ) );
+    }
+
     /* Seeking back to the start must not make a valid stream fail the stream CRC check. */
     {
         auto reader = Policy::make( std::make_unique<BufferViewFileReader>( compressed ), parallelization );
