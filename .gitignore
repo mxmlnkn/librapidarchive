@@ -177,3 +177,6 @@ latex.out/
 *.idx
 *.ilg
 *.ind
+
+*.cast
+*.asciinema.jsonl

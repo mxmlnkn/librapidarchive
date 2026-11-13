@@ -1,6 +1,6 @@
 <div align="center">
 
-![](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/librapidarchive.svg)
+![](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/librapidarchive.svg)
 
 # Parallel Random Access to bzip2, gzip (and hopefully more in the future)
 
@@ -26,7 +26,7 @@ Both are built upon the same basic architecture to enable block-parallel decodin
 [![PyPI Platforms](https://img.shields.io/badge/pypi-linux%20%7C%20macOS%20%7C%20Windows-brightgreen)](https://pypi.org/project/rapidgzip/)
 [![Downloads](https://static.pepy.tech/badge/rapidgzip/month)](https://pepy.tech/project/rapidgzip)
 
-![](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/asciinema/rapidgzip-comparison.gif)
+![](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/asciinema/rapidgzip-ibzip2-comparison.gif)
 
 </div>
 
@@ -55,7 +55,7 @@ The author's version can be found [here](<results/paper/Knespel, Brunst - 2023 -
 
 # indexed_bzip2 / ibzip2
 
-[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/master/python/indexed_bzip2/CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/HEAD/python/indexed_bzip2/CHANGELOG.md)
 [![PyPI version](https://badge.fury.io/py/indexed-bzip2.svg)](https://badge.fury.io/py/indexed-bzip2)
 [![Python Version](https://img.shields.io/pypi/pyversions/indexed_bzip2)](https://pypi.org/project/indexed-bzip2/)
 [![PyPI Platforms](https://img.shields.io/badge/pypi-linux%20%7C%20macOS%20%7C%20Windows-brightgreen)](https://pypi.org/project/indexed-bzip2/)
