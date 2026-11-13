@@ -28,6 +28,8 @@ testFileRanges()
     REQUIRE_EQUAL( parseFileRanges( "1L@2" ), ( FileRanges{ FileRange{ 2, 1, false, true } } ) );
     REQUIRE_EQUAL( parseFileRanges( "1@2KiL" ), ( FileRanges{ FileRange{ 2048, 1, true, false } } ) );
     REQUIRE_THROWS( parseFileRanges( "a" ) );
+    /* The unit factor may not wrap the parsed value. */
+    REQUIRE_THROWS( parseFileRanges( "1000000000EiB@0" ) );
 }
 
 
