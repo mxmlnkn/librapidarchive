@@ -2,6 +2,8 @@
 
 # Should be run from build folder
 
+set -o pipefail
+
 
 IBZIP2='src/tools/ibzip2'
 export IBZIP2
@@ -15,10 +17,22 @@ function commandExists() {
 }
 
 
+function computeMd5() {
+    if commandExists md5sum; then
+        md5sum | cut -d' ' -f1
+    elif commandExists md5; then
+        md5 -q
+    else
+        echoerr "Could not find md5sum or md5!"
+        return 1
+    fi
+}
+
+
 # Not using md5sum --quiet --check "$md5File" because that didn't work on Windows because of the line ending.
 function checkMd5() {
-    local realMd5=$( md5sum )
-    realMd5=${realMd5% *}
+    local realMd5
+    realMd5=$( computeMd5 ) || return 1
     expectedMd5=$( sed 's| .*||' -- "$1" )
     [[ "$realMd5" == "$expectedMd5" ]]
 }
@@ -76,14 +90,23 @@ if [[ ! -x "$IBZIP2" ]]; then
 fi
 
 
-export -f echoerr commandExists checkBz2Md5
+export -f echoerr commandExists computeMd5 checkMd5 checkBz2Md5
 
-find ../src/external/bzip2-tests -type f -name '*.bz2' -print0 | xargs -0 -n 1 -I {} bash -c 'checkBz2Md5 "$@"' bash {}
+BZIP2_TESTS_DIR=../src/external/bzip2-tests
+if [[ -d "$BZIP2_TESTS_DIR" ]]; then
+    find "$BZIP2_TESTS_DIR" -type f -name '*.bz2' -print0 | xargs -0 -I {} bash -c 'checkBz2Md5 "$@"' bash {}
+    status=$?
+else
+    echoerr "Could not find $BZIP2_TESTS_DIR, so will skip the corpus tests."
+    status=0
+fi
 # If any invocation of the command exits with a status of 255, xargs will stop immediately without reading any further input.
 # An error message is issued on stderr when this happens.
 # Exit status 123 if any invocation of the command exited with status 1-125
-if [[ $? -eq 0 ]]; then
+if [[ $status -eq 0 ]]; then
     echoerr -e '\n\e[32mAll tests successful!\e[0m'
+    exit 0
 else
     echoerr -e '\n\e[31mSome of the tests failed!\e[0m'
+    exit 1
 fi
