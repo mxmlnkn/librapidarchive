@@ -117,7 +117,7 @@ add_compile_options(
     # https://www.phoronix.com/news/GCC-fhardened-Hardening-Option
     # https://developers.redhat.com/blog/2018/03/21/compiler-and-linker-flags-gcc
     # I have not observed any performance impact for these.
-    "$<$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>:-fpie;-fstack-protector-strong>"
+    "$<$<OR:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<COMPILE_LANG_AND_ID:C,Clang,GNU>>:-fpie;-fstack-protector-strong>"
     # -fstack-clash-protection crashes the MINGW compiler https://github.com/msys2/MINGW-packages/issues/5348
     "$<$<AND:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<NOT:$<PLATFORM_ID:Windows>>>:-fstack-clash-protection>"
     # Fix error with MINGW: Fatal error: can't write 94 bytes to section .text of testCLI.cpp.obj: 'file too big'
