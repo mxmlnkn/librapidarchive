@@ -256,7 +256,7 @@ ParallelBitStringFinder<bitStringSize>::find()
 
             auto& result = m_threadResults.emplace_back();
             result.future = m_threadPool.submit(
-                [=, &result] ()
+                [this, &result, subChunkSizeInBytes, bufferOffsetInBytes, subChunkOffsetInBits] ()
                 {
                     workerMain(
                         /* sub chunk buffer */ this->m_buffer.data() + bufferOffsetInBytes,
