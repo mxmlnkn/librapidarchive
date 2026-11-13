@@ -186,10 +186,15 @@ public:
             assert( m_lastBlockEncodedSize == 0 );
             assert( m_lastBlockDecodedSize == 0 );
             m_blockToDataOffsets.emplace_back( m_lastBlockEncodedSize, m_lastBlockDecodedSize );
+            /* The sole entry is an implied end sentinel, not a data block. Without this, dataBlockCount()
+             * would report one data block for an empty stream. */
+            m_eosBlocks.push_back( m_blockToDataOffsets.back().first );
         } else if ( ( m_lastBlockEncodedSize != 0 ) || ( m_lastBlockDecodedSize != 0 ) ) {
             const auto& [lastEncodedOffset, lastDecodedOffset] = m_blockToDataOffsets.back();
             m_blockToDataOffsets.emplace_back( lastEncodedOffset + m_lastBlockEncodedSize,
                                                lastDecodedOffset + m_lastBlockDecodedSize );
+            /* The sentinel implies the last real block's size but is not found by the block finder. */
+            m_eosBlocks.push_back( m_blockToDataOffsets.back().first );
         }
 
         m_lastBlockEncodedSize = 0;
@@ -219,6 +224,10 @@ public:
     void
     setBlockOffsets( std::map<size_t, size_t> const& blockOffsets )
     {
+        if ( blockOffsets.empty() ) {
+            throw std::invalid_argument( "Block offset map must not be empty!" );
+        }
+
         const std::scoped_lock lock( m_mutex );
 
         m_blockToDataOffsets.assign( blockOffsets.begin(), blockOffsets.end() );
