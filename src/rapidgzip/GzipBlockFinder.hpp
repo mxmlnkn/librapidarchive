@@ -131,7 +131,9 @@ public:
             return { m_blockOffsets[blockIndex], GetReturnCode::SUCCESS };
         }
 
-        assert( !m_blockOffsets.empty() );
+        if ( m_blockOffsets.empty() ) {
+            return { std::nullopt, GetReturnCode::FAILURE };
+        }
         const auto blockIndexOutside = blockIndex - m_blockOffsets.size();  // >= 0
         const auto partitionIndex = firstPartitionIndex() + blockIndexOutside;
         const auto blockOffset = partitionIndex * m_spacingInBits;
@@ -169,6 +171,11 @@ public:
         const auto match = std::lower_bound( m_blockOffsets.begin(), m_blockOffsets.end(), encodedBlockOffsetInBits );
         if ( ( match != m_blockOffsets.end() ) && ( *match == encodedBlockOffsetInBits ) ) {
             return std::distance( m_blockOffsets.begin(), match );
+        }
+
+        if ( m_blockOffsets.empty() ) {
+            throw std::out_of_range( "No blocks were found for the requested offset "
+                                     + std::to_string( encodedBlockOffsetInBits ) + "!" );
         }
 
         if ( ( encodedBlockOffsetInBits > m_blockOffsets.back() )
