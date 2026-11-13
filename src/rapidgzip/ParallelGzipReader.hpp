@@ -1183,7 +1183,15 @@ public:
             return;
         }
 
-        const Finally restorePosition{ [this, oldOffset = tell()] () { seek( oldOffset ); } };
+        /* Backward seeking is intentionally disabled when index-keeping is off, including for non-seekable
+         * inputs. Restoring the old position would throw on normal return in that case. */
+        const auto canRestorePosition = m_keepIndex;
+        const Finally restorePosition{
+            [this, oldOffset = tell(), canRestorePosition] () {
+                if ( canRestorePosition ) {
+                    seek( oldOffset );
+                }
+            } };
 
         /* If it was already toggled on, simply read until the end to gather all offsets. */
         if ( !blockOffsetsComplete() ) {
