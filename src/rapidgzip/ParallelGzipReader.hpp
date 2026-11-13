@@ -985,10 +985,18 @@ public:
             return;
         }
 
-        const auto lockedWindows = index.windows->data();
-        if ( lockedWindows.second == nullptr ) {
-            throw std::invalid_argument( "Index window map must be a valid pointer!" );
-        }
+        /* Copy the shared windows before touching m_windowMap. setBlockOffsets() may be called with this
+         * reader's own gzipIndex(), in which case both maps are the same object and holding the lock while
+         * inserting would deadlock on the non-recursive mutex. This copies std::map<size_t, SharedWindow>,
+         * i.e., only pointers to constant windows, not the actual window contents and there is bearable. */
+        const auto windows =
+            [&index] () {
+                const auto lockedWindows = index.windows->data();
+                if ( lockedWindows.second == nullptr ) {
+                    throw std::invalid_argument( "Index window map must be a valid pointer!" );
+                }
+                return *lockedWindows.second;
+            }();
 
         const auto lessOffset =
             [] ( const auto& a, const auto& b ) {
@@ -1081,8 +1089,8 @@ public:
              * Bgzip indexes do not have windows because they are not needed, so we do not have to insert anything
              * into the WindowMap in that case. Bgzip indexes will be detected by the magic bytes and in that case
              * windows should never be looked up in the WindowMap in the first place. */
-            if ( const auto window = lockedWindows.second->find( checkpoint.compressedOffsetInBits );
-                 window != lockedWindows.second->end() )
+            if ( const auto window = windows.find( checkpoint.compressedOffsetInBits );
+                 window != windows.end() )
             {
                 m_windowMap->emplaceShared( checkpoint.compressedOffsetInBits, window->second );
             }

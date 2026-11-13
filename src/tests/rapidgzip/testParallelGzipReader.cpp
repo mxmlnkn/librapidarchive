@@ -777,6 +777,25 @@ testMultiThreadedUsage()
 
 
 void
+testReimportOwnIndex( const std::filesystem::path& encoded,
+                      const std::filesystem::path& decoded )
+{
+    ParallelGzipReader reader( std::make_unique<StandardFileReader>( encoded.string() ) );
+    const auto expected = readFile<std::vector<char> >( decoded.string() );
+    const auto index = reader.gzipIndex();
+
+    /* gzipIndex() shares the window map with the reader. Re-importing it must not hold the window map lock
+     * while inserting into the same map. */
+    reader.setBlockOffsets( index );
+    reader.seek( 0 );
+
+    std::vector<char> output( expected.size() );
+    REQUIRE_EQUAL( reader.read( output.data(), output.size() ), expected.size() );
+    REQUIRE( output == expected );
+}
+
+
+void
 testIndexCreation( const std::filesystem::path&    encoded,
                    const std::map<size_t, size_t>& expectedBlockOffsets )
 {
@@ -1878,6 +1897,8 @@ main( int    argc,
     testIndexCreation( rootFolder / "1B.pgzf", { { 32 * 8, 0 }, { 85 * 8, 1 } } );
     testIndexCreation( rootFolder / "1B.pigz", { { 13 * 8, 0 }, { 24 * 8, 1 } } );
     testIndexCreation( rootFolder / "1B.zlib", { { 2 * 8, 0 }, { 9 * 8, 1 } } );
+
+    testReimportOwnIndex( rootFolder / "base64-32KiB.gz", rootFolder / "base64-32KiB" );
 
     testChecksummedMultiStreamDecompression( rootFolder / "base64-32KiB.deflate",
                                              rootFolder / "base64-32KiB" );
