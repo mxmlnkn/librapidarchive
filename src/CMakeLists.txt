@@ -17,6 +17,18 @@ target_include_directories(cxxopts SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/
 target_sources(cxxopts INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include/cxxopts.hpp)
 
 
+# Vendored sources are not maintained here, so do not forward the project's hardening warnings to them.
+function(librapidarchive_silence_external_warnings target)
+    if(TARGET ${target})
+        if(MSVC)
+            target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:/w>)
+        else()
+            target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:-w>)
+        endif()
+    endif()
+endfunction()
+
+
 # rpmalloc
 
 if(LIBRAPIDARCHIVE_WITH_RPMALLOC)
@@ -33,6 +45,7 @@ if(LIBRAPIDARCHIVE_WITH_RPMALLOC)
     )
     set_target_properties(rpmalloc PROPERTIES C_STANDARD 11)
     set_target_properties(rpmalloc PROPERTIES LINKER_LANGUAGE C)
+    librapidarchive_silence_external_warnings(rpmalloc)
     # ENABLE_OVERRIDE=1 results in a segfault from _dl_start_user
     target_compile_definitions(rpmalloc PUBLIC ENABLE_OVERRIDE=0 ENABLE_ASSERTS=0)
     if(MSVC)
@@ -107,6 +120,7 @@ if(NOT LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB AND LIBRAPIDARCHIVE_USE_ZLIB_NG)
     )
     set_target_properties(zlibstatic PROPERTIES LINKER_LANGUAGE C)
     set_target_properties(zlibstatic PROPERTIES C_STANDARD 11)
+    librapidarchive_silence_external_warnings(zlibstatic)
     target_compile_definitions(zlibstatic PUBLIC ZLIB_COMPAT)
 elseif(NOT LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB)
     project(zlibstatic C)
@@ -135,6 +149,7 @@ elseif(NOT LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB)
         ${ZLIB_HOME}/trees.h
     )
     set_target_properties(zlibstatic PROPERTIES LINKER_LANGUAGE C)
+    librapidarchive_silence_external_warnings(zlibstatic)
     # It might be better to add a prefix to avoid symbol name collision when this is built statically
     # into a shared library! However, if zlib.h is not the first include, then it leads to compilation errors
     # because member calls named crc32 are also searched-and-replaced by the preprocessor but not the definition.
@@ -173,6 +188,7 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
         )
         set_target_properties(bzip2_vendored PROPERTIES C_STANDARD 11)
         set_target_properties(bzip2_vendored PROPERTIES LINKER_LANGUAGE C)
+        librapidarchive_silence_external_warnings(bzip2_vendored)
         target_link_libraries(bzip2_compression INTERFACE bzip2_vendored)
     endif()
 endif()
@@ -202,6 +218,7 @@ if(LIBRAPIDARCHIVE_WITH_ISAL)
     target_include_directories(isal INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/isa-l/include>)
 
+    librapidarchive_silence_external_warnings(isal)
     add_library(ISAL::isal ALIAS isal)
 endif()
 
