@@ -342,6 +342,15 @@ main()
     testBitStringFinder<48>( 0x314159265359ULL, { 0, 0, 0, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0, 0 }, { 24 } );
     testBitStringFinder<48>( 0x314159265359ULL, { 0, 0, 0, 0, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0, 0 }, { 32 } );
 
+    /* Short reads must not shrink the moving window below the bit string size. */
+    for ( const auto maxBytesPerRead : { 1U, 2U, 5U, 7U } ) {
+        BitStringFinder<48> bitStringFinder(
+            std::make_unique<ShortReadFileReader>(
+                std::vector<unsigned char>{ 0, 0, 0x31, 0x41, 0x59, 0x26, 0x53, 0x59, 0, 0 }, maxBytesPerRead ),
+            0x314159265359ULL, /* fileBufferSizeBytes */ 16 );
+        testBitStringFinder( std::move( bitStringFinder ), { 16 } );
+    }
+
     testBitStringFinder<48>( 0x314159265359ULL, { 0x18, 0xA0, 0xAC, 0x93, 0x29, 0xAC, 0x80 }, { 1 } );
     testBitStringFinder<48>( 0x314159265359ULL, { 0x00, 0x62, 0x82, 0xB2, 0x4C, 0xA6, 0xB2 }, { 7 } );
 
