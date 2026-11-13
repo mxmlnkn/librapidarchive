@@ -34,7 +34,7 @@ namespace bzip2
 using PackedMTF = std::array<uint64_t, 256 / 8>;
 
 
-#if defined( __ARM_NEON )
+#if defined( __ARM_NEON ) && defined( __BYTE_ORDER__ ) && ( __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
 /* Compares each of the first 64 list positions against the insert position. */
 constexpr std::array<uint8_t, 64> MTF_INDEX_BYTES =
     [] ()
@@ -255,7 +255,7 @@ moveToFront( PackedMTF&   mtf,
         return head;
     }
 #endif
-#if defined( __ARM_NEON )
+#if defined( __ARM_NEON ) && defined( __BYTE_ORDER__ ) && ( __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ )
     if ( position < 64 ) {
         auto* const data = reinterpret_cast<uint8_t*>( mtf.data() );
         const auto head = data[position];
