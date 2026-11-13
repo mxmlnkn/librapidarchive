@@ -71,7 +71,7 @@ class Build(build_ext):
                 ext.extra_compile_args += ['-flto']
 
             if supportsFlag(self.compiler, '-D_FORTIFY_SOURCE=2'):
-                ext.extra_compile_args += ['-D_FORTIFY_SOURCE=2']
+                ext.extra_compile_args += ['-D_FORTIFY_SOURCE=2', '-D_FILE_OFFSET_BITS=64']
 
             # https://github.com/cython/cython/issues/2670#issuecomment-432212671
             # https://github.com/cython/cython/issues/3405#issuecomment-596975159
