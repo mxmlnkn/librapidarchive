@@ -196,6 +196,31 @@ testWorstCaseRleExpansionWithIndex()
 
 
 void
+testParallelBufferCompression( const std::vector<uint8_t>& input,
+                               const int                   level,
+                               const size_t                parallelism )
+{
+    BufferViewFileReader inputFile( input.data(), input.size() );
+    std::vector<uint8_t> compressed;
+    size_t callbackCalls{ 0 };
+    const auto statistics = compressBzip2Parallel(
+        inputFile,
+        [&compressed, &callbackCalls] ( const std::vector<uint8_t>& data ) {
+            compressed.insert( compressed.end(), data.begin(), data.end() );
+            ++callbackCalls;
+        },
+        level,
+        parallelism );
+
+    REQUIRE_EQUAL( statistics.uncompressedBytes, input.size() );
+    REQUIRE_EQUAL( statistics.compressedBytes, compressed.size() );
+    REQUIRE( callbackCalls > 0 );
+    REQUIRE( decode( compressed, 1 ) == input );
+    REQUIRE( decode( compressed, 2 ) == input );
+}
+
+
+void
 testParallelFileCompression( const std::vector<uint8_t>& input,
                              const int                   level,
                              const size_t                parallelism )
@@ -239,9 +264,12 @@ main()
         for ( const auto parallelism : { size_t( 1 ), size_t( 2 ), size_t( 3 ) } ) {
             testParallelFileCompression( text, level, parallelism );
             testParallelFileCompression( random, level, parallelism );
+            testParallelBufferCompression( text, level, parallelism );
+            testParallelBufferCompression( random, level, parallelism );
         }
     }
     testParallelFileCompression( {}, 9, 2 );
+    testParallelBufferCompression( {}, 9, 2 );
 
     std::cout << "Tests successful: " << gnTests << " / " << ( gnTests + gnTestErrors ) << "\n";
     return gnTestErrors == 0 ? 0 : 1;

@@ -240,17 +240,14 @@ scanBzip2ChunkOffsets( const std::vector<uint8_t>& compressed )
  *        that still contain additional blocks are reported and those inner offsets are omitted.
  */
 [[nodiscard]] inline Bzip2CompressionResult
-compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
-                       const int                                    outputFileDescriptor,
-                       const int                                    level,
-                       const size_t                                 parallelism,
-                       const std::function<void( size_t, size_t )>& onBlockOffset = {} )
+compressBzip2Parallel( rapidgzip::FileReader&                                    inputFile,
+                       const std::function<void( const std::vector<uint8_t>& )>& writeData,
+                       const int                                                 level,
+                       const size_t                                              parallelism,
+                       const std::function<void( size_t, size_t )>&              onBlockOffset = {} )
 {
     if ( ( level < 1 ) || ( level > 9 ) ) {
         throw std::invalid_argument( "bzip2 compression level must be in the range 1..9." );
-    }
-    if ( outputFileDescriptor < 0 ) {
-        throw std::invalid_argument( "A valid output file descriptor is required for bzip2 compression." );
     }
 
     const auto blockSize = ( static_cast<size_t>( level ) * 100000U - 19U ) * 4U / 5U;
@@ -264,20 +261,6 @@ compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
     };
     std::deque<PendingStream> pending;
     Bzip2CompressionResult result;
-
-    const auto writeData =
-        [outputFileDescriptor, &result] ( const std::vector<uint8_t>& data ) {
-            const auto errorCode = rapidgzip::writeAllToFd( outputFileDescriptor, data.data(), data.size() );
-            if ( errorCode == EPIPE ) {
-                throw rapidgzip::BrokenPipeException();
-            }
-            if ( errorCode != 0 ) {
-                throw std::runtime_error( "Failed to write compressed data because of: "
-                                          + std::string( strerror( errorCode ) )
-                                          + " (" + std::to_string( errorCode ) + ")" );
-            }
-            result.compressedBytes += data.size();
-        };
 
     /* Scan the compressed chunk while it is still in memory. This records the first data block and the final
      * EOS block, whose decoded offsets are known from the chunk boundaries, without reopening the output or
@@ -312,6 +295,7 @@ compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
                 }
             }
             writeData( data );
+            result.compressedBytes += data.size();
         };
 
     std::vector<uint8_t> block( blockSize );
@@ -373,6 +357,7 @@ compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
             }
         }
         writeData( emptyStream );
+        result.compressedBytes += emptyStream.size();
     }
 
     /* A scanned index ends with the physical file end, which bounds the last block. */
@@ -381,6 +366,39 @@ compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
     }
 
     return result;
+}
+
+
+/**
+ * Writes the compressed stream to a file descriptor.
+ */
+[[nodiscard]] inline Bzip2CompressionResult
+compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
+                       const int                                    outputFileDescriptor,
+                       const int                                    level,
+                       const size_t                                 parallelism,
+                       const std::function<void( size_t, size_t )>& onBlockOffset = {} )
+{
+    if ( outputFileDescriptor < 0 ) {
+        throw std::invalid_argument( "A valid output file descriptor is required for bzip2 compression." );
+    }
+
+    return compressBzip2Parallel(
+        inputFile,
+        [outputFileDescriptor] ( const std::vector<uint8_t>& data ) {
+            const auto errorCode = rapidgzip::writeAllToFd( outputFileDescriptor, data.data(), data.size() );
+            if ( errorCode == EPIPE ) {
+                throw rapidgzip::BrokenPipeException();
+            }
+            if ( errorCode != 0 ) {
+                throw std::runtime_error( "Failed to write compressed data because of: "
+                                          + std::string( strerror( errorCode ) )
+                                          + " (" + std::to_string( errorCode ) + ")" );
+            }
+        },
+        level,
+        parallelism,
+        onBlockOffset );
 }
 }  // namespace indexed_bzip2
 
