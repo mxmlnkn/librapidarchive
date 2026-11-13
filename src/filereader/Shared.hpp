@@ -147,10 +147,11 @@ private:
     SharedFileReader( const SharedFileReader& other ) :
         m_statistics( other.m_statistics ),
         m_sharedFile( other.m_sharedFile ),
-        m_fileDescriptor( other.m_fileDescriptor ),
+        m_fileDescriptor( other.m_fileDescriptor.load() ),
         m_mutex( other.m_mutex ),
         m_fileSizeBytes( other.m_fileSizeBytes ),
-        m_currentPosition( other.m_currentPosition )
+        m_currentPosition( other.m_currentPosition ),
+        m_usePread( other.m_usePread )
     {}
 
 public:
@@ -162,6 +163,7 @@ public:
          * classes using it. It will be closed by the last destructor @see deleter set in the constructor. */
         const auto lock = getLock();
         m_sharedFile.reset();
+        m_fileDescriptor.store( -1 );
     }
 
     [[nodiscard]] bool
@@ -189,8 +191,12 @@ public:
     [[nodiscard]] int
     fileno() const override
     {
-        if ( m_fileDescriptor >= 0 ) {
-            return m_fileDescriptor;
+        if ( closed() ) {
+            throw std::invalid_argument( "Invalid or closed SharedFileReader has no associated fileno!" );
+        }
+
+        if ( const auto fileDescriptor = m_fileDescriptor.load(); fileDescriptor >= 0 ) {
+            return fileDescriptor;
         }
 
         const auto lock = getLock();
@@ -209,11 +215,10 @@ public:
     [[nodiscard]] std::optional<size_t>
     size() const override
     {
+        const auto lock = getLock();
         if ( m_fileSizeBytes.has_value() ) {
             return m_fileSizeBytes;
         }
-
-        const auto lock = getLock();
         return m_sharedFile ? m_sharedFile->size() : std::nullopt;
     }
 
@@ -221,13 +226,20 @@ public:
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
+        if ( closed() ) {
+            throw std::invalid_argument( "Cannot seek in a closed SharedFileReader!" );
+        }
+
         if ( ( origin == SEEK_END ) && !size().has_value() ) {
             const auto fileLock = getLock();
+            if ( !m_sharedFile ) {
+                throw std::invalid_argument( "Cannot seek in a closed SharedFileReader!" );
+            }
             m_currentPosition = m_sharedFile->seek( offset, origin );
             /* File size must have become available when seeking relative to end. */
             m_fileSizeBytes = m_sharedFile->size();
-            if ( const auto fileSize = size(); fileSize ) {
-                m_currentPosition = std::min( m_currentPosition, *fileSize );
+            if ( m_fileSizeBytes ) {
+                m_currentPosition = std::min( m_currentPosition, *m_fileSizeBytes );
             }
         } else {
             m_currentPosition = effectiveOffset( offset, origin );
@@ -266,7 +278,7 @@ public:
         size_t nBytesRead{ 0 };
     #if defined(__linux__) || defined(__APPLE__)
         const auto fileSize = size();
-        if ( m_usePread && ( m_fileDescriptor >= 0 ) && fileSize.has_value() && sharedFile->seekable() ) {
+        if ( m_usePread && ( m_fileDescriptor.load() >= 0 ) && fileSize.has_value() && sharedFile->seekable() ) {
             /* This statistic only approximates the actual pread behavior. The OS can probably reorder
              * concurrent pread calls and we would have to enclose pread itself in a lock, which defeats
              * the purpose of pread for speed. */
@@ -442,7 +454,7 @@ private:
     const std::shared_ptr<AccessStatistics> m_statistics;
 
     std::shared_ptr<FileReader> m_sharedFile;
-    int m_fileDescriptor{ -1 };
+    std::atomic<int> m_fileDescriptor{ -1 };
     const std::shared_ptr<std::mutex> m_mutex;
 
     /** This is only for performance to avoid querying the file. */

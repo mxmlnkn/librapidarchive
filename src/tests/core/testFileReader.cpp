@@ -15,6 +15,7 @@
 #include <filereader/Buffered.hpp>
 #include <filereader/BufferView.hpp>
 #include <filereader/FileReader.hpp>
+#include <filereader/Shared.hpp>
 #include <filereader/Standard.hpp>
 
 
@@ -614,6 +615,38 @@ testEmptyInMemoryBufferedFileReaderIsNotClosed()
 }
 
 
+void
+testSharedFileReaderCloneAndClose( const std::string& fileName )
+{
+    auto reader = std::make_unique<SharedFileReader>( std::make_unique<StandardFileReader>( fileName ) );
+
+    reader->setUsePread( false );
+    const auto clone = reader->clone();
+    auto* const sharedClone = dynamic_cast<SharedFileReader*>( clone.get() );
+    REQUIRE( sharedClone != nullptr );
+    REQUIRE( !sharedClone->usePread() );
+
+    reader->close();
+    REQUIRE( reader->closed() );
+
+    bool filenoThrew{ false };
+    try {
+        static_cast<void>( reader->fileno() );
+    } catch ( const std::invalid_argument& ) {
+        filenoThrew = true;
+    }
+    REQUIRE( filenoThrew );
+
+    bool seekThrew{ false };
+    try {
+        static_cast<void>( reader->seek( 0, SEEK_END ) );
+    } catch ( const std::invalid_argument& ) {
+        seekThrew = true;
+    }
+    REQUIRE( seekThrew );
+}
+
+
 int
 main()
 {
@@ -670,6 +703,7 @@ main()
     testBufferedFileReaderRetainsCacheOnPipe();
 #endif
 
+    testSharedFileReaderCloneAndClose( tmpFileName );
     testBufferViewFileReaderNullBuffer();
     testBufferViewFileReaderRejectsSeeksOutsideRange();
     testEmptyInMemoryBufferedFileReaderIsNotClosed();
