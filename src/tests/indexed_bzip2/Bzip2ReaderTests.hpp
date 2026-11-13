@@ -374,6 +374,44 @@ testIncompleteIndexIsRejected( const std::string& encodedTestFilePath,
         offsets.erase( offsets.begin() );
         expectRejected( offsets );
     }
+
+    /* Renumbering the decoded offsets hides the missing first block from the decoded-offset check. The first
+     * compressed offset is then not the one directly after the stream header and must be rejected. */
+    {
+        auto offsets = complete;
+        const auto firstBlockDecodedSize = std::next( offsets.begin() )->second - offsets.begin()->second;
+        offsets.erase( offsets.begin() );
+        for ( auto& [compressedOffset, decodedOffset] : offsets ) {
+            static_cast<void>( compressedOffset );
+            REQUIRE( decodedOffset >= firstBlockDecodedSize );
+            decodedOffset -= firstBlockDecodedSize;
+        }
+        REQUIRE_EQUAL( offsets.begin()->second, size_t( 0 ) );
+        expectRejected( offsets );
+    }
+
+    /* A single EOS entry from anywhere in a nonempty stream is not the canonical empty-stream index. */
+    {
+        const std::map<size_t, size_t> eosOnly{ { std::prev( complete.end(), 2 )->first, 0 } };
+        expectRejected( eosOnly );
+    }
+
+    /* The canonical empty-stream index may use zero or the offset directly after the stream header. */
+    {
+        const std::vector<uint8_t> emptyStream = {
+            0x42, 0x5a, 0x68, 0x39, 0x17, 0x72, 0x45, 0x38, 0x50, 0x90, 0x00, 0x00, 0x00, 0x00
+        };
+        for ( const auto emptyOffset : { size_t( 0 ), size_t( 32 ) } ) {
+            auto reader = Policy::make( std::make_unique<BufferViewFileReader>( emptyStream ), parallelization );
+            bool threw{ false };
+            try {
+                reader->setBlockOffsets( { { emptyOffset, 0 } } );
+            } catch ( const std::exception& ) {
+                threw = true;
+            }
+            REQUIRE( !threw );
+        }
+    }
 }
 
 

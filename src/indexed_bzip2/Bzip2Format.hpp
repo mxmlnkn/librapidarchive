@@ -53,7 +53,12 @@ isEmptyBzip2BlockMap( const std::map<std::size_t, std::size_t>& offsets,
         return compressedOffset == 0;
     }
 
-    const auto magicOffset = compressedOffset == 0 ? std::size_t{ 32 } : compressedOffset;
+    /* Only the stream header end or zero as its alias may identify the empty stream. Accepting an arbitrary EOS
+     * offset would also accept the final EOS of a nonempty stream as a one-entry empty-stream index. */
+    const auto magicOffset = ( MAGIC_BYTES_BZ2.size() + 1 ) * 8U;
+    if ( ( compressedOffset != 0 ) && ( compressedOffset != magicOffset ) ) {
+        return false;
+    }
     if ( magicOffset + MAGIC_BITS_SIZE > *compressedBits ) {
         return false;
     }
@@ -90,6 +95,14 @@ validateBzip2BlockOffsets( const std::map<std::size_t, std::size_t>& offsets,
         if ( it->second < std::prev( it )->second ) {
             throw std::invalid_argument( "Decoded block offsets must be non-decreasing!" );
         }
+    }
+
+    /* A complete index starts with the first data block directly after the stream header. Renumbering the
+     * decoded offsets of an index whose first block was removed would otherwise pass the checks above. */
+    constexpr auto STREAM_HEADER_SIZE_IN_BITS = ( MAGIC_BYTES_BZ2.size() + 1 ) * 8U;
+    if ( !emptyStream && ( offsets.begin()->first != STREAM_HEADER_SIZE_IN_BITS ) ) {
+        throw std::invalid_argument( "The first block offset must point to the block directly after the "
+                                     "stream header!" );
     }
 
     if ( bitReader.seekable() && ( offsets.size() >= 2 ) ) {
