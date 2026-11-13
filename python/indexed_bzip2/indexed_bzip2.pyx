@@ -232,6 +232,8 @@ cdef class _IndexedBzip2FileParallel():
 
         if not isinstance(parallelization, int):
             raise TypeError(f"Parallelization argument must be an integer not '{parallelization}'!")
+        if isinstance(parallelization, int) and parallelization < 0:
+            raise ValueError(f"Parallelization argument must not be negative, got {parallelization}!")
 
         if isinstance(file, int):
             self.bz2reader = new ParallelBZ2Reader(<int>file, <int>parallelization)
@@ -354,6 +356,8 @@ cdef class _IndexedBzip2FileParallel():
 
 class IndexedBzip2FileRaw(io.RawIOBase):
     def __init__(self, filename: FileOrPath, parallelization: int = 1) -> None:
+        if isinstance(parallelization, int) and parallelization < 0:
+            raise ValueError(f"Parallelization argument must not be negative, got {parallelization}!")
         self.bz2reader = _IndexedBzip2File(filename) if parallelization == 1 \
                          else _IndexedBzip2FileParallel(filename, parallelization)
         self.name = filename
@@ -385,7 +389,8 @@ class IndexedBzip2FileRaw(io.RawIOBase):
         if self.closed:
             return
         super().close()
-        self.bz2reader.close()
+        if getattr(self, 'bz2reader', None) is not None:
+            self.bz2reader.close()
 
     def readable(self) -> bool:
         return True
@@ -393,6 +398,8 @@ class IndexedBzip2FileRaw(io.RawIOBase):
 
 class IndexedBzip2File(io.BufferedReader):
     def __init__(self, filename: FileOrPath, parallelization: int = 1) -> None:
+        if isinstance(parallelization, int) and parallelization < 0:
+            raise ValueError(f"Parallelization argument must not be negative, got {parallelization}!")
         fobj = IndexedBzip2FileRaw(filename, parallelization)
         self.bz2reader = fobj.bz2reader
 

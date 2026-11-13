@@ -764,6 +764,76 @@ def testUnclosedFileAtInterpreterShutdown():
     assert result.returncode == 0, result.stderr
 
 
+def testNegativeParallelizationIsRejected():
+    with tempfile.NamedTemporaryFile(suffix='.bz2') as file:
+        file.write(bz2.compress(b'x' * 1000, compresslevel=1))
+        file.flush()
+        for parallelization in (-1, -2):
+            try:
+                reader = IndexedBzip2File(file.name, parallelization=parallelization)
+            except ValueError:
+                pass
+            else:
+                reader.close()
+                raise AssertionError(
+                    f"Negative parallelization {parallelization} was accepted instead of raising ValueError"
+                )
+
+        try:
+            reader = IndexedBzip2File(file.name, parallelization=None)
+        except TypeError as exception:
+            assert 'must be an integer' in str(exception), exception
+        else:
+            reader.close()
+            raise AssertionError("A non-int parallelization was accepted instead of raising TypeError")
+
+        try:
+            reader = rapidgzip.IndexedBzip2File(file.name, parallelization=-1)
+        except ValueError:
+            pass
+        else:
+            reader.close()
+            raise AssertionError("rapidgzip.IndexedBzip2File accepted a negative parallelization")
+
+
+def testConversionFailureDoesNotLeak():
+    class RaisingIndex:
+        def __index__(self):
+            raise ValueError("bad index")
+
+    bad = RaisingIndex()
+
+    class FileWithRaisingTell(io.BytesIO):
+        def tell(self):
+            return bad
+
+    before = sys.getrefcount(bad)
+    for _ in range(20):
+        try:
+            RapidgzipFile(FileWithRaisingTell(b'data'))
+        except (TypeError, ValueError):
+            pass
+    after = sys.getrefcount(bad)
+    assert after == before, f"A failed conversion leaked a reference: {before} -> {after}"
+
+
+class NoneTellFile(io.BytesIO):
+    def tell(self):
+        return None
+
+
+def testInvalidFileObjectConversions():
+    compressed = bz2.compress(b'x' * 1000, compresslevel=1)
+    for readerFactory in (lambda file: RapidgzipFile(file), lambda file: IndexedBzip2File(file)):
+        try:
+            reader = readerFactory(NoneTellFile(compressed))
+        except (TypeError, ValueError) as exception:
+            assert 'convert' in str(exception) or 'integer' in str(exception), exception
+        else:
+            reader.close()
+            raise AssertionError("A file object whose tell() returns None was accepted without an exception")
+
+
 def testIndexImportExport():
     """Exercise bzip2 index export/import for the serial and parallel readers and all index file kinds."""
     data = bytes(range(256)) * 10000
@@ -807,6 +877,9 @@ if __name__ == '__main__':
 
     testFileTypeAPI()
     testDetermineFileTypeKeepsFileDescriptor()
+    testNegativeParallelizationIsRejected()
+    testInvalidFileObjectConversions()
+    testConversionFailureDoesNotLeak()
     testNonSeekableFileObjectWithoutFileno()
     testNoReferenceLeak()
     testPythonExceptionIsPreserved()

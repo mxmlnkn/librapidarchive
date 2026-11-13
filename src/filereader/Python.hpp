@@ -20,6 +20,34 @@
 
 namespace rapidgzip
 {
+[[nodiscard]] inline std::string
+pythonErrorMessage()
+{
+    PyObject* type{ nullptr };
+    PyObject* value{ nullptr };
+    PyObject* traceback{ nullptr };
+    PyErr_Fetch( &type, &value, &traceback );
+    PyErr_NormalizeException( &type, &value, &traceback );
+
+    std::string message;
+    if ( value != nullptr ) {
+        if ( auto* const string = PyObject_Str( value ); string != nullptr ) {
+            Py_ssize_t size{ 0 };
+            if ( const auto* const utf8 = PyUnicode_AsUTF8AndSize( string, &size ); utf8 != nullptr ) {
+                message.assign( utf8, static_cast<size_t>( size ) );
+            }
+            Py_DECREF( string );
+        }
+    }
+
+    Py_XDECREF( type );
+    Py_XDECREF( value );
+    Py_XDECREF( traceback );
+    PyErr_Clear();
+    return message;
+}
+
+
 template<typename Value,
          typename std::enable_if_t<std::is_integral_v<Value> && std::is_signed_v<Value>, void*> = nullptr>
 [[nodiscard]] PyObject*
@@ -61,14 +89,18 @@ template<typename Result>
 [[nodiscard]] Result
 fromPyObject( PyObject* pythonObject );
 
+
 /* For "long" objects, see https://docs.python.org/3/c-api/long.html */
 
 template<>
 [[nodiscard]] long long int
 fromPyObject<long long int>( PyObject* pythonObject )
 {
-    /** @todo How to do better error reporting if the object can't be converted to the specified type? */
-    return PyLong_AsLongLong( pythonObject );
+    const auto value = PyLong_AsLongLong( pythonObject );
+    if ( ( value == -1 ) && PyErr_Occurred() ) {
+        throw std::invalid_argument( "Failed to convert Python object to an integer: " + pythonErrorMessage() );
+    }
+    return value;
 }
 
 
@@ -76,7 +108,12 @@ template<>
 [[nodiscard]] size_t
 fromPyObject<size_t>( PyObject* pythonObject )
 {
-    return PyLong_AsSize_t( pythonObject );
+    const auto value = PyLong_AsSize_t( pythonObject );
+    if ( ( value == static_cast<size_t>( -1 ) ) && PyErr_Occurred() ) {
+        throw std::invalid_argument( "Failed to convert Python object to a non-negative integer: "
+                                     + pythonErrorMessage() );
+    }
+    return value;
 }
 
 /* For bool objects, see https://docs.python.org/3/c-api/long.html */
@@ -85,7 +122,11 @@ template<>
 [[nodiscard]] bool
 fromPyObject<bool>( PyObject* pythonObject )
 {
-    return pythonObject == Py_True;
+    const auto value = PyObject_IsTrue( pythonObject );
+    if ( value < 0 ) {
+        throw std::invalid_argument( "Failed to convert Python object to a boolean: " + pythonErrorMessage() );
+    }
+    return value != 0;
 }
 
 
@@ -94,34 +135,6 @@ template<>
 fromPyObject<PyObject*>( PyObject* pythonObject )
 {
     return pythonObject;
-}
-
-
-[[nodiscard]] inline std::string
-pythonErrorMessage()
-{
-    PyObject* type{ nullptr };
-    PyObject* value{ nullptr };
-    PyObject* traceback{ nullptr };
-    PyErr_Fetch( &type, &value, &traceback );
-    PyErr_NormalizeException( &type, &value, &traceback );
-
-    std::string message;
-    if ( value != nullptr ) {
-        if ( auto* const string = PyObject_Str( value ); string != nullptr ) {
-            Py_ssize_t size{ 0 };
-            if ( const auto* const utf8 = PyUnicode_AsUTF8AndSize( string, &size ); utf8 != nullptr ) {
-                message.assign( utf8, static_cast<size_t>( size ) );
-            }
-            Py_DECREF( string );
-        }
-    }
-
-    Py_XDECREF( type );
-    Py_XDECREF( value );
-    Py_XDECREF( traceback );
-    PyErr_Clear();
-    return message;
 }
 
 
@@ -201,9 +214,14 @@ callPyObject( PyObject* pythonObject,
     } else if constexpr ( std::is_same_v<Result, PyObject*> ) {
         return result;
     } else {
-        const auto converted = fromPyObject<Result>( result );
-        Py_DECREF( result );
-        return converted;
+        try {
+            const auto converted = fromPyObject<Result>( result );
+            Py_DECREF( result );
+            return converted;
+        } catch ( ... ) {
+            Py_DECREF( result );
+            throw;
+        }
     }
 }
 
@@ -234,6 +252,8 @@ public:
                 seek( 0, SEEK_SET );
             }
         } catch ( ... ) {
+            /* The ScopedGILLock is destroyed before this handler runs. Reacquire the GIL for the decrefs. */
+            const ScopedGILLock gilLock;
             /* The destructor is not called for a throwing constructor, so release the attributes acquired
              * before the exception here. */
             releaseNonLifetimeAttributes();

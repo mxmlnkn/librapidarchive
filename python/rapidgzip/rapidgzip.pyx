@@ -243,6 +243,8 @@ cdef class _IndexedBzip2FileParallel():
 
         if not isinstance(parallelization, int):
             raise TypeError(f"Parallelization argument must be an integer not '{parallelization}'!")
+        if parallelization < 0:
+            raise ValueError(f"Parallelization argument must not be negative, got {parallelization}!")
 
         if isinstance(file, int):
             self.bz2reader = new ParallelBZ2Reader(<int>file, <int>parallelization)
@@ -382,7 +384,8 @@ class IndexedBzip2FileRaw(io.RawIOBase):
         if self.closed:
             return
         super().close()
-        self.bz2reader.close()
+        if getattr(self, 'bz2reader', None) is not None:
+            self.bz2reader.close()
 
     def readable(self) -> bool:
         return True
@@ -493,6 +496,8 @@ cdef class _RapidgzipFile():
 
         if not isinstance(parallelization, int):
             raise TypeError(f"Parallelization argument must be an integer not '{parallelization}'!")
+        if parallelization < 0:
+            raise ValueError(f"Parallelization argument must not be negative, got {parallelization}!")
 
         if isinstance(file, int):
             self.gzipReader = new ParallelGzipReader[RapidgzipChunkData](
