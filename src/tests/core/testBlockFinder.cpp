@@ -7,14 +7,36 @@
 #include <core/ParallelBitStringFinder.hpp>
 #include <core/TestHelpers.hpp>
 #include <core/common.hpp>
+#include <stdexcept>
+#include <string>
 
 
 using namespace rapidgzip;
 
 
+void
+testExceptionPropagation()
+{
+    using RawFinder = ParallelBitStringFinder<8>;
+    auto rawFinder = std::make_unique<RawFinder>(
+        std::make_unique<ThrowingFileReader>( 100 ), 0xAA, /* parallelization */ 2 );
+    BlockFinder<RawFinder> blockFinder( std::move( rawFinder ) );
+
+    bool threw{ false };
+    try {
+        static_cast<void>( blockFinder.get( 0, 10 ) );
+    } catch ( const std::runtime_error& exception ) {
+        threw = std::string( exception.what() ).find( "Simulated read failure" ) != std::string::npos;
+    }
+    REQUIRE( threw );
+}
+
+
 int
 main()
 {
+    testExceptionPropagation();
+
     /* Enough matches so that the finder does not finalize before the restart. */
     constexpr size_t MATCH_COUNT = 100'000;
     const std::vector<uint8_t> buffer( MATCH_COUNT, 0xAA );

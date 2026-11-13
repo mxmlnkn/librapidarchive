@@ -137,7 +137,14 @@ public:
             m_changed.notify_all();
         }
 
-        return m_blockOffsets.get( blockNumber, timeoutInSeconds );
+        const auto result = m_blockOffsets.get( blockNumber, timeoutInSeconds );
+        {
+            const std::scoped_lock lock( m_mutex );
+            if ( m_exception ) {
+                std::rethrow_exception( m_exception );
+            }
+        }
+        return result;
     }
 
     /** @return Index for the block at the requested offset. */
@@ -164,6 +171,10 @@ public:
     {
         /* First we need to cancel the asynchronous block finder thread. */
         stopThreads();
+        {
+            const std::scoped_lock lock( m_mutex );
+            m_exception = nullptr;
+        }
         m_rawBlockFinder = {};
 
         /* Setting the results also finalizes them. No locking necessary because all threads have shut down. */
@@ -173,6 +184,7 @@ public:
 private:
     void
     blockFinderMain()
+    try
     {
         while ( !m_cancelThread ) {
             std::unique_lock lock( m_mutex );
@@ -205,11 +217,20 @@ private:
         }
 
         /* Do not finalize on cancellation. A later startThreads() must be able to resume the finder. */
+    } catch ( ... ) {
+        /* An exception escaping a std::thread entry function terminates the process. Store it and wake all
+         * getters so that they can rethrow it on the caller thread. */
+        {
+            const std::scoped_lock lock{ m_mutex };
+            m_exception = std::current_exception();
+        }
+        m_blockOffsets.finalize();
     }
 
 private:
     mutable std::mutex m_mutex;  /**< Only variables accessed by the asynchronous main loop need to be locked. */
     std::condition_variable m_changed;
+    std::exception_ptr m_exception;
 
     StreamedResults<size_t> m_blockOffsets;
 
