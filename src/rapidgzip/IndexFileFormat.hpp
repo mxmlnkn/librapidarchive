@@ -650,8 +650,9 @@ writeGzipIndex( const GzipIndex&                                              in
     const auto hasValidWindow =
         [&index, windowSizeInBytes] ( const auto& checkpoint )
         {
-            if ( checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U ) {
-                /* We do not need a window for the very last offset. */
+            if ( ( checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U )
+                 || ( checkpoint.uncompressedOffsetInBytes == index.uncompressedSizeInBytes ) ) {
+                /* The writer skips checkpoints at the decoded end, so they need no window. */
                 return true;
             }
             const auto window = index.windows->get( checkpoint.compressedOffsetInBits );
@@ -691,7 +692,9 @@ writeGzipIndex( const GzipIndex&                                              in
         writeValue( static_cast<uint64_t>( checkpoint.uncompressedOffsetInBytes ) );
         writeValue( static_cast<uint8_t>( bits == 0 ? 0 : 8 - bits ) );
 
-        const auto isLastWindow = checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U;
+        const auto isLastWindow =
+            ( checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U )
+            || ( checkpoint.uncompressedOffsetInBytes == index.uncompressedSizeInBytes );
         const auto result = index.windows->get( checkpoint.compressedOffsetInBits );
         if ( !result && !isLastWindow ) {
             throw std::logic_error( "Did not find window to offset " +
@@ -1013,8 +1016,9 @@ writeGzipIndex( const GzipIndex&                                              in
     const auto hasValidWindow =
         [&index, windowSizeInBytes] ( const auto& checkpoint )
         {
-            if ( checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U ) {
-                /* We do not need a window for the very last offset. */
+            if ( ( checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U )
+                 || ( checkpoint.uncompressedOffsetInBytes == index.uncompressedSizeInBytes ) ) {
+                /* The writer skips checkpoints at the decoded end, so they need no window. */
                 return true;
             }
             const auto window = index.windows->get( checkpoint.compressedOffsetInBits );
@@ -1043,7 +1047,10 @@ writeGzipIndex( const GzipIndex&                                              in
     writeValue( /* Number of Expected Seek Points */ static_cast<uint64_t>( checkpointCount ) );
 
     for ( const auto& checkpoint : checkpoints ) {
-        if ( checkpoint.compressedOffsetInBits == index.compressedSizeInBytes * 8U ) {
+        /* Use the same predicate as the checkpoint count above. An empty trailing gzip member starts at an
+         * uncompressed offset equal to the total size but before the physical end of the file. It must not be
+         * written, otherwise readers consume one record too few and misparse the following field. */
+        if ( checkpoint.uncompressedOffsetInBytes == index.uncompressedSizeInBytes ) {
             continue;
         }
 
