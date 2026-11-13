@@ -220,6 +220,11 @@ checkHuffmanCodeLengths( const CodeLengths& codeLengths )
 {
     size_t virtualLeafCount{ 0 };
     for ( const auto codeLength : codeLengths ) {
+        /* Reject out-of-range lengths before shifting. Otherwise MAX_CODE_LENGTH - codeLength is negative
+         * and the shift is undefined behavior. */
+        if ( codeLength > MAX_CODE_LENGTH ) {
+            return false;
+        }
         virtualLeafCount += codeLength > 0 ? 1U << ( MAX_CODE_LENGTH - codeLength ) : 0U;
     }
 
