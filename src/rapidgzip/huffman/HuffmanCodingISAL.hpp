@@ -39,6 +39,9 @@ public:
     initializeFromLengths( const VectorView<uint8_t>& codeLengths )
     {
         m_error = checkHuffmanCodeLengths<MAX_CODE_LENGTH>( codeLengths ) ? Error::NONE : Error::INVALID_CODE_LENGTHS;
+        if ( m_error != Error::NONE ) {
+            return m_error;
+        }
 
         std::array<huff_code, LIT_LEN_ELEMS> lit_and_dist_huff{};
         std::array<uint16_t, MAX_LIT_LEN_COUNT> lit_count{};

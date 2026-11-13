@@ -21,6 +21,9 @@
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCachedSeparateLengths.hpp>
 #include <rapidgzip/huffman/HuffmanCodingShortBitsCachedDeflate.hpp>
 #include <rapidgzip/huffman/HuffmanCodingShortBitsMultiCached.hpp>
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+#include <rapidgzip/huffman/HuffmanCodingISAL.hpp>
+#endif
 
 
 using namespace rapidgzip;
@@ -243,9 +246,25 @@ testSeparateLengthsMaxSymbolCount()
 }
 
 
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+void
+testIsalHuffmanRejectsOutOfRangeCodeLengths()
+{
+    /* Out-of-range lengths must not be used to index the fixed-size frequency arrays. */
+    std::vector<uint8_t> literalLengths( deflate::HuffmanCodingISAL::LIT_LEN, 0 );
+    literalLengths[0] = 23;
+    deflate::HuffmanCodingISAL literalCoding;
+    REQUIRE( literalCoding.initializeFromLengths( literalLengths ) != Error::NONE );
+}
+#endif
+
+
 int
 main()
 {
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+    testIsalHuffmanRejectsOutOfRangeCodeLengths();
+#endif
     testSeparateLengthsMaxSymbolCount();
     static constexpr auto MAX_CODE_LENGTH = 15;
     static constexpr auto MAX_SYMBOL_COUNT = 512;
