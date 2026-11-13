@@ -13,6 +13,7 @@
 #include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
 #include <rapidgzip/IndexFileFormat.hpp>
+#include <rapidgzip/ParallelGzipReader.hpp>
 
 
 using namespace rapidgzip;
@@ -132,6 +133,50 @@ testIndexReadWrite( const std::filesystem::path& compressedPath,
         std::cerr << "Caught exception: " << exception.what() << "\n";
         REQUIRE( false );
     }
+}
+
+
+void
+testGztoolCheckpointAtDecodedEnd()
+{
+    /* The start of a trailing empty member has a decoded offset equal to the total uncompressed size while
+     * still having a compressed offset before the file end. gztool cannot represent that seek point, so the
+     * writer drops it. The checkpoint count and the written records have to use the same predicate. */
+    GzipIndex index;
+    index.compressedSizeInBytes = 1000;
+    index.uncompressedSizeInBytes = 100;
+    index.windowSizeInBytes = 32_Ki;
+    index.hasLineOffsets = false;
+    index.windows = std::make_shared<WindowMap>();
+    index.checkpoints.reserve( 2 );
+
+    auto& first = index.checkpoints.emplace_back();
+    first.compressedOffsetInBits = 32;
+    first.uncompressedOffsetInBytes = 0;
+    index.windows->emplace( first.compressedOffsetInBits, {}, CompressionType::NONE );
+
+    auto& trailingEmptyMember = index.checkpoints.emplace_back();
+    trailingEmptyMember.compressedOffsetInBits = 500 * 8U;
+    trailingEmptyMember.uncompressedOffsetInBytes = index.uncompressedSizeInBytes;
+    /* No window entry: the writer skips this checkpoint, so it must not require one. */
+
+    std::vector<char> indexData;
+    gztool::writeGzipIndex(
+        index,
+        [&indexData] ( const void* buffer, size_t size )
+        {
+            const auto* const bytes = reinterpret_cast<const char*>( buffer );
+            indexData.insert( indexData.end(), bytes, bytes + size );
+        } );
+
+    const std::vector<uint8_t> archive( index.compressedSizeInBytes );
+    const auto rereadIndex = readGzipIndex(
+        std::make_unique<BufferViewFileReader>( indexData ),
+        std::make_unique<BufferViewFileReader>( archive ) );
+
+    REQUIRE_EQUAL( rereadIndex.uncompressedSizeInBytes, index.uncompressedSizeInBytes );
+    REQUIRE_EQUAL( rereadIndex.checkpoints.size(), size_t( 1 ) );
+    REQUIRE( rereadIndex.checkpoints.front() == first );
 }
 
 
@@ -350,6 +395,7 @@ main( int    argc,
                    rootFolder / "base64-256KiB.bgz.gzi",
                    0, 4U );
 
+    testGztoolCheckpointAtDecodedEnd();
     testMalformedIndexSizes( rootFolder );
     testCraftedIndexedGzipIndexes();
 
