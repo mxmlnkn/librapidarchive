@@ -59,3 +59,15 @@ addRapidgzipTest(testCLI)
 target_include_directories(testCLI PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../tools)
 target_compile_options(testCLI PRIVATE -Wno-braced-scalar-init)
 target_link_libraries(testCLI PRIVATE librapidgzip cxxopts)
+
+if(LIBRAPIDARCHIVE_WITH_VMSPLICE AND TARGET rapidgzip)
+    find_program(BASH_EXECUTABLE bash)
+    if(BASH_EXECUTABLE)
+        add_test(NAME testVmspliceDelayedReader
+                 COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/testVmspliceDelayedReader.sh
+                         $<TARGET_FILE:rapidgzip>)
+        set_tests_properties(testVmspliceDelayedReader PROPERTIES TIMEOUT 60)
+    else()
+        message(STATUS "Skipping testVmspliceDelayedReader because bash was not found")
+    endif()
+endif()

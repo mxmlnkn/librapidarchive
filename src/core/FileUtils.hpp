@@ -606,14 +606,17 @@ public:
     getInstance( int fileDescriptor )
     {
         static AtomicMutex mutex;
-        static std::unordered_map<int, std::unique_ptr<SpliceVault> > vaults;
+        /* Intentionally leak the vaults. The pipe can still reference the last spliced pages after the
+         * writer has exited, and freeing those pages during static destruction can zero the pending
+         * output. The process exit reclaims the memory. */
+        static auto* vaults = new std::unordered_map<int, std::unique_ptr<SpliceVault> >();
 
         const std::scoped_lock lock{ mutex };
-        auto vault = vaults.find( fileDescriptor );
-        if ( vault == vaults.end() ) {
+        auto vault = vaults->find( fileDescriptor );
+        if ( vault == vaults->end() ) {
             /* try_emplace cannot be used because the SpliceVault constructor is private. */
-            vault = vaults.emplace( fileDescriptor,
-                                    std::unique_ptr<SpliceVault>( new SpliceVault( fileDescriptor ) ) ).first;
+            vault = vaults->emplace( fileDescriptor,
+                                     std::unique_ptr<SpliceVault>( new SpliceVault( fileDescriptor ) ) ).first;
         }
         return std::make_pair( vault->second.get(), vault->second->lock() );
     }
