@@ -328,6 +328,11 @@ testDashMeansStdinAndStdout( const std::string&       compressedFilePath,
 
 
 void
+testTestOutput( const std::string&       compressedFilePath,
+                const std::vector<char>& decompressed );
+
+
+void
 testCLI()
 {
     /* Write to /dev/shm if possible because writing ~240 GB to any disk is probably not want you want for
@@ -368,6 +373,8 @@ testCLI()
 
     /* Special subcommand that will ignore most of the other output options. */
     testFile( { "--analyze" } );
+
+    testTestOutput( compressedFilePath, decompressed );
 
     /* Test byte ranges */
     {
@@ -456,6 +463,38 @@ testCLI()
 
     testDashMeansStdinAndStdout( compressedFilePath, decompressed );
     testCountDoesNotPolluteStdout( compressedFilePath, decompressed );
+}
+
+
+void
+testTestOutput( const std::string&       compressedFilePath,
+                const std::vector<char>& decompressed )
+{
+    const auto tmpFolder = createTemporaryDirectory( "rapidgzip.testCLI" );
+
+    /* --test must not discard output that was explicitly requested with -o. */
+    const auto outputPath = ( tmpFolder.path() / "test-output" ).string();
+    callCLI( "./rapidgzip", rapidgzipCLI,
+             { "-d", "-f", "-o", outputPath, "-t", compressedFilePath } );
+    REQUIRE( readFile<std::vector<char> >( outputPath ) == decompressed );
+
+#if !defined( _WIN32 )
+    /* --test must not discard output that was explicitly requested with -c. */
+    const auto stdoutPath = ( tmpFolder.path() / "test-stdout" ).string();
+    {
+        const ScopedStandardOutputRedirect outputRedirect( stdoutPath );
+        callCLI( "./rapidgzip", rapidgzipCLI, { "-d", "-c", "-t", compressedFilePath } );
+    }
+    REQUIRE( readFile<std::vector<char> >( stdoutPath ) == decompressed );
+
+    /* Without an explicit output, --test only verifies and writes nothing. */
+    const auto testOnlyPath = ( tmpFolder.path() / "test-only" ).string();
+    {
+        const ScopedStandardOutputRedirect outputRedirect( testOnlyPath );
+        callCLI( "./rapidgzip", rapidgzipCLI, { "-d", "-t", compressedFilePath } );
+    }
+    REQUIRE( std::filesystem::file_size( testOnlyPath ) == 0 );
+#endif
 }
 
 

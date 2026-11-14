@@ -17,7 +17,8 @@ Usage:
   -k, --keep                    Keep (do not delete) input file. Only for
                                 compatibility. This tool will not delete
                                 anything automatically!
-  -t, --test                    Test compressed file integrity.
+  -t, --test                    Test compressed file integrity. Without -c
+                                or -o, no decompressed data is written.
   -p, --block-finder-parallelism arg
                                 This only has an effect if the parallel
                                 decoder is used with the -P option. If an

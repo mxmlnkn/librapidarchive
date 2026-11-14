@@ -331,11 +331,27 @@ testTestOption( const std::filesystem::path& dataFolder )
 {
     const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
     const auto compressed = readFile<std::vector<uint8_t> >( compressedPath );
+    const auto expected = readFile<std::vector<char> >( dataFolder / "base64-256KiB" );
+    const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testIbzip2CLI" );
 
     /* A valid file must pass the integrity test. */
     callCLI( "./ibzip2", ibzip2CLI, { "--test", compressedPath } );
 
-    const auto tmpFolder = createTemporaryDirectory( "indexed_bzip2.testIbzip2CLI" );
+    /* --test must not discard output that was explicitly requested with -o. */
+    const auto outputPath = ( tmpFolder.path() / "test-output" ).string();
+    callCLI( "./ibzip2", ibzip2CLI, { "-d", "-f", "-o", outputPath, "--test", compressedPath } );
+    REQUIRE( readFile<std::vector<char> >( outputPath ) == expected );
+
+#if !defined( _WIN32 )
+    /* --test must not discard output that was explicitly requested with -c. */
+    const auto stdoutPath = ( tmpFolder.path() / "test-stdout" ).string();
+    {
+        const ScopedStandardOutputRedirect redirect( stdoutPath );
+        callCLI( "./ibzip2", ibzip2CLI, { "-d", "-c", "--test", compressedPath } );
+    }
+    REQUIRE( readFile<std::vector<char> >( stdoutPath ) == expected );
+#endif
+
     const auto writeBinaryFile =
         [&tmpFolder] ( const std::string&          name,
                        const std::vector<uint8_t>& data )

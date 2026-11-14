@@ -191,7 +191,7 @@ ibzip2CLI( int argc, char const* const* argv )
       cxxopts::value<std::string>() )
     ( "k,keep", "Keep (do not delete) input file. Only for compatibility. "
                 "This tool will not delete anything automatically!" )
-    ( "t,test", "Test compressed file integrity." )
+    ( "t,test", "Test compressed file integrity. Without -c or -o, no decompressed data is written." )
 
     ( "p,block-finder-parallelism",
       "This only has an effect if the parallel decoder is used with the -P option. "
@@ -377,9 +377,12 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto decode = !compress
                         && ( decompress || doTest || countBytes || countLines || fileRanges.has_value()
                              || exportIndexRequested );
-    /* Do not special-case /dev/null: the write path is intentionally kept identical to any other output so
+    /* --test only implies discarding the result when no explicit output was requested. With -c or -o, the
+     * data is still written while it is verified, matching rapidgzip and the usual CLI expectation.
+     * Do not special-case /dev/null: the write path is intentionally kept identical to any other output so
      * that CLI benchmark results remain comparable with other decoders. */
-    const auto writeOutput = !compress && !doTest && ( decompress || fileRanges.has_value() );
+    const auto writeOutput = !compress && ( decompress || fileRanges.has_value() )
+                             && ( !doTest || writeToStdOut || !outputFilePath.empty() );
 
     if ( compress ) {
         if ( !writeToStdOut && outputFilePath.empty() && !inputFilePath.empty() ) {
