@@ -78,4 +78,8 @@ fi
 
 echo "Formatting ${#files[@]} file(s) with uncrustify:"
 printf '  %s\n' "${files[@]}"
-"$uncrustify" -c "$config" --no-backup -q "${files[@]/#/${repo_root}/}"
+if ! "$uncrustify" -c "$config" --no-backup -q "${files[@]/#/${repo_root}/}"; then
+    echo "error: uncrustify failed; rerunning without -q for diagnostics" >&2
+    "$uncrustify" -c "$config" --no-backup "${files[@]/#/${repo_root}/}"
+    exit 1
+fi
