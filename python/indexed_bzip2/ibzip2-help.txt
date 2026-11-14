@@ -24,9 +24,10 @@ Usage:
                                 decoder is used with the -P option. If an
                                 optional integer >= 1 is given, then that
                                 is the number of threads to use for finding
-                                bzip2 blocks. If 0 is given, then the
-                                number of physical cores available to this
-                                process is used. (default: 1)
+                                bzip2 blocks. If 0 is given, the finder
+                                parallelism is chosen automatically from
+                                the decoder parallelism (1 to 8). (default:
+                                1)
   -P, --decoder-parallelism arg
                                 Use the parallel decoder or compressor. If
                                 an optional integer >= 1 is given, then

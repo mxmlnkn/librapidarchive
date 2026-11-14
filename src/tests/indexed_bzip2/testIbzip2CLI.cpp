@@ -350,6 +350,13 @@ testTestOption( const std::filesystem::path& dataFolder )
         callCLI( "./ibzip2", ibzip2CLI, { "-d", "-c", "--test", compressedPath } );
     }
     REQUIRE( readFile<std::vector<char> >( stdoutPath ) == expected );
+
+    /* -p 0 selects the automatic finder parallelism; the decoded output must be unchanged. */
+    {
+        const ScopedStandardOutputRedirect redirect( stdoutPath );
+        callCLI( "./ibzip2", ibzip2CLI, { "-d", "-c", "-p", "0", compressedPath } );
+    }
+    REQUIRE( readFile<std::vector<char> >( stdoutPath ) == expected );
 #endif
 
     const auto writeBinaryFile =

@@ -51,9 +51,14 @@ public:
 
     explicit
     ParallelBZ2Reader( rapidgzip::UniqueFileReader fileReader,
-                       size_t                      parallelization = 0 ) :
+                       size_t                      parallelization = 0,
+                       size_t                      blockFinderParallelism = 0 ) :
         m_sharedFileReader( ensureSharedFileReader( std::move( fileReader ) ) ),
         m_fetcherParallelization( parallelization == 0 ? rapidgzip::availablePhysicalCores() : parallelization ),
+        m_finderParallelization( blockFinderParallelism == 0
+                                 ? std::clamp( rapidgzip::ceilDiv( m_fetcherParallelization, size_t{ 8 } ),
+                                               size_t{ 1 }, size_t{ 8 } )
+                                 : blockFinderParallelism ),
         m_startBlockFinder(
             [&] ()
             {
@@ -73,20 +78,26 @@ public:
 #ifdef WITH_PYTHON_SUPPORT
     explicit
     ParallelBZ2Reader( int    fileDescriptor,
-                       size_t parallelization = 0 ) :
-        ParallelBZ2Reader( std::make_unique<rapidgzip::StandardFileReader>( fileDescriptor ), parallelization )
+                       size_t parallelization = 0,
+                       size_t blockFinderParallelism = 0 ) :
+        ParallelBZ2Reader( std::make_unique<rapidgzip::StandardFileReader>( fileDescriptor ), parallelization,
+                           blockFinderParallelism )
     {}
 
     explicit
     ParallelBZ2Reader( const std::string& filePath,
-                       size_t             parallelization = 0 ) :
-        ParallelBZ2Reader( std::make_unique<rapidgzip::StandardFileReader>( filePath ), parallelization )
+                       size_t             parallelization = 0,
+                       size_t             blockFinderParallelism = 0 ) :
+        ParallelBZ2Reader( std::make_unique<rapidgzip::StandardFileReader>( filePath ), parallelization,
+                           blockFinderParallelism )
     {}
 
     explicit
     ParallelBZ2Reader( PyObject* pythonObject,
-                       size_t    parallelization = 0 ) :
-        ParallelBZ2Reader( std::make_unique<rapidgzip::PythonFileReader>( pythonObject ), parallelization )
+                       size_t    parallelization = 0,
+                       size_t    blockFinderParallelism = 0 ) :
+        ParallelBZ2Reader( std::make_unique<rapidgzip::PythonFileReader>( pythonObject ), parallelization,
+                           blockFinderParallelism )
     {}
 #endif
 
@@ -530,8 +541,8 @@ private:
 
 private:
     size_t const m_fetcherParallelization;
-    /** The block finder is much faster than the fetcher and therefore does not require es much parallelization! */
-    size_t const m_finderParallelization{ rapidgzip::ceilDiv( m_fetcherParallelization, 64U ) };
+    /** The block finder needs fewer threads than the fetcher, but one thread can limit high-core runs. */
+    size_t const m_finderParallelization;
 
     std::function<std::shared_ptr<BlockFinder>( void )> const m_startBlockFinder;
 

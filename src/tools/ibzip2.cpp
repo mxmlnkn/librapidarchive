@@ -196,7 +196,7 @@ ibzip2CLI( int argc, char const* const* argv )
     ( "p,block-finder-parallelism",
       "This only has an effect if the parallel decoder is used with the -P option. "
       "If an optional integer >= 1 is given, then that is the number of threads to use for finding bzip2 blocks. "
-      "If 0 is given, then the number of physical cores available to this process is used.",
+      "If 0 is given, the finder parallelism is chosen automatically from the decoder parallelism (1 to 8).",
       cxxopts::value<unsigned int>()->default_value( "1" ) )
 
     ( "P,decoder-parallelism",
@@ -259,7 +259,7 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto verbose = parsedArgs["verbose"].as<bool>();
 
     const auto getParallelism = [] ( const auto p ) { return p > 0 ? p : availablePhysicalCores(); };
-    const auto blockFinderParallelism = getParallelism( parsedArgs["block-finder-parallelism"].as<unsigned int>() );
+    const auto blockFinderParallelism = parsedArgs["block-finder-parallelism"].as<unsigned int>();
     const auto decoderParallelism     = getParallelism( parsedArgs["decoder-parallelism"].as<unsigned int>() );
 
     if ( verbose ) {
@@ -533,7 +533,8 @@ ibzip2CLI( int argc, char const* const* argv )
         if ( decoderParallelism == 1 ) {
             reader = std::make_unique<BZ2Reader>( std::move( fileReader ) );
         } else {
-            reader = std::make_unique<ParallelBZ2Reader>( std::move( fileReader ), decoderParallelism );
+            reader = std::make_unique<ParallelBZ2Reader>( std::move( fileReader ), decoderParallelism,
+                                                          blockFinderParallelism );
         }
         if ( !importIndexPath.empty() ) {
             reader->importIndex( std::make_unique<StandardFileReader>( importIndexPath ) );
@@ -708,7 +709,7 @@ ibzip2CLI( int argc, char const* const* argv )
         /* If effectively only the compressed offsets are requested, then we can use the blockfinder directly! */
         findCompressedBlocks( inputFilePath,
                               compressedOffsetsFilePath,
-                              blockFinderParallelism,
+                              getParallelism( blockFinderParallelism ),
                               bufferSize > 0 ? bufferSize : 32_Ki,
                               test,
                               parsedArgs.count( "verbose" ) > 0 );
