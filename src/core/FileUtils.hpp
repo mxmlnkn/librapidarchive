@@ -39,8 +39,8 @@
     #endif
     #include <unistd.h>
 
-    #if defined( HAVE_VMSPLICE ) && ( !defined( __linux__ ) || !defined( F_GETPIPE_SZ ) )
-        #error "HAVE_VMSPLICE requires Linux and F_GETPIPE_SZ."
+    #if defined( LIBRAPIDARCHIVE_WITH_VMSPLICE ) && ( !defined( __linux__ ) || !defined( F_GETPIPE_SZ ) )
+        #error "LIBRAPIDARCHIVE_WITH_VMSPLICE requires Linux and F_GETPIPE_SZ."
     #endif
 
     #if not defined( HAVE_IOVEC ) and defined( __linux__ )
@@ -62,7 +62,7 @@
  */
 
 
-#if defined( HAVE_VMSPLICE )
+#if defined( LIBRAPIDARCHIVE_WITH_VMSPLICE )
     #include <algorithm>
     #include <any>
     #include <deque>
@@ -461,7 +461,7 @@ fileSize( const int fileDescriptor )
 }
 
 
-#if defined( HAVE_VMSPLICE )
+#if defined( LIBRAPIDARCHIVE_WITH_VMSPLICE )
 
 /**
  * Short overview of syscalls that optimize copies by instead copying full page pointers into the
@@ -722,7 +722,7 @@ private:
 
     AtomicMutex m_mutex;
 };
-#endif  // HAVE_VMSPLICE
+#endif  // LIBRAPIDARCHIVE_WITH_VMSPLICE
 
 
 /**

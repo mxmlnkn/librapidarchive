@@ -773,7 +773,7 @@ ChunkData::split( [[maybe_unused]] const size_t spacing ) const
 static_assert( !std::is_polymorphic_v<ChunkData>, "Simply making it polymorphic halves performance!" );
 
 
-#if defined( HAVE_VMSPLICE )
+#if defined( LIBRAPIDARCHIVE_WITH_VMSPLICE )
 /**
  * Tries to use writeAllSpliceUnsafe and, if successful, also extends lifetime by adding the block data
  * shared_ptr into a list.
@@ -798,7 +798,7 @@ writeAllSplice( [[maybe_unused]] const int                         outputFileDes
 {
     return SpliceVault::getInstance( outputFileDescriptor ).first->splice( buffersToWrite, chunkData );
 }
-#endif  // HAVE_VMSPLICE
+#endif  // LIBRAPIDARCHIVE_WITH_VMSPLICE
 
 
 [[nodiscard]] inline int
@@ -811,7 +811,7 @@ writeAll( const std::shared_ptr<ChunkData>& chunkData,
         return 0;
     }
 
-#ifdef HAVE_VMSPLICE
+#ifdef LIBRAPIDARCHIVE_WITH_VMSPLICE
     const auto buffersToWrite = toIoVec( *chunkData, offsetInBlock, dataToWriteSize );
     const auto errorCode = writeAllSplice( outputFileDescriptor, chunkData, buffersToWrite );
     if ( errorCode != 0 ) {
