@@ -30,6 +30,8 @@ struct ParallelReaderPolicy
 {
     using Reader = ParallelBZ2Reader;
 
+    static constexpr bool SUPPORTS_NON_SEEKABLE{ false };
+
     static std::unique_ptr<Reader>
     make( std::unique_ptr<FileReader> file,
           const size_t                parallelization )
@@ -175,6 +177,7 @@ main( int    argc,
     {
         for ( const auto parallelization : { 1U, 2U } ) {
             testSimpleOpenAndClose<ParallelReaderPolicy>( encodedTestFilePath.string(), parallelization );
+            testNonSeekableEmptyInput<ParallelReaderPolicy>( parallelization );
             testEmptyAndTruncatedInputs<ParallelReaderPolicy>( encodedTestFilePath.string(), parallelization );
             testRunLengthOverflow<ParallelReaderPolicy>( parallelization );
             testOversizedCodeLength<ParallelReaderPolicy>( parallelization );

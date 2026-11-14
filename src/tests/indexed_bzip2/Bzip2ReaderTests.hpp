@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -25,6 +26,53 @@ namespace bzip2_test
 {
 using namespace rapidgzip;
 using namespace indexed_bzip2;
+
+class NonSeekableFileReader final :
+    public FileReader
+{
+public:
+    explicit
+    NonSeekableFileReader( std::vector<char> data ) :
+        m_data( std::move( data ) )
+    {}
+
+    void close() override { m_closed = true; }
+    [[nodiscard]] bool closed() const override { return m_closed; }
+    /** EOF is only reported after a read past the end, like a socket or pipe that has not been probed yet. */
+    [[nodiscard]] bool eof() const override { return m_eof; }
+    [[nodiscard]] bool fail() const override { return false; }
+    [[nodiscard]] int fileno() const override { return -1; }
+    [[nodiscard]] bool seekable() const override { return false; }
+
+    [[nodiscard]] size_t
+    read( char* buffer, size_t nMaxBytesToRead ) override
+    {
+        if ( m_position >= m_data.size() ) {
+            m_eof = true;
+            return 0;
+        }
+        const auto nBytesRead = std::min( nMaxBytesToRead, m_data.size() - m_position );
+        std::memcpy( buffer, m_data.data() + m_position, nBytesRead );
+        m_position += nBytesRead;
+        return nBytesRead;
+    }
+
+    uintmax_t seek( long long int, int ) override
+    {
+        throw std::logic_error( "NonSeekableFileReader cannot seek!" );
+    }
+
+    [[nodiscard]] std::optional<uintmax_t> size() const override { return std::nullopt; }
+    [[nodiscard]] uintmax_t tell() const override { return m_position; }
+    void clearerr() override { m_eof = false; }
+
+private:
+    std::vector<char> m_data;
+    size_t m_position{ 0 };
+    bool m_eof{ false };
+    bool m_closed{ false };
+};
+
 
 /**
  * The serial and parallel readers are expected to behave interchangeably for the public BZ2ReaderInterface.
@@ -115,6 +163,22 @@ testRead( std::ifstream&                    decodedFile,
     if ( equalElements != std::min( decodedBuffer.size(), encodedBuffer.size() ) ) {
         std::cerr << "First inequal element at " << firstInequal << "\n";
     }
+}
+
+
+template<typename Policy>
+void
+testNonSeekableEmptyInput( const size_t parallelization )
+{
+    if constexpr ( !Policy::SUPPORTS_NON_SEEKABLE ) {
+        return;
+    }
+    /* Non-seekable readers only report EOF after a failed read. The first read must still report an empty
+     * archive instead of throwing from the stream header parsing. */
+    auto reader = Policy::make( std::make_unique<NonSeekableFileReader>( std::vector<char>{} ), parallelization );
+    std::array<char, 16> buffer{};
+    REQUIRE_EQUAL( reader->read( buffer.data(), buffer.size() ), 0U );
+    REQUIRE( reader->eof() );
 }
 
 
