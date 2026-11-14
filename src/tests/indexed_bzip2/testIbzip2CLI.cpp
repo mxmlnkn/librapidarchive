@@ -28,42 +28,6 @@ using namespace rapidgzip;
 
 namespace
 {
-#if !defined( _WIN32 )
-class ScopedStandardOutputRedirect
-{
-public:
-    explicit
-    ScopedStandardOutputRedirect( const std::string& path )
-    {
-        m_oldFileDescriptor = ::dup( STDOUT_FILENO );
-        const auto newFileDescriptor = ::open( path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644 );
-        if ( ( m_oldFileDescriptor < 0 ) || ( newFileDescriptor < 0 )
-             || ( ::dup2( newFileDescriptor, STDOUT_FILENO ) < 0 ) ) {
-            if ( newFileDescriptor >= 0 ) {
-                ::close( newFileDescriptor );
-            }
-            throw std::runtime_error( "Could not redirect stdout to '" + path + "'." );
-        }
-        ::close( newFileDescriptor );
-    }
-
-    ~ScopedStandardOutputRedirect()
-    {
-        if ( m_oldFileDescriptor >= 0 ) {
-            ::dup2( m_oldFileDescriptor, STDOUT_FILENO );
-            ::close( m_oldFileDescriptor );
-        }
-    }
-
-    ScopedStandardOutputRedirect( const ScopedStandardOutputRedirect& ) = delete;
-    ScopedStandardOutputRedirect& operator=( const ScopedStandardOutputRedirect& ) = delete;
-
-private:
-    int m_oldFileDescriptor{ -1 };
-};
-#endif
-
-
 struct CLIInvocation
 {
     int exitCode{ 0 };
