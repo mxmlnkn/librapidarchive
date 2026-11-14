@@ -1172,8 +1172,9 @@ public:
             return;
         }
 
-        /* Backward seeking is intentionally disabled when index-keeping is off, including for non-seekable
-         * inputs. Restoring the old position would throw on normal return in that case. */
+        /* Backward seeking is intentionally disabled when index-keeping is off, including for non-seekable inputs.
+         * Restoring the old position would throw on normal return in that case. This affects the C++ API:
+         * the rapidgzip CLI's non-seekable path fails earlier in the read functor, so no CLI behavior changes. */
         const auto canRestorePosition = m_keepIndex;
         const Finally restorePosition{
             [this, oldOffset = tell(), canRestorePosition] () {
