@@ -53,19 +53,28 @@
 #endif
 
 /**
- * vmsplice is opt-in via LIBRAPIDARCHIVE_WITH_VMSPLICE because it still has a known lifetime bug. The
- * current implementation keeps spliced chunks alive only until the pipe buffer size has been written, but
- * the pipe can still hold pages when the process exits. This can corrupt the output when the reader is
- * delayed. A safe implementation needs mmap-allocated buffers and SPLICE_F_GIFT, as described below.
- * Keep this OFF by default.
+ * vmsplice is opt-in via LIBRAPIDARCHIVE_WITH_VMSPLICE because it is still experimental. The kernel does
+ * not copy the pages at the vmsplice call. They must not be modified or reused until the reader has
+ * consumed them. The current implementation uses FIONREAD to release chunks only after the reader has
+ * consumed them, and intentionally leaks the final tail at process exit.
+ *
+ * A future implementation can use mmap-allocated buffers and unmap them directly after vmsplice.
+ * SPLICE_F_GIFT is only needed if a later splice should steal the pages.
  * https://github.com/mxmlnkn/rapidgzip/issues/39
  */
 
 
 #if defined( LIBRAPIDARCHIVE_WITH_VMSPLICE )
+    #include <sys/ioctl.h>
+
     #include <algorithm>
     #include <any>
+    #include <cstdint>
     #include <deque>
+    #include <memory>
+    #include <new>
+    #include <tuple>
+    #include <unordered_map>
 
     #include "AtomicMutex.hpp"
 #endif
@@ -591,10 +600,10 @@ writeAllSpliceUnsafe( [[maybe_unused]] const int                   outputFileDes
 
 
 /**
- * Keeps shared pointers to spliced objects until an amount of bytes equal to the pipe buffer size
- * has been spliced into the pipe.
- * It implements a singleton-like (singleton per file descriptor) interface as a performance optimization.
- * Without a global ledger, the effectively held back objects would be overestimated by the number of actual ledgers.
+ * Keeps shared pointers to spliced objects until the reader has consumed the corresponding bytes from the
+ * pipe. Entries are released using FIONREAD so that pipe resizing does not invalidate the accounting.
+ * The vaults and their final tail are intentionally leaked at process exit because the pipe can still
+ * reference the pages after the writer has closed its file descriptor.
  */
 class SpliceVault
 {
@@ -632,10 +641,6 @@ public:
             size_t const              dataToWriteSize,
             const std::shared_ptr<T>& splicedData )
     {
-        if ( m_pipeBufferSize < 0 ) {
-            return -1;
-        }
-
         const auto errorCode = writeAllSpliceUnsafe( m_fileDescriptor, dataToWrite, dataToWriteSize );
         if ( errorCode != 0 ) {
             return errorCode;
@@ -653,10 +658,6 @@ public:
     splice( const std::vector<::iovec>& buffersToWrite,
             const std::shared_ptr<T>&   splicedData )
     {
-        if ( m_pipeBufferSize < 0 ) {
-            return -1;
-        }
-
         const auto errorCode = writeAllSpliceUnsafe( m_fileDescriptor, buffersToWrite );
         if ( errorCode != 0 ) {
             return errorCode;
@@ -676,28 +677,40 @@ private:
     account( const std::shared_ptr<T>& splicedData,
              size_t const              dataToWriteSize )
     {
-        m_totalSplicedBytes += dataToWriteSize;
-        /* Append written size to last shared pointer if it is the same one or add a new data set. */
+        m_bytesWritten += dataToWriteSize;
+        /* Append the cumulative end offset to the last shared pointer if it is the same one or add a new
+         * data set. */
         if ( !m_splicedData.empty() && ( std::get<1>( m_splicedData.back() ) == splicedData.get() ) ) {
-            std::get<2>( m_splicedData.back() ) += dataToWriteSize;
+            std::get<2>( m_splicedData.back() ) = m_bytesWritten;
         } else {
-            m_splicedData.emplace_back( splicedData, splicedData.get(), dataToWriteSize );
+            m_splicedData.emplace_back( splicedData, splicedData.get(), m_bytesWritten );
         }
 
-        /* Never fully clear the shared pointers even if the size of the last is larger than the pipe buffer
-         * because part of that last large chunk will still be in the pipe buffer! */
-        while ( !m_splicedData.empty()
-                && ( m_totalSplicedBytes - std::get<2>( m_splicedData.front() )
-                     >= static_cast<size_t>( m_pipeBufferSize ) ) ) {
-            m_totalSplicedBytes -= std::get<2>( m_splicedData.front() );
+        releaseConsumed();
+    }
+
+    void
+    releaseConsumed()
+    {
+        int pendingBytes = 0;
+        if ( ( ::ioctl( m_fileDescriptor, FIONREAD, &pendingBytes ) != 0 ) || ( pendingBytes < 0 ) ) {
+            /* If the exact pending size is unknown, retain conservatively. */
+            return;
+        }
+        if ( static_cast<uint64_t>( pendingBytes ) > m_bytesWritten ) {
+            /* Another writer has put data into the same pipe. Retain conservatively. */
+            return;
+        }
+
+        const auto consumedBytes = m_bytesWritten - static_cast<uint64_t>( pendingBytes );
+        while ( !m_splicedData.empty() && ( std::get<2>( m_splicedData.front() ) <= consumedBytes ) ) {
             m_splicedData.pop_front();
         }
     }
 
     explicit
     SpliceVault( int fileDescriptor ) :
-        m_fileDescriptor( fileDescriptor ),
-        m_pipeBufferSize( fcntl( fileDescriptor, F_GETPIPE_SZ ) )
+        m_fileDescriptor( fileDescriptor )
     {}
 
     [[nodiscard]] VaultLock
@@ -708,20 +721,16 @@ private:
 
 private:
     const int m_fileDescriptor;
-    /** We are assuming here that the pipe buffer size does not change to avoid frequent calls to fcntl. */
-    const int m_pipeBufferSize;
 
     /**
-     * Contains shared_ptr to extend lifetime and amount of bytes that have been spliced to determine
-     * when the shared_ptr can be removed from this list.
+     * Contains the shared_ptr to extend the lifetime and the cumulative pipe offset up to which the
+     * corresponding bytes have been spliced.
      */
     std::deque<std::tuple</* packed RAII resource */ std::any,
                           /* raw pointer of RAII resource for comparison */ const void*,
-                          /* spliced bytes */ size_t> > m_splicedData;
-    /**
-     * This data is redundant but helps to avoid O(N) recalculation of this value from @ref m_splicedData.
-     */
-    size_t m_totalSplicedBytes{ 0 };
+                          /* cumulative end offset in the pipe */ uint64_t> > m_splicedData;
+    /** Total number of bytes spliced into this pipe. */
+    uint64_t m_bytesWritten{ 0 };
 
     AtomicMutex m_mutex;
 };

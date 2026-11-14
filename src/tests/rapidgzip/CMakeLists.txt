@@ -70,4 +70,14 @@ if(LIBRAPIDARCHIVE_WITH_VMSPLICE AND TARGET rapidgzip)
     else()
         message(STATUS "Skipping testVmspliceDelayedReader because bash was not found")
     endif()
+
+    find_program(PYTHON3_EXECUTABLE python3)
+    if(PYTHON3_EXECUTABLE)
+        add_test(NAME testVmsplicePipeResize
+                 COMMAND ${PYTHON3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/testVmsplicePipeResize.py
+                         $<TARGET_FILE:rapidgzip>)
+        set_tests_properties(testVmsplicePipeResize PROPERTIES TIMEOUT 60)
+    else()
+        message(STATUS "Skipping testVmsplicePipeResize because python3 was not found")
+    endif()
 endif()
