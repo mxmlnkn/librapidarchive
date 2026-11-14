@@ -40,6 +40,13 @@ option(LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2
        "Use the system-installed libbz2 instead of the vendored copy. Ignored if compression is OFF." OFF)
 option(LIBRAPIDARCHIVE_WITH_RPMALLOC "Compile with rpmalloc for faster memory allocations" ON)
 option(LIBRAPIDARCHIVE_WITH_ISAL "Compile with ISA-l for more than twice as fast decompression than zlib" ON)
+option(LIBRAPIDARCHIVE_WITH_VMSPLICE
+       "Use vmsplice to write decompressed data to stdout pipes (experimental, Linux only)" OFF)
+
+if(LIBRAPIDARCHIVE_WITH_VMSPLICE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "LIBRAPIDARCHIVE_WITH_VMSPLICE is only supported on Linux.")
+endif()
+
 option(LIBRAPIDARCHIVE_RUN_CLANG_TIDY "Runs clang-tidy while building targets" OFF)
 set(LIBRAPIDARCHIVE_BZIP2_CRC_SLICES "8" CACHE STRING
     "Number of bytes per bzip2 CRC slicing iteration. Must be 1, 4, or 8.")

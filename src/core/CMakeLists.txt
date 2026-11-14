@@ -31,6 +31,9 @@ target_sources(core INTERFACE
 )
 target_link_libraries(core INTERFACE Threads::Threads filereader)
 target_compile_features(core INTERFACE cxx_std_17)
+if(LIBRAPIDARCHIVE_WITH_VMSPLICE)
+    target_compile_definitions(core INTERFACE HAVE_VMSPLICE)
+endif()
 target_compile_options(core INTERFACE
     # The default limit is ~33 M (1<<25) and 99 M seem to be enough currently to compile.
     # BitManipulation.hpp:243:56: note: in call to 'createReversedBitsLUT<unsigned short>()'

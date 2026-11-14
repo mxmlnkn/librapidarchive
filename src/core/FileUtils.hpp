@@ -39,9 +39,9 @@
     #endif
     #include <unistd.h>
 
-    //#if not defined( HAVE_VMSPLICE ) and defined( __linux__ ) and defined( F_GETPIPE_SZ )
-    //    #define HAVE_VMSPLICE
-    //#endif
+    #if defined( HAVE_VMSPLICE ) && ( !defined( __linux__ ) || !defined( F_GETPIPE_SZ ) )
+        #error "HAVE_VMSPLICE requires Linux and F_GETPIPE_SZ."
+    #endif
 
     #if not defined( HAVE_IOVEC ) and defined( __linux__ )
         #define HAVE_IOVEC
@@ -53,14 +53,13 @@
 #endif
 
 /**
- * Disable vmsplice because it STILL has bugs. In this case it seems to happen because rapidgzip quits
- * before everything has been read. This seems to cause a free and possible reuse of the memory section
- * during the shutdown process and causes invalid output. I guess the only real way to get this to work
- * is as stated below with a custom mmap allocator + vmsplice gift.
- * Too bad, because it gave quite some performance, but it's no use when the results are wrong.
+ * vmsplice is opt-in via LIBRAPIDARCHIVE_WITH_VMSPLICE because it still has a known lifetime bug. The
+ * current implementation keeps spliced chunks alive only until the pipe buffer size has been written, but
+ * the pipe can still hold pages when the process exits. This can corrupt the output when the reader is
+ * delayed. A safe implementation needs mmap-allocated buffers and SPLICE_F_GIFT, as described below.
+ * Keep this OFF by default.
  * https://github.com/mxmlnkn/rapidgzip/issues/39
  */
-#undef HAVE_VMSPLICE
 
 
 #if defined( HAVE_VMSPLICE )
