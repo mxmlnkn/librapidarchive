@@ -72,16 +72,14 @@
     #include <cstdint>
     #include <deque>
     #include <memory>
-    #include <new>
     #include <tuple>
-    #include <unordered_map>
-
-    #include "AtomicMutex.hpp"
 #endif
 
 
 namespace rapidgzip
 {
+class SpliceVault;
+
 struct BrokenPipeException :
     public std::exception
 {
@@ -625,26 +623,28 @@ writeAllSpliceUnsafe( const int                   outputFileDescriptor,
 class SpliceVault
 {
 public:
-    using VaultLock = std::unique_lock<AtomicMutex>;
-
-public:
-    [[nodiscard]] static std::pair<SpliceVault*, VaultLock>
-    getInstance( int fileDescriptor )
+    explicit
+    SpliceVault( const int fileDescriptor ) :
+        m_fileDescriptor( fileDescriptor )
     {
-        static AtomicMutex mutex;
-        /* Intentionally leak the vaults. The pipe can still reference the last spliced pages after the
-         * writer has exited, and freeing those pages during static destruction can zero the pending
-         * output. The process exit reclaims the memory. */
-        static auto* vaults = new std::unordered_map<int, std::unique_ptr<SpliceVault> >();
+        struct stat fileStats{};
+        m_isPipe = ( ::fstat( fileDescriptor, &fileStats ) == 0 ) && S_ISFIFO( fileStats.st_mode );
+    }
 
-        const std::scoped_lock lock{ mutex };
-        auto vault = vaults->find( fileDescriptor );
-        if ( vault == vaults->end() ) {
-            /* try_emplace cannot be used because the SpliceVault constructor is private. */
-            vault = vaults->emplace( fileDescriptor,
-                                     std::unique_ptr<SpliceVault>( new SpliceVault( fileDescriptor ) ) ).first;
+    /* The pipe can still reference the last spliced pages after the writer has closed its end. Leak the
+     * retained tail at process exit. Library users that know the reader has drained can call drain(). */
+    ~SpliceVault()
+    {
+        if ( m_splicedData && !m_splicedData->empty() ) {
+            m_splicedData.release();
         }
-        return std::make_pair( vault->second.get(), vault->second->lock() );
+    }
+
+    /** Release entries that the reader has already consumed according to FIONREAD. */
+    void
+    drain()
+    {
+        releaseConsumed();
     }
 
     /**
@@ -657,6 +657,9 @@ public:
             const size_t              dataToWriteSize,
             const std::shared_ptr<T>& splicedData )
     {
+        if ( !m_isPipe ) {
+            return { 0, EINVAL };
+        }
         if ( dataToWriteSize == 0 ) {
             return { 0, 0 };
         }
@@ -675,6 +678,9 @@ public:
     splice( const std::vector<::iovec>& buffersToWrite,
             const std::shared_ptr<T>&   splicedData )
     {
+        if ( !m_isPipe ) {
+            return { 0, EINVAL };
+        }
         if ( buffersToWrite.empty() ) {
             return { 0, 0 };
         }
@@ -686,16 +692,20 @@ public:
     }
 
 private:
+    using Entry = std::tuple</* packed RAII resource */ std::any,
+                             /* raw pointer of RAII resource for comparison */ const void*,
+                             /* cumulative end offset in the pipe */ uint64_t>;
+
     template<typename T>
     bool
     retain( const std::shared_ptr<T>& splicedData )
     {
-        if ( !m_splicedData.empty() && ( std::get<1>( m_splicedData.back() ) == splicedData.get() ) ) {
+        if ( !m_splicedData->empty() && ( std::get<1>( m_splicedData->back() ) == splicedData.get() ) ) {
             return false;
         }
 
         /* Add the provisional entry before writing so that even a partial write keeps the data alive. */
-        m_splicedData.emplace_back( splicedData, splicedData.get(), m_bytesWritten );
+        m_splicedData->emplace_back( splicedData, splicedData.get(), m_bytesWritten );
         return true;
     }
 
@@ -705,11 +715,11 @@ private:
     {
         if ( bytesWritten > 0 ) {
             m_bytesWritten += bytesWritten;
-            if ( !m_splicedData.empty() ) {
-                std::get<2>( m_splicedData.back() ) = m_bytesWritten;
+            if ( !m_splicedData->empty() ) {
+                std::get<2>( m_splicedData->back() ) = m_bytesWritten;
             }
         } else if ( wasAppended ) {
-            m_splicedData.pop_back();
+            m_splicedData->pop_back();
         }
 
         releaseConsumed();
@@ -729,46 +739,30 @@ private:
         }
 
         const auto consumedBytes = m_bytesWritten - static_cast<uint64_t>( pendingBytes );
-        while ( !m_splicedData.empty() && ( std::get<2>( m_splicedData.front() ) <= consumedBytes ) ) {
-            m_splicedData.pop_front();
+        while ( !m_splicedData->empty() && ( std::get<2>( m_splicedData->front() ) <= consumedBytes ) ) {
+            m_splicedData->pop_front();
         }
-    }
-
-    explicit
-    SpliceVault( int fileDescriptor ) :
-        m_fileDescriptor( fileDescriptor )
-    {}
-
-    [[nodiscard]] VaultLock
-    lock()
-    {
-        return VaultLock( m_mutex );
     }
 
 private:
     const int m_fileDescriptor;
+    bool m_isPipe{ false };
 
-    /**
-     * Contains the shared_ptr to extend the lifetime and the cumulative pipe offset up to which the
-     * corresponding bytes have been spliced.
-     */
-    std::deque<std::tuple</* packed RAII resource */ std::any,
-                          /* raw pointer of RAII resource for comparison */ const void*,
-                          /* cumulative end offset in the pipe */ uint64_t> > m_splicedData;
+    /** Contains the shared_ptr to extend the lifetime and the cumulative pipe offset up to which the
+     *  corresponding bytes have been spliced. */
+    std::unique_ptr<std::deque<Entry>> m_splicedData = std::make_unique<std::deque<Entry>>();
     /** Total number of bytes spliced into this pipe. */
     uint64_t m_bytesWritten{ 0 };
-
-    AtomicMutex m_mutex;
 };
 
 
 template<typename T>
 [[nodiscard]] inline SpliceResult
-writeAllSplice( const int                   outputFileDescriptor,
+writeAllSplice( SpliceVault&                vault,
                 const std::shared_ptr<T>&   splicedData,
                 const std::vector<::iovec>& buffersToWrite )
 {
-    return SpliceVault::getInstance( outputFileDescriptor ).first->splice( buffersToWrite, splicedData );
+    return vault.splice( buffersToWrite, splicedData );
 }
 #endif  // LIBRAPIDARCHIVE_WITH_VMSPLICE
 

@@ -779,7 +779,8 @@ static_assert( !std::is_polymorphic_v<ChunkData>, "Simply making it polymorphic 
 writeAll( const std::shared_ptr<ChunkData>& chunkData,
           const int                         outputFileDescriptor,
           const size_t                      offsetInBlock,
-          const size_t                      dataToWriteSize )
+          const size_t                      dataToWriteSize,
+          [[maybe_unused]] SpliceVault* const spliceVault = nullptr )
 {
     if ( ( outputFileDescriptor < 0 ) || ( dataToWriteSize == 0 ) ) {
         return 0;
@@ -788,9 +789,11 @@ writeAll( const std::shared_ptr<ChunkData>& chunkData,
 #ifdef LIBRAPIDARCHIVE_WITH_VMSPLICE
     /* vmsplice retains the whole chunk. Only use it for full-chunk sequential writes so that partial
      * ranges do not pin many whole chunks in the SpliceVault. */
-    if ( ( offsetInBlock == 0 ) && ( dataToWriteSize == chunkData->decodedSizeInBytes ) ) {
+    if ( ( spliceVault != nullptr )
+         && ( offsetInBlock == 0 )
+         && ( dataToWriteSize == chunkData->decodedSizeInBytes ) ) {
         const auto buffersToWrite = toIoVec( *chunkData, offsetInBlock, dataToWriteSize );
-        const auto result = writeAllSplice( outputFileDescriptor, chunkData, buffersToWrite );
+        const auto result = writeAllSplice( *spliceVault, chunkData, buffersToWrite );
         if ( result.errorCode != 0 ) {
             /* Never rewrite a prefix that was already accepted by vmsplice. */
             if ( result.bytesWritten > 0 ) {

@@ -8,6 +8,7 @@
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <sys/stat.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -603,6 +604,17 @@ rapidgzipCLI( int                  argc,
     const auto outputFileDescriptor = outputFile ? outputFile->fd() : -1;
     const auto stdoutFileDescriptor = stdoutFile ? stdoutFile->fd() : -1;
 
+    /* The CLI owns one splice session for its stdout stream. The session destructor leaks the final tail
+     * because the reader can still reference it after the writer has finished. */
+    rapidgzip::SpliceVault* stdoutSpliceVault = nullptr;
+#ifdef LIBRAPIDARCHIVE_WITH_VMSPLICE
+    std::unique_ptr<rapidgzip::SpliceVault> stdoutSpliceVaultOwner;
+    if ( stdoutFileDescriptor != -1 ) {
+        stdoutSpliceVaultOwner = std::make_unique<rapidgzip::SpliceVault>( stdoutFileDescriptor );
+        stdoutSpliceVault = stdoutSpliceVaultOwner.get();
+    }
+#endif
+
     if ( decompress && !doTest && args.verbose ) {
         std::cerr << "Decompress " << ( inputFilePath.empty() ? "<stdin>" : inputFilePath.c_str() ) << " -> ";
         if ( stdoutFile ) {
@@ -624,7 +636,8 @@ rapidgzipCLI( int                  argc,
 
     size_t totalBytesRead{ 0 };
     const auto writeAndCount =
-        [outputFileDescriptor, stdoutFileDescriptor, countLines, &newlineCount, &totalBytesRead, &writeDuration]
+        [outputFileDescriptor, stdoutFileDescriptor, stdoutSpliceVault, countLines,
+         &newlineCount, &totalBytesRead, &writeDuration]
         ( const std::shared_ptr<rapidgzip::ChunkData>& chunkData,
           size_t const                                 offsetInChunk,
           size_t const                                 dataToWriteSize )
@@ -635,7 +648,8 @@ rapidgzipCLI( int                  argc,
                 }
 
                 const auto tWriteStart = now();
-                const auto errorCode = writeAll( chunkData, fileDescriptor, offsetInChunk, dataToWriteSize );
+                auto* const spliceVault = ( fileDescriptor == stdoutFileDescriptor ) ? stdoutSpliceVault : nullptr;
+                const auto errorCode = writeAll( chunkData, fileDescriptor, offsetInChunk, dataToWriteSize, spliceVault );
                 writeDuration += duration( tWriteStart );
                 if ( errorCode == EPIPE ) {
                     throw BrokenPipeException();
