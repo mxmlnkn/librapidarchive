@@ -229,6 +229,9 @@ supportedSymbolKernels()
     if ( bzip2::isSupported( bzip2::SymbolKernel::AVX2 ) ) {
         kernels.emplace_back( bzip2::SymbolKernel::AVX2 );
     }
+    if ( bzip2::isSupported( bzip2::SymbolKernel::AVX512 ) ) {
+        kernels.emplace_back( bzip2::SymbolKernel::AVX512 );
+    }
     if ( bzip2::isSupported( bzip2::SymbolKernel::NEON ) ) {
         kernels.emplace_back( bzip2::SymbolKernel::NEON );
     }

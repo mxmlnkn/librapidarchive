@@ -123,16 +123,8 @@ testAllSymbolKernels( const std::string& decodedPath,
 {
     const auto expected = readFile<std::vector<char> >( decodedPath );
 
-    std::vector<bzip2::SymbolKernel> kernels{ bzip2::SymbolKernel::PORTABLE };
-    if ( bzip2::isSupported( bzip2::SymbolKernel::SSE41 ) ) {
-        kernels.emplace_back( bzip2::SymbolKernel::SSE41 );
-    }
-    if ( bzip2::isSupported( bzip2::SymbolKernel::AVX2 ) ) {
-        kernels.emplace_back( bzip2::SymbolKernel::AVX2 );
-    }
-
-    for ( const auto kernel : kernels ) {
-        bzip2::setSymbolKernel( kernel );
+    for ( const auto kernel : bzip2_test::supportedSymbolKernels() ) {
+        const bzip2_test::ScopedSymbolKernel kernelScope{ kernel };
         BZ2Reader reader( std::make_unique<StandardFileReader>( encodedPath ) );
         std::vector<char> decoded;
         std::array<char, 4_Ki> buffer{};
@@ -145,7 +137,6 @@ testAllSymbolKernels( const std::string& decodedPath,
         }
         REQUIRE( decoded == expected );
     }
-    bzip2::setSymbolKernel( bzip2::SymbolKernel::AUTOMATIC );
 }
 
 

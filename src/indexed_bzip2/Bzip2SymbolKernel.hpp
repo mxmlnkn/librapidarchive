@@ -6,7 +6,8 @@
  *
  *  - LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME: the name of the function to define.
  *  - LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET: a function target attribute or nothing.
- *  - LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT: 0 for portable C++, 1 for SSE4.1, 2 for AVX2.
+ *  - LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT: 0 for portable C++, 1 for SSE4.1, 2 for AVX2, 3 for NEON, and
+ *    4 for AVX-512.
  *
  * Compiling the same loop several times with different target attributes is what makes runtime dispatch
  * possible without building the whole translation unit for a newer instruction set. A template cannot do this:
@@ -70,6 +71,56 @@
                 const auto byteValue = _mm256_castsi128_si256( \
                     _mm_slli_si128( _mm_cvtsi32_si128( static_cast<int>( BYTE ) ), 15 ) ); \
                 front = _mm256_alignr_epi8( front, _mm256_permute2x128_si256( front, byteValue, 0x02 ), 15 ); \
+            } while ( false )
+
+#elif LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT == 4
+
+    #define BZIP2_KERNEL_CHUNK_SIZE 64U
+
+    #define BZIP2_KERNEL_LOAD_FRONT() \
+            __m512i front = _mm512_load_si512( reinterpret_cast<const __m512i*>( mtf ) )
+
+    #define BZIP2_KERNEL_STORE_FRONT() \
+            _mm512_store_si512( reinterpret_cast<__m512i*>( mtf ), front )
+
+    /* vpermb addresses all 64 list entries, so one instruction replaces the two lane-local shuffles, the
+     * lane permutation, and the OR of the AVX2 variant. */
+    #define BZIP2_KERNEL_FRONT_UPDATE( SYMBOL ) \
+            do { \
+                const auto* const shuffleRow = SYMBOL_KERNEL_FRONT_SHUFFLES_AVX512.data() + ( SYMBOL ) * 64U; \
+                front = _mm512_permutexvar_epi8( \
+                    _mm512_load_si512( reinterpret_cast<const __m512i*>( shuffleRow ) ), front ); \
+            } while ( false )
+
+    #define BZIP2_KERNEL_FRONT_BYTE() \
+            static_cast<uint32_t>( _mm_cvtsi128_si32( _mm512_castsi512_si128( front ) ) )
+
+    /* See the AVX2 variant above. vpermt2b shifts a whole chunk from two registers, which avoids the
+     * lane-crossing fixup that 128-bit alignr needs. */
+    #define BZIP2_KERNEL_MOVE_TAIL_TO_FRONT( POSITION, BYTE ) \
+            do { \
+                const auto biasedPosition = _mm512_set1_epi8( \
+                    static_cast<char>( static_cast<uint32_t>( POSITION ) - 128U ) ); \
+                const auto shiftControl = _mm512_load_si512( \
+                    reinterpret_cast<const __m512i*>( SYMBOL_KERNEL_SHIFT_CONTROL_AVX512.data() ) ); \
+                const auto frontShiftControl = _mm512_load_si512( \
+                    reinterpret_cast<const __m512i*>( SYMBOL_KERNEL_FRONT_SHIFT_CONTROL_AVX512.data() ) ); \
+                auto previousChunk = front; \
+                for ( uint32_t chunkIndex = 1; chunkIndex < chunkCount; ++chunkIndex ) { \
+                    auto* const chunkData = reinterpret_cast<__m512i*>( mtf + 64U * chunkIndex ); \
+                    const auto currentChunk = _mm512_load_si512( chunkData ); \
+                    const auto* const biasedPositions = reinterpret_cast<const __m512i*>( \
+                        SYMBOL_KERNEL_BIASED_POSITIONS.data() + 64U * chunkIndex ); \
+                    const auto keepMask = _mm512_cmpgt_epi8_mask( \
+                        _mm512_load_si512( biasedPositions ), biasedPosition ); \
+                    const auto shiftedChunk = _mm512_permutex2var_epi8( \
+                        currentChunk, shiftControl, previousChunk ); \
+                    _mm512_store_si512( \
+                        chunkData, _mm512_mask_blend_epi8( keepMask, shiftedChunk, currentChunk ) ); \
+                    previousChunk = currentChunk; \
+                } \
+                front = _mm512_permutex2var_epi8( front, frontShiftControl, \
+                                                  _mm512_set1_epi8( static_cast<char>( BYTE ) ) ); \
             } while ( false )
 
 #elif LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT == 1
@@ -164,7 +215,9 @@
 
 #endif
 
-#if LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT != 0
+#if LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT == 4
+    #define BZIP2_KERNEL_FRONT_SYMBOLS 64U
+#elif LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT != 0
     #define BZIP2_KERNEL_FRONT_SYMBOLS SIMD_KERNEL_FRONT_SIZE
 #endif
 

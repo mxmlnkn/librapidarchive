@@ -858,9 +858,12 @@ Block::readBlockData()
     state.selectorEnd = selectors.data() + selectorsCount;
     state.tables = symbolTables.data();
 
-    /* See prefersPortableKernel for why some blocks are faster without SIMD. */
+    /* See prefersPortableKernel for why some blocks are faster without SIMD. The AVX-512 kernel already
+     * handles the first 64 list entries in registers, the same range the portable kernel treats uniformly,
+     * so the near-tail comparison does not apply to it. */
     auto kernel = symbolKernel();
-    if ( ( kernel != SymbolKernel::PORTABLE ) && !isSymbolKernelOverridden() ) {
+    if ( ( kernel != SymbolKernel::PORTABLE ) && ( kernel != SymbolKernel::AVX512 )
+         && !isSymbolKernelOverridden() ) {
         uint64_t nearTailWeight = 0;
         for ( size_t i = 0; i < selectorsCount; ++i ) {
             nearTailWeight += nearTailWeights[selectors[i]];

@@ -397,6 +397,51 @@ alignas( 64 ) static constexpr std::array<int8_t, 256> SYMBOL_KERNEL_BIASED_POSI
         return result;
     }();
 
+/**
+ * Byte shuffle controls for the AVX-512 kernel, which keeps the first 64 list entries in one register. Every
+ * row is the source index for one symbol: the selected entry moves to the front and the entries before it move
+ * back by one. vpermb can use the whole 64-byte register, so this needs no lane-crossing fixup like the AVX2
+ * controls above.
+ */
+alignas( 64 ) static constexpr std::array<uint8_t, 65 * 64>
+SYMBOL_KERNEL_FRONT_SHUFFLES_AVX512 =
+    [] ()
+    {
+        std::array<uint8_t, 65 * 64> result{};
+        for ( size_t symbol = 0; symbol <= 64; ++symbol ) {
+            const size_t position = symbol < 2 ? 0 : symbol - 1;
+            auto* const control = result.data() + symbol * 64;
+            for ( size_t i = 0; i < 64; ++i ) {
+                control[i] = static_cast<uint8_t>( i == 0 ? position : ( i <= position ? i - 1 : i ) );
+            }
+        }
+        return result;
+    }();
+
+/** Shift a 64-byte chunk towards higher list positions, taking the last byte of @p previous at index 0. */
+alignas( 64 ) static constexpr std::array<uint8_t, 64> SYMBOL_KERNEL_SHIFT_CONTROL_AVX512 =
+    [] ()
+    {
+        std::array<uint8_t, 64> result{};
+        result[0] = 127;
+        for ( size_t i = 1; i < result.size(); ++i ) {
+            result[i] = static_cast<uint8_t>( i - 1 );
+        }
+        return result;
+    }();
+
+/** Shift the front register by one byte and insert the moved symbol at index 0. */
+alignas( 64 ) static constexpr std::array<uint8_t, 64> SYMBOL_KERNEL_FRONT_SHIFT_CONTROL_AVX512 =
+    [] ()
+    {
+        std::array<uint8_t, 64> result{};
+        result[0] = 64;
+        for ( size_t i = 1; i < result.size(); ++i ) {
+            result[i] = static_cast<uint8_t>( i - 1 );
+        }
+        return result;
+    }();
+
 #endif  // LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
@@ -458,6 +503,14 @@ alignas( 16 ) static constexpr std::array<uint8_t, 256> SYMBOL_KERNEL_POSITIONS_
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
 
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 4
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsAVX512
+#define LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET __attribute__( ( target( "avx512f,avx512bw,avx512vbmi" ) ) )
+#include "Bzip2SymbolKernel.hpp"
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
+#undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
+
 #endif  // LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
@@ -498,7 +551,13 @@ isSupported( const SymbolKernel kernel ) noexcept
         return supported;
     }
     case SymbolKernel::AVX512:
-        break;
+    {
+        /* vpermb and vpermt2b need AVX-512 VBMI, which the 512-bit kernel uses for the whole list. */
+        static const bool supported = ( __builtin_cpu_supports( "avx512f" ) != 0 )
+                                      && ( __builtin_cpu_supports( "avx512bw" ) != 0 )
+                                      && ( __builtin_cpu_supports( "avx512vbmi" ) != 0 );
+        return supported;
+    }
     #else
     case SymbolKernel::SSE41:
     case SymbolKernel::AVX2:
@@ -558,12 +617,14 @@ symbolKernel() noexcept
     if ( kernel != SymbolKernel::AUTOMATIC ) {
         return kernel;
     }
-    static const auto fastest = isSupported( SymbolKernel::AVX2 )
-                                ? SymbolKernel::AVX2
-                                : ( isSupported( SymbolKernel::SSE41 )
-                                    ? SymbolKernel::SSE41
-                                    : ( isSupported( SymbolKernel::NEON ) ? SymbolKernel::NEON
-                                                                          : SymbolKernel::PORTABLE ) );
+    static const auto fastest = isSupported( SymbolKernel::AVX512 )
+                                ? SymbolKernel::AVX512
+                                : ( isSupported( SymbolKernel::AVX2 )
+                                    ? SymbolKernel::AVX2
+                                    : ( isSupported( SymbolKernel::SSE41 )
+                                        ? SymbolKernel::SSE41
+                                        : ( isSupported( SymbolKernel::NEON ) ? SymbolKernel::NEON
+                                                                              : SymbolKernel::PORTABLE ) ) );
     return fastest;
 }
 
@@ -589,6 +650,8 @@ decodeSymbols( SymbolDecoderState&  state,
     switch ( kernel )
     {
 #if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+    case SymbolKernel::AVX512:
+        return decodeSymbolsAVX512( state, buffer, bufferSize, bitOffset );
     case SymbolKernel::AVX2:
         return decodeSymbolsAVX2( state, buffer, bufferSize, bitOffset );
     case SymbolKernel::SSE41:
