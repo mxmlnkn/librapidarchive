@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -19,11 +20,490 @@
 
 #include <core/common.hpp>
 #include <core/BitManipulation.hpp>
+#include <core/simd.hpp>
 #include <filereader/FileReader.hpp>
 
 
 namespace rapidgzip
 {
+namespace detail
+{
+/**
+ * The bzip2 block magic is 48 bit long, but block boundaries are bit-aligned, so a byte-aligned search
+ * has to try all eight bit shifts. Instead of running eight independent std::string_view::find passes,
+ * the kernels below scan the buffer once for the first byte of the byte-aligned middle of the magic for
+ * each shift and verify a candidate with one unaligned 64-bit load.
+ *
+ * For a shift r, the middle of the S-bit pattern is the low S - 8 bits of bitString >> r, which starts
+ * at a byte boundary. Once its first byte matches, the whole S-bit window starting at bit r of the byte
+ * before the middle is checked at once.
+ */
+using BitStringFinderKernel = SimdKernel;
+
+
+[[nodiscard]] inline bool
+isSupported( const BitStringFinderKernel kernel ) noexcept
+{
+    switch ( kernel ) {
+    case BitStringFinderKernel::AUTOMATIC:
+    case BitStringFinderKernel::PORTABLE:
+        return true;
+    #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+    case BitStringFinderKernel::SSE2:
+        return __builtin_cpu_supports( "sse2" ) != 0;
+    case BitStringFinderKernel::AVX2:
+        return __builtin_cpu_supports( "avx2" ) != 0;
+    case BitStringFinderKernel::AVX512:
+        return ( __builtin_cpu_supports( "avx512f" ) != 0 ) && ( __builtin_cpu_supports( "avx512bw" ) != 0 );
+    #else
+    case BitStringFinderKernel::SSE2:
+    case BitStringFinderKernel::AVX2:
+    case BitStringFinderKernel::AVX512:
+        return false;
+    #endif
+    case BitStringFinderKernel::SSE41:
+    case BitStringFinderKernel::NEON:
+        return false;
+    }
+    return false;
+}
+
+
+[[nodiscard]] inline BitStringFinderKernel
+automaticKernel() noexcept
+{
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+    if ( isSupported( BitStringFinderKernel::AVX512 ) ) {
+        return BitStringFinderKernel::AVX512;
+    }
+    if ( isSupported( BitStringFinderKernel::AVX2 ) ) {
+        return BitStringFinderKernel::AVX2;
+    }
+    if ( isSupported( BitStringFinderKernel::SSE2 ) ) {
+        return BitStringFinderKernel::SSE2;
+    }
+#endif
+    /* The portable word scan is not faster than the string_view reference on hosts without x86 SIMD,
+     * so leave that decision to the caller by reporting that no fast kernel was selected. */
+    return BitStringFinderKernel::AUTOMATIC;
+}
+
+
+/**
+ * Allows selecting a kernel for A/B measurements and for testing every compiled path. This is a
+ * debug-only facility and is disabled unless LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE is defined.
+ * Production always uses the automatic selection.
+ */
+[[nodiscard]] inline BitStringFinderKernel
+getBitStringFinderKernel() noexcept
+{
+#ifdef LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE
+    static const auto kernel =
+        [] () noexcept
+        {
+            const auto* const value = std::getenv( "RAPIDGZIP_BIT_STRING_FINDER_SIMD" );
+            if ( value == nullptr ) {
+                return automaticKernel();
+            }
+            const std::string_view name{ value };
+            for ( const auto candidate : { BitStringFinderKernel::PORTABLE,
+                                           BitStringFinderKernel::SSE2,
+                                           BitStringFinderKernel::AVX2,
+                                           BitStringFinderKernel::AVX512 } ) {
+                if ( name == toString( candidate ) ) {
+                    return isSupported( candidate ) ? candidate : automaticKernel();
+                }
+            }
+            return automaticKernel();
+        }();
+    return kernel;
+#else
+    return automaticKernel();
+#endif
+}
+
+
+[[nodiscard]] inline unsigned int
+trailingZeroCount64( const uint64_t value ) noexcept
+{
+#if defined( __GNUC__ ) || defined( __clang__ )
+    return static_cast<unsigned int>( __builtin_ctzll( value ) );
+#else
+    const auto lower = static_cast<uint32_t>( value );
+    if ( lower != 0 ) {
+        return trailingZeroCount( lower );
+    }
+    return 32U + trailingZeroCount( static_cast<uint32_t>( value >> 32U ) );
+#endif
+}
+
+
+struct BitStringSearchPattern
+{
+    uint64_t bitString{ 0 };
+    uint64_t mask{ 0 };
+    uint8_t bitStringSize{ 0 };
+    uint8_t needleSize{ 0 };
+    std::array<uint8_t, CHAR_BIT> firstByteOfShift{};
+    std::array<uint8_t, 256> shiftsByFirstByte{};
+};
+
+
+[[nodiscard]] inline BitStringSearchPattern
+makeBitStringSearchPattern( const uint64_t bitString,
+                            const uint8_t  bitStringSize ) noexcept
+{
+    BitStringSearchPattern pattern;
+    pattern.bitString = bitString & nLowestBitsSet<uint64_t>( bitStringSize );
+    pattern.mask = nLowestBitsSet<uint64_t>( bitStringSize );
+    pattern.bitStringSize = bitStringSize;
+    pattern.needleSize = static_cast<uint8_t>( bitStringSize / CHAR_BIT - 1U );
+    pattern.shiftsByFirstByte.fill( 0 );
+
+    for ( uint8_t shift = 0; shift < CHAR_BIT; ++shift ) {
+        const auto firstByte = static_cast<uint8_t>(
+            ( pattern.bitString >> shift ) >> static_cast<uint8_t>( bitStringSize - 16U ) );
+        pattern.firstByteOfShift[shift] = firstByte;
+        pattern.shiftsByFirstByte[firstByte] |= static_cast<uint8_t>( 1U << shift );
+    }
+
+    return pattern;
+}
+
+
+/**
+ * @param needleOffset byte offset of the byte-aligned middle of the pattern.
+ * @param shift bit shift r with which the pattern starts inside byte @p needleOffset - 1.
+ * @return whether the S-bit window starting at bit @p shift of byte @p needleOffset - 1 equals the pattern.
+ */
+[[nodiscard]] inline bool
+matchesBitStringAt( const uint8_t*                    buffer,
+                    const size_t                      bufferSize,
+                    const size_t                      needleOffset,
+                    const uint8_t                     shift,
+                    const BitStringSearchPattern&     pattern ) noexcept
+{
+    assert( needleOffset > 0 );
+
+    /* A nonzero shift reads the byte after the middle as the tail. A zero shift does not, which is why
+     * the scan range ends at bufferSize - needleSize instead of one byte earlier. */
+    if ( ( shift > 0 ) && ( needleOffset + pattern.needleSize >= bufferSize ) ) {
+        return false;
+    }
+
+    const auto startByte = needleOffset - 1U;
+    const auto available = std::min<size_t>( sizeof( uint64_t ), bufferSize - startByte );
+    uint64_t window = 0;
+    if ( available == sizeof( uint64_t ) ) {
+        window = byteSwap( loadUnaligned<uint64_t>( buffer + startByte ) );
+    } else {
+        for ( size_t i = 0; i < available; ++i ) {
+            window |= static_cast<uint64_t>( buffer[startByte + i] ) << ( 56U - 8U * i );
+        }
+    }
+
+    const auto windowShift = static_cast<uint8_t>( sizeof( uint64_t ) * CHAR_BIT - pattern.bitStringSize - shift );
+    return ( ( window >> windowShift ) & pattern.mask ) == pattern.bitString;
+}
+
+
+inline void
+appendMatchingShiftsAt( const uint8_t*                buffer,
+                        const size_t                  bufferSize,
+                        const size_t                  needleOffset,
+                        uint8_t                       shifts,
+                        const BitStringSearchPattern& pattern,
+                        std::vector<size_t>&          offsets )
+{
+    while ( shifts != 0 ) {
+        const auto shift = static_cast<uint8_t>( trailingZeroCount( shifts ) );
+        shifts &= static_cast<uint8_t>( shifts - 1U );
+        if ( matchesBitStringAt( buffer, bufferSize, needleOffset, shift, pattern ) ) {
+            offsets.push_back( ( needleOffset - 1U ) * CHAR_BIT + shift );
+        }
+    }
+}
+
+
+inline void
+appendMatchingCandidates( const uint8_t*                buffer,
+                          const size_t                  bufferSize,
+                          const size_t                  firstNeedleOffset,
+                          const uint64_t                candidateMask,
+                          const BitStringSearchPattern& pattern,
+                          std::vector<size_t>&          offsets )
+{
+    auto remaining = candidateMask;
+    while ( remaining != 0 ) {
+        const auto bit = static_cast<size_t>( trailingZeroCount64( remaining ) );
+        remaining &= remaining - 1U;
+
+        const auto needleOffset = firstNeedleOffset + bit;
+        appendMatchingShiftsAt( buffer, bufferSize, needleOffset,
+                                pattern.shiftsByFirstByte[buffer[needleOffset]], pattern, offsets );
+    }
+}
+
+
+inline void
+findBitStringsScalarRange( const uint8_t*                buffer,
+                           const size_t                  bufferSize,
+                           const size_t                  firstNeedleOffset,
+                           const size_t                  lastNeedleOffset,
+                           const BitStringSearchPattern& pattern,
+                           std::vector<size_t>&          offsets )
+{
+    auto needleOffset = firstNeedleOffset;
+    const auto end = lastNeedleOffset + 1U;
+
+    /* Most bytes are not a candidate, so check eight of them and branch only once. This keeps the
+     * portable path close to the byte-scan throughput of the previous string_view implementation. */
+    constexpr size_t UNROLL = 8;
+    for ( ; needleOffset + UNROLL <= end; needleOffset += UNROLL ) {
+        const auto* const bytes = buffer + needleOffset;
+        const auto shifts0 = pattern.shiftsByFirstByte[bytes[0]];
+        const auto shifts1 = pattern.shiftsByFirstByte[bytes[1]];
+        const auto shifts2 = pattern.shiftsByFirstByte[bytes[2]];
+        const auto shifts3 = pattern.shiftsByFirstByte[bytes[3]];
+        const auto shifts4 = pattern.shiftsByFirstByte[bytes[4]];
+        const auto shifts5 = pattern.shiftsByFirstByte[bytes[5]];
+        const auto shifts6 = pattern.shiftsByFirstByte[bytes[6]];
+        const auto shifts7 = pattern.shiftsByFirstByte[bytes[7]];
+        if ( ( shifts0 | shifts1 | shifts2 | shifts3 | shifts4 | shifts5 | shifts6 | shifts7 ) == 0 ) {
+            continue;
+        }
+        if ( shifts0 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 0, shifts0, pattern, offsets );
+        }
+        if ( shifts1 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 1, shifts1, pattern, offsets );
+        }
+        if ( shifts2 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 2, shifts2, pattern, offsets );
+        }
+        if ( shifts3 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 3, shifts3, pattern, offsets );
+        }
+        if ( shifts4 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 4, shifts4, pattern, offsets );
+        }
+        if ( shifts5 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 5, shifts5, pattern, offsets );
+        }
+        if ( shifts6 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 6, shifts6, pattern, offsets );
+        }
+        if ( shifts7 != 0 ) {
+            appendMatchingShiftsAt( buffer, bufferSize, needleOffset + 7, shifts7, pattern, offsets );
+        }
+    }
+
+    for ( ; needleOffset <= lastNeedleOffset; ++needleOffset ) {
+        appendMatchingShiftsAt( buffer, bufferSize, needleOffset,
+                                pattern.shiftsByFirstByte[buffer[needleOffset]], pattern, offsets );
+    }
+}
+
+
+inline void
+findBitStringsPortable( const uint8_t*                buffer,
+                        const size_t                  bufferSize,
+                        const BitStringSearchPattern& pattern,
+                        std::vector<size_t>&          offsets )
+{
+    if ( bufferSize < static_cast<size_t>( pattern.needleSize ) + 1U ) {
+        return;
+    }
+    findBitStringsScalarRange( buffer, bufferSize, 1, bufferSize - pattern.needleSize, pattern, offsets );
+}
+
+
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+__attribute__( ( target( "sse2" ) ) ) inline void
+findBitStringsSSE2( const uint8_t*                buffer,
+                    const size_t                  bufferSize,
+                    const BitStringSearchPattern& pattern,
+                    std::vector<size_t>&          offsets )
+{
+    if ( bufferSize < static_cast<size_t>( pattern.needleSize ) + 1U ) {
+        return;
+    }
+    const auto lastNeedleOffset = bufferSize - pattern.needleSize;
+
+    const auto firstByte0 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[0] ) );
+    const auto firstByte1 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[1] ) );
+    const auto firstByte2 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[2] ) );
+    const auto firstByte3 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[3] ) );
+    const auto firstByte4 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[4] ) );
+    const auto firstByte5 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[5] ) );
+    const auto firstByte6 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[6] ) );
+    const auto firstByte7 = _mm_set1_epi8( static_cast<char>( pattern.firstByteOfShift[7] ) );
+
+    constexpr size_t VECTOR_SIZE = 16;
+    size_t needleOffset = 1;
+    for ( ; needleOffset + VECTOR_SIZE <= lastNeedleOffset + 1U; needleOffset += VECTOR_SIZE ) {
+        const auto data = _mm_loadu_si128( reinterpret_cast<const __m128i*>( buffer + needleOffset ) );
+        auto matches = _mm_cmpeq_epi8( data, firstByte0 );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte1 ) );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte2 ) );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte3 ) );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte4 ) );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte5 ) );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte6 ) );
+        matches = _mm_or_si128( matches, _mm_cmpeq_epi8( data, firstByte7 ) );
+        const auto candidateMask = static_cast<uint32_t>( _mm_movemask_epi8( matches ) );
+        if ( candidateMask != 0 ) {
+            appendMatchingCandidates( buffer, bufferSize, needleOffset, candidateMask, pattern, offsets );
+        }
+    }
+
+    findBitStringsScalarRange( buffer, bufferSize, needleOffset, lastNeedleOffset, pattern, offsets );
+}
+
+
+__attribute__( ( target( "avx2" ) ) ) inline void
+findBitStringsAVX2( const uint8_t*                buffer,
+                    const size_t                  bufferSize,
+                    const BitStringSearchPattern& pattern,
+                    std::vector<size_t>&          offsets )
+{
+    if ( bufferSize < static_cast<size_t>( pattern.needleSize ) + 1U ) {
+        return;
+    }
+    const auto lastNeedleOffset = bufferSize - pattern.needleSize;
+
+    const auto firstByte0 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[0] ) );
+    const auto firstByte1 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[1] ) );
+    const auto firstByte2 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[2] ) );
+    const auto firstByte3 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[3] ) );
+    const auto firstByte4 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[4] ) );
+    const auto firstByte5 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[5] ) );
+    const auto firstByte6 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[6] ) );
+    const auto firstByte7 = _mm256_set1_epi8( static_cast<char>( pattern.firstByteOfShift[7] ) );
+
+    constexpr size_t VECTOR_SIZE = 32;
+    size_t needleOffset = 1;
+    for ( ; needleOffset + VECTOR_SIZE <= lastNeedleOffset + 1U; needleOffset += VECTOR_SIZE ) {
+        const auto data = _mm256_loadu_si256( reinterpret_cast<const __m256i*>( buffer + needleOffset ) );
+        auto matches = _mm256_cmpeq_epi8( data, firstByte0 );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte1 ) );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte2 ) );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte3 ) );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte4 ) );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte5 ) );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte6 ) );
+        matches = _mm256_or_si256( matches, _mm256_cmpeq_epi8( data, firstByte7 ) );
+        const auto candidateMask = static_cast<uint32_t>( _mm256_movemask_epi8( matches ) );
+        if ( candidateMask != 0 ) {
+            appendMatchingCandidates( buffer, bufferSize, needleOffset, candidateMask, pattern, offsets );
+        }
+    }
+
+    findBitStringsScalarRange( buffer, bufferSize, needleOffset, lastNeedleOffset, pattern, offsets );
+}
+
+
+__attribute__( ( target( "avx512f,avx512bw" ) ) ) inline void
+findBitStringsAVX512( const uint8_t*                buffer,
+                      const size_t                  bufferSize,
+                      const BitStringSearchPattern& pattern,
+                      std::vector<size_t>&          offsets )
+{
+    if ( bufferSize < static_cast<size_t>( pattern.needleSize ) + 1U ) {
+        return;
+    }
+    const auto lastNeedleOffset = bufferSize - pattern.needleSize;
+
+    const auto firstByte0 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[0] ) );
+    const auto firstByte1 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[1] ) );
+    const auto firstByte2 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[2] ) );
+    const auto firstByte3 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[3] ) );
+    const auto firstByte4 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[4] ) );
+    const auto firstByte5 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[5] ) );
+    const auto firstByte6 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[6] ) );
+    const auto firstByte7 = _mm512_set1_epi8( static_cast<char>( pattern.firstByteOfShift[7] ) );
+
+    constexpr size_t VECTOR_SIZE = 64;
+    size_t needleOffset = 1;
+    for ( ; needleOffset + VECTOR_SIZE <= lastNeedleOffset + 1U; needleOffset += VECTOR_SIZE ) {
+        const auto data = _mm512_loadu_si512( buffer + needleOffset );
+        const auto matches =
+            _mm512_cmpeq_epi8_mask( data, firstByte0 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte1 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte2 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte3 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte4 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte5 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte6 )
+            | _mm512_cmpeq_epi8_mask( data, firstByte7 );
+        if ( matches != 0 ) {
+            appendMatchingCandidates( buffer, bufferSize, needleOffset,
+                                      static_cast<uint64_t>( matches ), pattern, offsets );
+        }
+    }
+
+    findBitStringsScalarRange( buffer, bufferSize, needleOffset, lastNeedleOffset, pattern, offsets );
+}
+#endif  // LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+
+
+template<uint8_t bitStringSize>
+[[nodiscard]] std::vector<size_t>
+findBitStringsFast( std::string_view const&   buffer,
+                    const uint64_t            bitString,
+                    BitStringFinderKernel     kernel )
+{
+    static_assert( ( bitStringSize >= 2 * CHAR_BIT ) && ( bitStringSize <= 56 ),
+                   "The fast finder needs a pattern that fits into a 64-bit window." );
+
+    if ( ( kernel == BitStringFinderKernel::AUTOMATIC ) || !isSupported( kernel ) ) {
+        kernel = getBitStringFinderKernel();
+    }
+    if ( ( kernel == BitStringFinderKernel::AUTOMATIC ) || !isSupported( kernel ) ) {
+        kernel = BitStringFinderKernel::PORTABLE;
+    }
+
+    const auto pattern = makeBitStringSearchPattern( bitString, bitStringSize );
+    const auto* const data = reinterpret_cast<const uint8_t*>( buffer.data() );
+    const auto size = buffer.size();
+
+    std::vector<size_t> offsets;
+    switch ( kernel ) {
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+    case BitStringFinderKernel::AVX512:
+        findBitStringsAVX512( data, size, pattern, offsets );
+        break;
+    case BitStringFinderKernel::AVX2:
+        findBitStringsAVX2( data, size, pattern, offsets );
+        break;
+    case BitStringFinderKernel::SSE2:
+        findBitStringsSSE2( data, size, pattern, offsets );
+        break;
+#endif
+    case BitStringFinderKernel::AUTOMATIC:
+    case BitStringFinderKernel::PORTABLE:
+    case BitStringFinderKernel::SSE41:
+    case BitStringFinderKernel::NEON:
+        findBitStringsPortable( data, size, pattern, offsets );
+        break;
+    }
+
+    /* The reference implementation visited the eight bit shifts in order. Keep that sequence so that
+     * direct callers see exactly the same offsets in the same order. Equal shifts are kept stable. */
+    if ( offsets.size() > 1 ) {
+        std::stable_sort( offsets.begin(), offsets.end(),
+                          [] ( const size_t a, const size_t b ) { return ( a % CHAR_BIT ) < ( b % CHAR_BIT ); } );
+    }
+    return offsets;
+}
+
+
+template<uint8_t bitStringSize>
+[[nodiscard]] std::vector<size_t>
+findBitStringsGeneric( std::string_view const& buffer,
+                       uint64_t                bitString );
+}  // namespace detail
+
 /**
  * No matter the input, the data is read from an input buffer.
  * If a file is given, then that input buffer will be refilled when the input buffer empties.
@@ -164,6 +644,21 @@ template<uint8_t bitStringSize>
 std::vector<size_t>
 BitStringFinder<bitStringSize>::findBitStrings( std::string_view const& buffer,
                                                 uint64_t                bitString )
+{
+    if constexpr ( ( bitStringSize >= 2 * CHAR_BIT ) && ( bitStringSize <= 56 ) ) {
+        const auto kernel = detail::getBitStringFinderKernel();
+        if ( kernel != detail::BitStringFinderKernel::AUTOMATIC ) {
+            return detail::findBitStringsFast<bitStringSize>( buffer, bitString, kernel );
+        }
+    }
+    return detail::findBitStringsGeneric<bitStringSize>( buffer, bitString );
+}
+
+
+template<uint8_t bitStringSize>
+std::vector<size_t>
+detail::findBitStringsGeneric( std::string_view const& buffer,
+                               uint64_t                bitString )
 {
     static_assert( ( bitStringSize >= CHAR_BIT ) && ( bitStringSize % CHAR_BIT == 0 ),
                    "This is a highly optimized bit string finder for bzip2 magic bytes." );

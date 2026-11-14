@@ -48,6 +48,11 @@ if(LIBRAPIDARCHIVE_WITH_VMSPLICE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 option(LIBRAPIDARCHIVE_RUN_CLANG_TIDY "Runs clang-tidy while building targets" OFF)
+option(LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE
+       "Allow environment variables to force SIMD kernels for targeted benchmarks" OFF)
+if(LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE)
+    add_compile_definitions(LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE=1)
+endif()
 set(LIBRAPIDARCHIVE_BZIP2_CRC_SLICES "8" CACHE STRING
     "Number of bytes per bzip2 CRC slicing iteration. Must be 1, 4, or 8.")
 if(NOT LIBRAPIDARCHIVE_BZIP2_CRC_SLICES MATCHES "^(1|4|8)$")
