@@ -786,16 +786,20 @@ writeAll( const std::shared_ptr<ChunkData>& chunkData,
     }
 
 #ifdef LIBRAPIDARCHIVE_WITH_VMSPLICE
-    const auto buffersToWrite = toIoVec( *chunkData, offsetInBlock, dataToWriteSize );
-    const auto result = writeAllSplice( outputFileDescriptor, chunkData, buffersToWrite );
-    if ( result.errorCode != 0 ) {
-        /* Never rewrite a prefix that was already accepted by vmsplice. */
-        if ( result.bytesWritten > 0 ) {
-            return result.errorCode;
+    /* vmsplice retains the whole chunk. Only use it for full-chunk sequential writes so that partial
+     * ranges do not pin many whole chunks in the SpliceVault. */
+    if ( ( offsetInBlock == 0 ) && ( dataToWriteSize == chunkData->decodedSizeInBytes ) ) {
+        const auto buffersToWrite = toIoVec( *chunkData, offsetInBlock, dataToWriteSize );
+        const auto result = writeAllSplice( outputFileDescriptor, chunkData, buffersToWrite );
+        if ( result.errorCode != 0 ) {
+            /* Never rewrite a prefix that was already accepted by vmsplice. */
+            if ( result.bytesWritten > 0 ) {
+                return result.errorCode;
+            }
+            return writeAllToFdVector( outputFileDescriptor, buffersToWrite );
         }
-        return writeAllToFdVector( outputFileDescriptor, buffersToWrite );
+        return 0;
     }
-    return 0;
 #endif
 
     using rapidgzip::deflate::DecodedData;
