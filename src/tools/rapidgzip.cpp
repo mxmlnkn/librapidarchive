@@ -57,8 +57,6 @@ printRapidgzipHelp( const cxxopts::Options& options )
     << options.help()
     << "\n"
     << "If no file names are given, rapidgzip decompresses from standard input to standard output.\n"
-    << "If the output is discarded by piping to /dev/null, then the actual decoding step might\n"
-    << "be omitted if neither -l nor -L nor --force are given.\n"
     << "\n"
     << "Examples:\n"
     << "\n"

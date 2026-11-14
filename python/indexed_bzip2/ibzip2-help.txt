@@ -85,8 +85,6 @@ Usage:
                          (default: 0)
 
 If no file names are given, ibzip2 decompresses from standard input to standard output.
-If the output is discarded by piping to /dev/null, then the actual decoding step might
-be omitted if neither --test nor -l nor -L nor --force are given.
 
 Examples:
 

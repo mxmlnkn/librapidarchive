@@ -134,8 +134,6 @@ printIbzip2Help( const cxxopts::Options& options )
     << options.help()
     << "\n"
     << "If no file names are given, ibzip2 decompresses from standard input to standard output.\n"
-    << "If the output is discarded by piping to /dev/null, then the actual decoding step might\n"
-    << "be omitted if neither --test nor -l nor -L nor --force are given.\n"
     << "\n"
     << "Examples:\n"
     << "\n"
@@ -379,6 +377,8 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto decode = !compress
                         && ( decompress || doTest || countBytes || countLines || fileRanges.has_value()
                              || exportIndexRequested );
+    /* Do not special-case /dev/null: the write path is intentionally kept identical to any other output so
+     * that CLI benchmark results remain comparable with other decoders. */
     const auto writeOutput = !compress && !doTest && ( decompress || fileRanges.has_value() );
 
     if ( compress ) {
