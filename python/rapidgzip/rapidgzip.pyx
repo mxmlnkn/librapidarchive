@@ -163,7 +163,8 @@ cdef class _IndexedBzip2File():
         bytes_count = 0
 
         cdef Py_buffer buffer
-        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS)
+        if PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS) < 0:
+            return -1
         try:
             bytes_count = self.bz2reader.read(-1, <char*>buffer.buf, <size_t>buffer.len)
         finally:
@@ -288,7 +289,8 @@ cdef class _IndexedBzip2FileParallel():
         bytes_count = 0
 
         cdef Py_buffer buffer
-        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS)
+        if PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS) < 0:
+            return -1
         try:
             bytes_count = self.bz2reader.read(-1, <char*>buffer.buf, <size_t>buffer.len)
         finally:
@@ -561,7 +563,8 @@ cdef class _RapidgzipFile():
         bytes_count = 0
 
         cdef Py_buffer buffer
-        PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS)
+        if PyObject_GetBuffer(bytes_like, &buffer, PyBUF_WRITABLE | PyBUF_C_CONTIGUOUS) < 0:
+            return -1
         try:
             if self.gzipReader:
                 bytes_count = self.gzipReader.read(-1, <char*>buffer.buf, <size_t>buffer.len)
@@ -792,7 +795,8 @@ def cli() -> None:
 
     try:
         for i, arg in enumerate(args):
-            PyObject_GetBuffer(arg.encode(), &buffers[i], PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS)
+            if PyObject_GetBuffer(arg.encode(), &buffers[i], PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS) < 0:
+                raise
             cargs[i] = <char*>buffers[i].buf
 
         return rapidgzipCLI(len(args), cargs)
@@ -810,7 +814,8 @@ def ibzip2_cli() -> None:
 
     try:
         for i, arg in enumerate(args):
-            PyObject_GetBuffer(arg.encode(), &buffers[i], PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS)
+            if PyObject_GetBuffer(arg.encode(), &buffers[i], PyBUF_SIMPLE | PyBUF_ANY_CONTIGUOUS) < 0:
+                raise
             cargs[i] = <char*>buffers[i].buf
 
         return ibzip2CLI(len(args), cargs)
