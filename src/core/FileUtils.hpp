@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -12,7 +13,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 #ifdef __APPLE_CC__
     #include <AvailabilityMacros.h>
@@ -22,9 +25,10 @@
     #define NOMINMAX
     #include <Windows.h>
 
-    #include <fcntl.h>  // _O_BINARY
-    #include <stdio.h>  // stdout
-    #include <io.h>     // _setmode
+    #include <fcntl.h>     // _O_BINARY
+    #include <stdio.h>     // stdout
+    #include <sys/stat.h>  // _fstat64
+    #include <io.h>        // _setmode
 #else
     #ifndef _GNU_SOURCE
         #define _GNU_SOURCE
@@ -465,6 +469,62 @@ fileSize( const int fileDescriptor )
         throw std::runtime_error( std::move( message ).str() );
     }
     return fileStats.st_size;
+}
+
+
+/**
+ * Removes duplicate file descriptors, including different integers that refer to the same stream.
+ * fstat is called at most once per descriptor. The relative order of the remaining descriptors is kept.
+ */
+inline void
+deduplicateFileDescriptors( std::vector<int>& fileDescriptors )
+{
+    struct FileIdentity
+    {
+        uint64_t device;
+        uint64_t inode;
+
+        [[nodiscard]] bool
+        operator==( const FileIdentity& other ) const noexcept
+        {
+            return ( device == other.device ) && ( inode == other.inode );
+        }
+    };
+
+    struct FileIdentityHash
+    {
+        [[nodiscard]] size_t
+        operator()( const FileIdentity& identity ) const noexcept
+        {
+            return std::hash<uint64_t>{}( identity.device )
+                   ^ ( std::hash<uint64_t>{}( identity.inode ) << 1 );
+        }
+    };
+
+    std::unordered_set<int> seenFileDescriptors;
+    std::unordered_set<FileIdentity, FileIdentityHash> seenIdentities;
+    size_t outputIndex = 0;
+    for ( const auto fileDescriptor : fileDescriptors ) {
+        if ( !seenFileDescriptors.insert( fileDescriptor ).second ) {
+            continue;
+        }
+
+    #if defined( _MSC_VER )
+        struct _stat64 fileStats{};
+        const auto hasIdentity = ( _fstat64( fileDescriptor, &fileStats ) == 0 );
+    #else
+        struct stat fileStats{};
+        const auto hasIdentity = ( ::fstat( fileDescriptor, &fileStats ) == 0 );
+    #endif
+        if ( hasIdentity
+             && !seenIdentities.insert( { static_cast<uint64_t>( fileStats.st_dev ),
+                                          static_cast<uint64_t>( fileStats.st_ino ) } ).second ) {
+            continue;
+        }
+
+        fileDescriptors[outputIndex++] = fileDescriptor;
+    }
+    fileDescriptors.erase( fileDescriptors.begin() + outputIndex, fileDescriptors.end() );
 }
 
 

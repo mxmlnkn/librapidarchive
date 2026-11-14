@@ -634,22 +634,28 @@ rapidgzipCLI( int                  argc,
     const auto t0 = now();
     double writeDuration{ 0 };
 
+    /* The same stream can be reachable through stdout and the output file. Write it only once. */
+    std::vector<int> outputFileDescriptors;
+    for ( const auto fileDescriptor : { stdoutFileDescriptor, outputFileDescriptor } ) {
+        if ( fileDescriptor != -1 ) {
+            outputFileDescriptors.push_back( fileDescriptor );
+        }
+    }
+    deduplicateFileDescriptors( outputFileDescriptors );
+
     size_t totalBytesRead{ 0 };
     const auto writeAndCount =
-        [outputFileDescriptor, stdoutFileDescriptor, stdoutSpliceVault, countLines,
+        [stdoutFileDescriptor, stdoutSpliceVault, countLines, &outputFileDescriptors,
          &newlineCount, &totalBytesRead, &writeDuration]
         ( const std::shared_ptr<rapidgzip::ChunkData>& chunkData,
           size_t const                                 offsetInChunk,
           size_t const                                 dataToWriteSize )
         {
-            for ( const auto fileDescriptor : { stdoutFileDescriptor, outputFileDescriptor } ) {
-                if ( fileDescriptor == -1 ) {
-                    continue;
-                }
-
+            for ( const auto fileDescriptor : outputFileDescriptors ) {
                 const auto tWriteStart = now();
                 auto* const spliceVault = ( fileDescriptor == stdoutFileDescriptor ) ? stdoutSpliceVault : nullptr;
-                const auto errorCode = writeAll( chunkData, fileDescriptor, offsetInChunk, dataToWriteSize, spliceVault );
+                const auto errorCode = writeAll( chunkData, fileDescriptor, offsetInChunk, dataToWriteSize,
+                                                 spliceVault );
                 writeDuration += duration( tWriteStart );
                 if ( errorCode == EPIPE ) {
                     throw BrokenPipeException();
