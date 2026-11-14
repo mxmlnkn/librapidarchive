@@ -657,6 +657,10 @@ public:
             const size_t              dataToWriteSize,
             const std::shared_ptr<T>& splicedData )
     {
+        if ( dataToWriteSize == 0 ) {
+            return { 0, 0 };
+        }
+
         const auto wasAppended = retain( splicedData );
         const auto result = writeAllSpliceUnsafe( m_fileDescriptor, dataToWrite, dataToWriteSize );
         finishSplice( result.bytesWritten, wasAppended );
@@ -671,6 +675,10 @@ public:
     splice( const std::vector<::iovec>& buffersToWrite,
             const std::shared_ptr<T>&   splicedData )
     {
+        if ( buffersToWrite.empty() ) {
+            return { 0, 0 };
+        }
+
         const auto wasAppended = retain( splicedData );
         const auto result = writeAllSpliceUnsafe( m_fileDescriptor, buffersToWrite );
         finishSplice( result.bytesWritten, wasAppended );
@@ -836,7 +844,13 @@ writeAllToFdVector( const int                   outputFileDescriptor,
         auto nBytesWritten = ::writev( outputFileDescriptor, &dataToWrite[i], segmentCount );  // NOLINT
 
         if ( nBytesWritten < 0 ) {
+            if ( errno == EINTR ) {
+                continue;
+            }
             return errno;
+        }
+        if ( nBytesWritten == 0 ) {
+            return EIO;
         }
 
         /* Skip over buffers that were written fully. */
