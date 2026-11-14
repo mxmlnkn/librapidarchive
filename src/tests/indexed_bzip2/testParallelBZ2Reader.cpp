@@ -482,7 +482,7 @@ testStreamCRCVerificationWithImportedOffsets( const std::string& decodedTestFile
         REQUIRE_EQUAL( reader.seek( static_cast<long long int>( seekOffset ) ), seekOffset );
 
         std::vector<char> buffer( 4_Ki );
-        bool threw = false;
+        bool threw{ false };
         try {
             while ( reader.read( buffer.data(), buffer.size() ) > 0 ) {}
         } catch ( const std::exception& ) {
@@ -619,7 +619,7 @@ testImportedDecodedSizesAreValidated( const std::string& encodedTestFilePath )
 
     std::vector<char> buffer( 4_Ki );
     std::string message;
-    bool threw = false;
+    bool threw{ false };
     try {
         while ( reader.read( -1, buffer.data(), buffer.size() ) > 0 ) {}
     } catch ( const std::exception& exception ) {
@@ -649,7 +649,7 @@ testRejectsIndexForFirstConcatenatedStream( const std::string& encodedTestFilePa
     ParallelBZ2Reader reader( std::make_unique<BufferViewFileReader>( concatenated ),
                              /* parallelization */ 2 );
     std::string message;
-    bool threw = false;
+    bool threw{ false };
     try {
         reader.setBlockOffsets( firstStreamOffsets );
     } catch ( const std::exception& exception ) {
