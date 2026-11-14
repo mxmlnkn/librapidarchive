@@ -2,7 +2,7 @@ name: C++ Code Checks
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "main*", "dev*" ]
   pull_request:
   workflow_dispatch:
 
