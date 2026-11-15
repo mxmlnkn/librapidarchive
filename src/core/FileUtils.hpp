@@ -618,9 +618,9 @@ writeAllSpliceUnsafe( const int                   outputFileDescriptor,
 
 /**
  * Keeps shared pointers to spliced objects until the reader has consumed the corresponding bytes from the
- * pipe. Entries are released using FIONREAD so that pipe resizing does not invalidate the accounting.
- * The vaults and their final tail are intentionally leaked at process exit because the pipe can still
- * reference the pages after the writer has closed its file descriptor.
+ * pipe. Entries are released using FIONREAD so that pipe resizing and partial writes do not invalidate the
+ * accounting. The vaults and their final tail are intentionally leaked at process exit because the pipe can
+ * still reference the pages after the writer has closed its file descriptor.
  */
 class SpliceVault
 {
@@ -657,10 +657,9 @@ public:
             const size_t              dataToWriteSize,
             const std::shared_ptr<T>& splicedData )
     {
+        const auto wasAppended = retain( splicedData );
         const auto result = writeAllSpliceUnsafe( m_fileDescriptor, dataToWrite, dataToWriteSize );
-        if ( result.bytesWritten > 0 ) {
-            account( splicedData, result.bytesWritten );
-        }
+        finishSplice( result.bytesWritten, wasAppended );
         return result;
     }
 
@@ -672,26 +671,37 @@ public:
     splice( const std::vector<::iovec>& buffersToWrite,
             const std::shared_ptr<T>&   splicedData )
     {
+        const auto wasAppended = retain( splicedData );
         const auto result = writeAllSpliceUnsafe( m_fileDescriptor, buffersToWrite );
-        if ( result.bytesWritten > 0 ) {
-            account( splicedData, result.bytesWritten );
-        }
+        finishSplice( result.bytesWritten, wasAppended );
         return result;
     }
 
 private:
     template<typename T>
-    void
-    account( const std::shared_ptr<T>& splicedData,
-             size_t const              dataToWriteSize )
+    bool
+    retain( const std::shared_ptr<T>& splicedData )
     {
-        m_bytesWritten += dataToWriteSize;
-        /* Append the cumulative end offset to the last shared pointer if it is the same one or add a new
-         * data set. */
         if ( !m_splicedData.empty() && ( std::get<1>( m_splicedData.back() ) == splicedData.get() ) ) {
-            std::get<2>( m_splicedData.back() ) = m_bytesWritten;
-        } else {
-            m_splicedData.emplace_back( splicedData, splicedData.get(), m_bytesWritten );
+            return false;
+        }
+
+        /* Add the provisional entry before writing so that even a partial write keeps the data alive. */
+        m_splicedData.emplace_back( splicedData, splicedData.get(), m_bytesWritten );
+        return true;
+    }
+
+    void
+    finishSplice( const size_t bytesWritten,
+                  const bool   wasAppended )
+    {
+        if ( bytesWritten > 0 ) {
+            m_bytesWritten += bytesWritten;
+            if ( !m_splicedData.empty() ) {
+                std::get<2>( m_splicedData.back() ) = m_bytesWritten;
+            }
+        } else if ( wasAppended ) {
+            m_splicedData.pop_back();
         }
 
         releaseConsumed();
