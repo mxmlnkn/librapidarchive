@@ -223,16 +223,16 @@ public:
 supportedSymbolKernels()
 {
     std::vector<bzip2::SymbolKernel> kernels{ bzip2::SymbolKernel::PORTABLE };
-    if ( bzip2::isSupported( bzip2::SymbolKernel::SSE41 ) ) {
+    if ( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::SSE41 ) ) {
         kernels.emplace_back( bzip2::SymbolKernel::SSE41 );
     }
-    if ( bzip2::isSupported( bzip2::SymbolKernel::AVX2 ) ) {
+    if ( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::AVX2 ) ) {
         kernels.emplace_back( bzip2::SymbolKernel::AVX2 );
     }
-    if ( bzip2::isSupported( bzip2::SymbolKernel::AVX512 ) ) {
+    if ( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::AVX512 ) ) {
         kernels.emplace_back( bzip2::SymbolKernel::AVX512 );
     }
-    if ( bzip2::isSupported( bzip2::SymbolKernel::NEON ) ) {
+    if ( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::NEON ) ) {
         kernels.emplace_back( bzip2::SymbolKernel::NEON );
     }
     return kernels;

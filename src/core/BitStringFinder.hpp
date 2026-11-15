@@ -26,6 +26,88 @@
 
 namespace rapidgzip
 {
+namespace simd
+{
+namespace bitStringFinder
+{
+[[nodiscard]] inline bool
+isSupported( const SimdKernel kernel ) noexcept
+{
+    switch ( kernel ) {
+    case SimdKernel::AUTOMATIC:
+    case SimdKernel::PORTABLE:
+        return true;
+    #if LIBRAPIDARCHIVE_BIT_STRING_FINDER_X86_KERNELS
+    case SimdKernel::SSE2:
+        return __builtin_cpu_supports( "sse2" ) != 0;
+    case SimdKernel::AVX2:
+        return __builtin_cpu_supports( "avx2" ) != 0;
+    case SimdKernel::AVX512:
+        return ( __builtin_cpu_supports( "avx512f" ) != 0 ) && ( __builtin_cpu_supports( "avx512bw" ) != 0 );
+    #else
+    case SimdKernel::SSE2:
+    case SimdKernel::AVX2:
+    case SimdKernel::AVX512:
+        return false;
+    #endif
+    case SimdKernel::SSE41:
+    case SimdKernel::NEON:
+        return false;
+    }
+    return false;
+}
+
+
+[[nodiscard]] inline SimdKernel
+automaticKernel() noexcept
+{
+#if LIBRAPIDARCHIVE_BIT_STRING_FINDER_X86_KERNELS
+    if ( isSupported( SimdKernel::AVX512 ) ) {
+        return SimdKernel::AVX512;
+    }
+    if ( isSupported( SimdKernel::AVX2 ) ) {
+        return SimdKernel::AVX2;
+    }
+    if ( isSupported( SimdKernel::SSE2 ) ) {
+        return SimdKernel::SSE2;
+    }
+#endif
+    /* The portable word scan is not faster than the string_view reference on hosts without x86 SIMD,
+     * so leave that decision to the caller by reporting that no fast kernel was selected. */
+    return SimdKernel::AUTOMATIC;
+}
+
+
+/**
+ * Allows selecting a kernel for A/B measurements and for testing every compiled path. This is a
+ * debug-only facility and is disabled unless LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE is defined.
+ * Production always uses the automatic selection.
+ */
+[[nodiscard]] inline SimdKernel
+selectedKernel() noexcept
+{
+#ifdef LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE
+    static const auto kernel =
+        [] () noexcept
+        {
+            if ( const auto candidate = kernelFromEnvironment(
+                     "RAPIDGZIP_BIT_STRING_FINDER_SIMD",
+                     { SimdKernel::PORTABLE, SimdKernel::SSE2, SimdKernel::AVX2, SimdKernel::AVX512 } ) ) {
+                if ( isSupported( *candidate ) ) {
+                    return *candidate;
+                }
+            }
+            return automaticKernel();
+        }();
+    return kernel;
+#else
+    return automaticKernel();
+#endif
+}
+}  // namespace bitStringFinder
+}  // namespace simd
+
+
 namespace detail
 {
 /**
@@ -38,89 +120,8 @@ namespace detail
  * at a byte boundary. Once its first byte matches, the whole S-bit window starting at bit r of the byte
  * before the middle is checked at once.
  */
-using BitStringFinderKernel = SimdKernel;
 
-
-[[nodiscard]] inline bool
-isSupported( const BitStringFinderKernel kernel ) noexcept
-{
-    switch ( kernel ) {
-    case BitStringFinderKernel::AUTOMATIC:
-    case BitStringFinderKernel::PORTABLE:
-        return true;
-    #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
-    case BitStringFinderKernel::SSE2:
-        return __builtin_cpu_supports( "sse2" ) != 0;
-    case BitStringFinderKernel::AVX2:
-        return __builtin_cpu_supports( "avx2" ) != 0;
-    case BitStringFinderKernel::AVX512:
-        return ( __builtin_cpu_supports( "avx512f" ) != 0 ) && ( __builtin_cpu_supports( "avx512bw" ) != 0 );
-    #else
-    case BitStringFinderKernel::SSE2:
-    case BitStringFinderKernel::AVX2:
-    case BitStringFinderKernel::AVX512:
-        return false;
-    #endif
-    case BitStringFinderKernel::SSE41:
-    case BitStringFinderKernel::NEON:
-        return false;
-    }
-    return false;
-}
-
-
-[[nodiscard]] inline BitStringFinderKernel
-automaticKernel() noexcept
-{
-#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
-    if ( isSupported( BitStringFinderKernel::AVX512 ) ) {
-        return BitStringFinderKernel::AVX512;
-    }
-    if ( isSupported( BitStringFinderKernel::AVX2 ) ) {
-        return BitStringFinderKernel::AVX2;
-    }
-    if ( isSupported( BitStringFinderKernel::SSE2 ) ) {
-        return BitStringFinderKernel::SSE2;
-    }
-#endif
-    /* The portable word scan is not faster than the string_view reference on hosts without x86 SIMD,
-     * so leave that decision to the caller by reporting that no fast kernel was selected. */
-    return BitStringFinderKernel::AUTOMATIC;
-}
-
-
-/**
- * Allows selecting a kernel for A/B measurements and for testing every compiled path. This is a
- * debug-only facility and is disabled unless LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE is defined.
- * Production always uses the automatic selection.
- */
-[[nodiscard]] inline BitStringFinderKernel
-getBitStringFinderKernel() noexcept
-{
-#ifdef LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE
-    static const auto kernel =
-        [] () noexcept
-        {
-            const auto* const value = std::getenv( "RAPIDGZIP_BIT_STRING_FINDER_SIMD" );
-            if ( value == nullptr ) {
-                return automaticKernel();
-            }
-            const std::string_view name{ value };
-            for ( const auto candidate : { BitStringFinderKernel::PORTABLE,
-                                           BitStringFinderKernel::SSE2,
-                                           BitStringFinderKernel::AVX2,
-                                           BitStringFinderKernel::AVX512 } ) {
-                if ( name == toString( candidate ) ) {
-                    return isSupported( candidate ) ? candidate : automaticKernel();
-                }
-            }
-            return automaticKernel();
-        }();
-    return kernel;
-#else
-    return automaticKernel();
-#endif
-}
+using BitStringFinderKernel = simd::SimdKernel;
 
 
 [[nodiscard]] inline unsigned int
@@ -456,10 +457,10 @@ findBitStringsFast( std::string_view const&   buffer,
     static_assert( ( bitStringSize >= 2 * CHAR_BIT ) && ( bitStringSize <= 56 ),
                    "The fast finder needs a pattern that fits into a 64-bit window." );
 
-    if ( ( kernel == BitStringFinderKernel::AUTOMATIC ) || !isSupported( kernel ) ) {
-        kernel = getBitStringFinderKernel();
+    if ( ( kernel == BitStringFinderKernel::AUTOMATIC ) || !simd::bitStringFinder::isSupported( kernel ) ) {
+        kernel = simd::bitStringFinder::selectedKernel();
     }
-    if ( ( kernel == BitStringFinderKernel::AUTOMATIC ) || !isSupported( kernel ) ) {
+    if ( ( kernel == BitStringFinderKernel::AUTOMATIC ) || !simd::bitStringFinder::isSupported( kernel ) ) {
         kernel = BitStringFinderKernel::PORTABLE;
     }
 
@@ -479,7 +480,12 @@ findBitStringsFast( std::string_view const&   buffer,
     case BitStringFinderKernel::SSE2:
         findBitStringsSSE2( data, size, pattern, offsets );
         break;
-#endif
+#else
+    case BitStringFinderKernel::AVX512:
+    case BitStringFinderKernel::AVX2:
+    case BitStringFinderKernel::SSE2:
+        break;
+    #endif
     case BitStringFinderKernel::AUTOMATIC:
     case BitStringFinderKernel::PORTABLE:
     case BitStringFinderKernel::SSE41:
@@ -646,7 +652,7 @@ BitStringFinder<bitStringSize>::findBitStrings( std::string_view const& buffer,
                                                 uint64_t                bitString )
 {
     if constexpr ( ( bitStringSize >= 2 * CHAR_BIT ) && ( bitStringSize <= 56 ) ) {
-        const auto kernel = detail::getBitStringFinderKernel();
+        const auto kernel = simd::bitStringFinder::selectedKernel();
         if ( kernel != detail::BitStringFinderKernel::AUTOMATIC ) {
             return detail::findBitStringsFast<bitStringSize>( buffer, bitString, kernel );
         }

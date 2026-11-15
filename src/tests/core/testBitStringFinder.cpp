@@ -64,7 +64,7 @@ testFastFinderMatchesGenericView( const std::string_view view,
                                 detail::BitStringFinderKernel::SSE2,
                                 detail::BitStringFinderKernel::AVX2,
                                 detail::BitStringFinderKernel::AVX512 } ) {
-        if ( !detail::isSupported( kernel ) ) {
+        if ( !rapidgzip::simd::bitStringFinder::isSupported( kernel ) ) {
             continue;
         }
 
@@ -73,7 +73,7 @@ testFastFinderMatchesGenericView( const std::string_view view,
         if ( actual != expected ) {
             ++gnTestErrors;
             success = false;
-            std::cerr << "[FAIL] Fast " << rapidgzip::toString( kernel ) << " finder for " << view.size()
+            std::cerr << "[FAIL] Fast " << rapidgzip::simd::toString( kernel ) << " finder for " << view.size()
                       << " B and 0x" << std::hex << bitString << std::dec
                       << " returned " << actual << " instead of " << expected << "\n";
         }

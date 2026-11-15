@@ -1,5 +1,12 @@
 #pragma once
 
+#ifdef LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE
+#include <cstdlib>
+#include <initializer_list>
+#include <optional>
+#include <string_view>
+#endif
+
 
 /* The translation unit stays on the baseline ISA. The SIMD kernels are compiled with function target
  * attributes and selected at runtime, so the same binary also runs on CPUs without AVX2 or AVX-512. */
@@ -19,6 +26,8 @@
 
 
 namespace rapidgzip
+{
+namespace simd
 {
 /**
  * Runtime-selectable SIMD implementations shared by the dispatch points in the library. Individual
@@ -58,4 +67,31 @@ toString( const SimdKernel kernel ) noexcept
     }
     return "unknown";
 }
+
+
+#ifdef LIBRAPIDARCHIVE_ENABLE_KERNEL_OVERRIDE
+/**
+ * Returns the candidate named by the environment variable. The caller still has to check whether its
+ * component implements that kernel.
+ */
+template<typename Kernel>
+[[nodiscard]] inline std::optional<Kernel>
+kernelFromEnvironment( const char* const             environmentVariable,
+                       std::initializer_list<Kernel> candidates ) noexcept
+{
+    const auto* const value = std::getenv( environmentVariable );
+    if ( value == nullptr ) {
+        return std::nullopt;
+    }
+
+    const std::string_view name{ value };
+    for ( const auto candidate : candidates ) {
+        if ( name == toString( candidate ) ) {
+            return candidate;
+        }
+    }
+    return std::nullopt;
+}
+#endif
+}  // namespace simd
 }  // namespace rapidgzip

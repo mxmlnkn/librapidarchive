@@ -45,6 +45,81 @@
 #endif
 
 
+namespace rapidgzip
+{
+namespace simd
+{
+namespace bzip2SymbolDecoder
+{
+[[nodiscard]] inline bool
+isSupported( const SimdKernel kernel ) noexcept
+{
+    switch ( kernel )
+    {
+    case SimdKernel::AUTOMATIC:
+    case SimdKernel::PORTABLE:
+        return true;
+    case SimdKernel::SSE2:
+        break;
+    #if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    case SimdKernel::SSE41:
+    {
+        static const bool supported = __builtin_cpu_supports( "sse4.1" ) != 0;
+        return supported;
+    }
+    case SimdKernel::AVX2:
+    {
+        static const bool supported = __builtin_cpu_supports( "avx2" ) != 0;
+        return supported;
+    }
+    case SimdKernel::AVX512:
+    {
+        /* vpermb and vpermt2b need AVX-512 VBMI, which the 512-bit kernel uses for the whole list. */
+        static const bool supported = ( __builtin_cpu_supports( "avx512f" ) != 0 )
+                                      && ( __builtin_cpu_supports( "avx512bw" ) != 0 )
+                                      && ( __builtin_cpu_supports( "avx512vbmi" ) != 0 );
+        return supported;
+    }
+    #else
+    case SimdKernel::SSE41:
+    case SimdKernel::AVX2:
+    case SimdKernel::AVX512:
+        break;
+    #endif
+    #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+    case SimdKernel::NEON:
+        return true;
+    #else
+    case SimdKernel::NEON:
+        break;
+    #endif
+    }
+    return false;
+}
+
+
+[[nodiscard]] inline SimdKernel
+automaticKernel() noexcept
+{
+    if ( isSupported( SimdKernel::AVX512 ) ) {
+        return SimdKernel::AVX512;
+    }
+    if ( isSupported( SimdKernel::AVX2 ) ) {
+        return SimdKernel::AVX2;
+    }
+    if ( isSupported( SimdKernel::SSE41 ) ) {
+        return SimdKernel::SSE41;
+    }
+    if ( isSupported( SimdKernel::NEON ) ) {
+        return SimdKernel::NEON;
+    }
+    return SimdKernel::PORTABLE;
+}
+}  // namespace bzip2SymbolDecoder
+}  // namespace simd
+}  // namespace rapidgzip
+
+
 namespace bzip2
 {
 /**
@@ -525,55 +600,7 @@ alignas( 16 ) static constexpr std::array<uint8_t, 256> SYMBOL_KERNEL_POSITIONS_
 
 #endif  // LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
 
-
-using SymbolKernel = rapidgzip::SimdKernel;
-
-
-[[nodiscard]] inline bool
-isSupported( const SymbolKernel kernel ) noexcept
-{
-    switch ( kernel )
-    {
-    case SymbolKernel::AUTOMATIC:
-    case SymbolKernel::PORTABLE:
-        return true;
-    case SymbolKernel::SSE2:
-        break;
-    #if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
-    case SymbolKernel::SSE41:
-    {
-        static const bool supported = __builtin_cpu_supports( "sse4.1" ) != 0;
-        return supported;
-    }
-    case SymbolKernel::AVX2:
-    {
-        static const bool supported = __builtin_cpu_supports( "avx2" ) != 0;
-        return supported;
-    }
-    case SymbolKernel::AVX512:
-    {
-        /* vpermb and vpermt2b need AVX-512 VBMI, which the 512-bit kernel uses for the whole list. */
-        static const bool supported = ( __builtin_cpu_supports( "avx512f" ) != 0 )
-                                      && ( __builtin_cpu_supports( "avx512bw" ) != 0 )
-                                      && ( __builtin_cpu_supports( "avx512vbmi" ) != 0 );
-        return supported;
-    }
-    #else
-    case SymbolKernel::SSE41:
-    case SymbolKernel::AVX2:
-    case SymbolKernel::AVX512:
-        break;
-    #endif
-    #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
-    case SymbolKernel::NEON:
-        return true;
-    #else
-    case SymbolKernel::NEON:
-        break;
-    #endif
-    }
-    return false;
-}
+using SymbolKernel = rapidgzip::simd::SimdKernel;
 
 
 namespace detail
@@ -589,9 +616,9 @@ inline std::atomic<SymbolKernel> g_symbolKernel{ SymbolKernel::AUTOMATIC };
 inline void
 setSymbolKernel( const SymbolKernel kernel )
 {
-    if ( !isSupported( kernel ) ) {
+    if ( !rapidgzip::simd::bzip2SymbolDecoder::isSupported( kernel ) ) {
         throw std::invalid_argument( std::string( "The symbol kernel is not supported on this system: " )
-                                     + toString( kernel ) );
+                                     + rapidgzip::simd::toString( kernel ) );
     }
     detail::g_symbolKernel.store( kernel, std::memory_order_relaxed );
 }
@@ -617,15 +644,7 @@ symbolKernel() noexcept
     if ( kernel != SymbolKernel::AUTOMATIC ) {
         return kernel;
     }
-    static const auto fastest = isSupported( SymbolKernel::AVX512 )
-                                ? SymbolKernel::AVX512
-                                : ( isSupported( SymbolKernel::AVX2 )
-                                    ? SymbolKernel::AVX2
-                                    : ( isSupported( SymbolKernel::SSE41 )
-                                        ? SymbolKernel::SSE41
-                                        : ( isSupported( SymbolKernel::NEON ) ? SymbolKernel::NEON
-                                                                              : SymbolKernel::PORTABLE ) ) );
-    return fastest;
+    return rapidgzip::simd::bzip2SymbolDecoder::automaticKernel();
 }
 
 
