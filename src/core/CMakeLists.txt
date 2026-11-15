@@ -23,6 +23,7 @@ target_sources(core INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/Prefetcher.hpp
     ${CMAKE_CURRENT_LIST_DIR}/ReusableVector.hpp
     ${CMAKE_CURRENT_LIST_DIR}/ScopedGIL.hpp
+    ${CMAKE_CURRENT_LIST_DIR}/simd.hpp
     ${CMAKE_CURRENT_LIST_DIR}/Statistics.hpp
     ${CMAKE_CURRENT_LIST_DIR}/StreamedResults.hpp
     ${CMAKE_CURRENT_LIST_DIR}/TestHelpers.hpp

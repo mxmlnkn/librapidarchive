@@ -21,19 +21,11 @@
 #include <core/BitManipulation.hpp>
 #include <core/common.hpp>
 #include <core/Error.hpp>
+#include <core/simd.hpp>
 
 #include "Bzip2Format.hpp"
 /* Also provides LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 and the SSE2 intrinsics used by createLastToFirstMapping. */
 #include "Bzip2MoveToFront.hpp"
-
-/* The SIMD kernels are compiled with function target attributes and selected at runtime, which needs GCC or
- * Clang. Other compilers and architectures use the portable kernel. */
-#if ( defined( __GNUC__ ) || defined( __clang__ ) ) && defined( __x86_64__ )
-    #include <immintrin.h>
-    #define LIBRAPIDARCHIVE_BZIP2_X86_KERNELS 1
-#else
-    #define LIBRAPIDARCHIVE_BZIP2_X86_KERNELS 0
-#endif
 
 /* AArch64 has the table lookup and byte-extension instructions the NEON kernel needs. ARMv7 keeps the
  * portable kernel; its NEON Move-to-Front helper is still used by it. */
@@ -351,7 +343,7 @@ prefersPortableKernel( const uint64_t totalWeight,
 }
 
 
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 /**
  * Byte shuffle controls that move one of the first 32 entries of the Move-to-Front list to the front.
@@ -405,7 +397,7 @@ alignas( 64 ) static constexpr std::array<int8_t, 256> SYMBOL_KERNEL_BIASED_POSI
         return result;
     }();
 
-#endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#endif  // LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
 
@@ -448,7 +440,7 @@ alignas( 16 ) static constexpr std::array<uint8_t, 256> SYMBOL_KERNEL_POSITIONS_
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
 
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_VARIANT 1
 #define LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME decodeSymbolsSSE41
@@ -466,7 +458,7 @@ alignas( 16 ) static constexpr std::array<uint8_t, 256> SYMBOL_KERNEL_POSITIONS_
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_NAME
 #undef LIBRAPIDARCHIVE_BZIP2_KERNEL_TARGET
 
-#endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#endif  // LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
 
@@ -481,34 +473,7 @@ alignas( 16 ) static constexpr std::array<uint8_t, 256> SYMBOL_KERNEL_POSITIONS_
 #endif  // LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
 
 
-enum class SymbolKernel
-{
-    AUTOMATIC,
-    PORTABLE,
-    SSE41,
-    AVX2,
-    NEON,
-};
-
-
-[[nodiscard]] constexpr const char*
-toString( const SymbolKernel kernel ) noexcept
-{
-    switch ( kernel )
-    {
-    case SymbolKernel::AUTOMATIC:
-        return "automatic";
-    case SymbolKernel::PORTABLE:
-        return "portable";
-    case SymbolKernel::SSE41:
-        return "sse4.1";
-    case SymbolKernel::AVX2:
-        return "avx2";
-    case SymbolKernel::NEON:
-        return "neon";
-    }
-    return "unknown";
-}
+using SymbolKernel = rapidgzip::SimdKernel;
 
 
 [[nodiscard]] inline bool
@@ -519,7 +484,9 @@ isSupported( const SymbolKernel kernel ) noexcept
     case SymbolKernel::AUTOMATIC:
     case SymbolKernel::PORTABLE:
         return true;
-    #if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    case SymbolKernel::SSE2:
+        break;
+    #if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
     case SymbolKernel::SSE41:
     {
         static const bool supported = __builtin_cpu_supports( "sse4.1" ) != 0;
@@ -530,9 +497,12 @@ isSupported( const SymbolKernel kernel ) noexcept
         static const bool supported = __builtin_cpu_supports( "avx2" ) != 0;
         return supported;
     }
+    case SymbolKernel::AVX512:
+        break;
     #else
     case SymbolKernel::SSE41:
     case SymbolKernel::AVX2:
+    case SymbolKernel::AVX512:
         break;
     #endif
     #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
@@ -615,19 +585,19 @@ decodeSymbols( SymbolDecoderState&  state,
                size_t&              bitOffset,
                const SymbolKernel   kernel ) noexcept
 {
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS || LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS || LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
     switch ( kernel )
     {
-    #if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
     case SymbolKernel::AVX2:
         return decodeSymbolsAVX2( state, buffer, bufferSize, bitOffset );
     case SymbolKernel::SSE41:
         return decodeSymbolsSSE41( state, buffer, bufferSize, bitOffset );
-    #endif
-    #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
+#endif
+#if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
     case SymbolKernel::NEON:
         return decodeSymbolsNEON( state, buffer, bufferSize, bitOffset );
-    #endif
+#endif
     default:
         break;
     }
@@ -740,7 +710,7 @@ createLastToFirstMappingPortable( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT 
 }
 
 
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 [[nodiscard]] inline uint32_t
 createLastToFirstMappingSSE2( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records,
@@ -870,7 +840,7 @@ createLastToFirstMappingAVX512( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  r
     return static_cast<uint32_t>( target - lastToFirstMapping );
 }
 
-#endif  // LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#endif  // LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
 
 #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
 
@@ -951,7 +921,7 @@ createLastToFirstMapping( const uint8_t* LIBRAPIDARCHIVE_BZIP2_RESTRICT  records
 {
 #if LIBRAPIDARCHIVE_BZIP2_NEON_KERNELS
     return createLastToFirstMappingNEON( records, recordCount, lastToFirstMapping, byteCounts );
-#elif LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#elif LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
     using Function = uint32_t ( * )( const uint8_t*, size_t, uint32_t*, std::array<uint32_t, 256>& ) noexcept;
     static const auto function =
         [] () -> Function

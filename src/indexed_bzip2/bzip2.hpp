@@ -28,13 +28,6 @@
 #include "Bzip2MoveToFront.hpp"
 #include "Bzip2SymbolDecoder.hpp"
 
-#if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
-    /* The AVX-512 RLE scan uses the same compiler/architecture gate as the PCLMUL CRC header. */
-    #define LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN 1
-#else
-    #define LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN 0
-#endif
-
 
 /**
  * @see https://github.com/dsnet/compress/blob/master/doc/bzip2-format.pdf
@@ -66,7 +59,7 @@
  */
 namespace bzip2
 {
-#if LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
 #define LIBRAPIDARCHIVE_BZIP2_AVX512_TARGET __attribute__( ( target( "avx512f,avx512bw" ) ) )
 
 [[nodiscard]] inline bool
@@ -995,7 +988,7 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 break;
             }
 
-        #if LIBRAPIDARCHIVE_BZIP2_AVX512_SCAN
+        #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
             if ( hasAvx512RLEScan() ) {
                 expandRLEAvx512( bwtData.get(), writeCount, state.position, outputBuffer,
                                  nBytesDecoded, nMaxBytesToDecode, state.repeatByte, state.repeatCount );

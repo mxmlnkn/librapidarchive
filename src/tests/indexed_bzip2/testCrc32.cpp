@@ -56,7 +56,7 @@ testEveryShortLength()
             const auto actual = bzip2::updateCRC32(
                 initialCRC, reinterpret_cast<const char*>( data.data() ), length );
             REQUIRE_EQUAL( actual, expected );
-        #if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+        #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
             if ( bzip2::hasPCLMULCRC32() ) {
                 REQUIRE_EQUAL( bzip2::updateCRC32PCLMUL( initialCRC, data.data(), length ), expected );
             }
@@ -88,7 +88,7 @@ testRandomLongLengths()
         const auto dispatched = bzip2::updateCRC32(
             initialCRC, reinterpret_cast<const char*>( data.data() ), length );
         REQUIRE_EQUAL( dispatched, expected );
-    #if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+    #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
         if ( bzip2::hasPCLMULCRC32() ) {
             REQUIRE_EQUAL( bzip2::updateCRC32PCLMUL( initialCRC, data.data(), length ), expected );
 
@@ -126,7 +126,7 @@ testTailAcrossBlockBoundary()
     for ( size_t length = 0; length <= data.size(); ++length ) {
         const auto initialCRC = static_cast<uint32_t>( random() );
         const auto expected = scalarCRC( initialCRC, data.data(), length );
-    #if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+    #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
         if ( bzip2::hasPCLMULCRC32() ) {
             REQUIRE_EQUAL( bzip2::updateCRC32PCLMUL( initialCRC, data.data(), length ), expected );
         }

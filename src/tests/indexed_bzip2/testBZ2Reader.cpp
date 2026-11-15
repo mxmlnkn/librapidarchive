@@ -649,7 +649,7 @@ testLastToFirstMappingKernels()
             REQUIRE( std::equal( mapping.begin(), mapping.begin() + size, referenceMapping.begin() ) );
         };
 
-#if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
     compare( bzip2::createLastToFirstMappingSSE2 );
     if ( __builtin_cpu_supports( "avx2" ) ) {
         compare( bzip2::createLastToFirstMappingAVX2 );

@@ -5,19 +5,8 @@
 #include <cstdint>
 #include <cstring>
 
-/* This guard selects the compilers and architectures that provide the intrinsic headers and the
- * function-level target attribute. The translation unit stays on the baseline ISA; the PCLMUL/SSSE3
- * functions below are compiled with target attributes and selected by __builtin_cpu_supports at
- * runtime. A compile-time __PCLMUL__ check would require -mpclmul for the whole translation unit and
- * defeat the runtime dispatch. */
-#if ( defined( __GNUC__ ) || defined( __clang__ ) ) && ( defined( __x86_64__ ) || defined( __i386__ ) )
-    #include <immintrin.h>
-    #include <tmmintrin.h>
-    #include <wmmintrin.h>
-    #define LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL 1
-#else
-    #define LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL 0
-#endif
+#include <core/simd.hpp>
+
 
 namespace bzip2
 {
@@ -146,7 +135,7 @@ updateCRC32SliceByN( uint32_t       crc,
 }
 
 
-#if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
 /**
  * The PCLMUL kernel interprets the CRC register and the message as polynomials over GF(2) with bit i
  * holding the coefficient of x^i. bzip2 uses the non-reflected polynomial P(x) = x^32 + 0x04C11DB7,
@@ -268,10 +257,10 @@ updateCRC32PCLMUL( uint32_t       crc,
     return updateCRC32SliceByN<BZIP2_CRC_SLICES>( 0, trailing, 16 + tailSize );
 }
 #undef LIBRAPIDARCHIVE_BZIP2_CRC_TARGET
-#endif  /* LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL */
+#endif  /* LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS */
 
 
-#if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL \
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS \
     && ( ( defined( __GNUC__ ) && !defined( __clang__ ) && ( __GNUC__ >= 11 ) ) \
          || ( defined( __clang__ ) && ( __clang_major__ >= 12 ) ) )
     #define LIBRAPIDARCHIVE_BZIP2_CRC_VPCLMUL 1
@@ -383,7 +372,7 @@ updateCRC32VPCLMUL( uint32_t       crc,
 [[nodiscard]] inline bool
 hasPCLMULCRC32() noexcept
 {
-#if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
     return ( __builtin_cpu_supports( "pclmul" ) != 0 ) && ( __builtin_cpu_supports( "ssse3" ) != 0 );
 #else
     return false;
@@ -415,7 +404,7 @@ updateCRC32( uint32_t    crc,
         return updateCRC32VPCLMUL( crc, reinterpret_cast<const uint8_t*>( data ), size );
     }
 #endif
-#if LIBRAPIDARCHIVE_BZIP2_CRC_PCLMUL
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
     if ( ( size >= CRC32_PCLMUL_MIN_SIZE ) && hasPCLMULCRC32() ) {
         return updateCRC32PCLMUL( crc, reinterpret_cast<const uint8_t*>( data ), size );
     }
