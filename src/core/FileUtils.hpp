@@ -527,54 +527,70 @@ fileSize( const int fileDescriptor )
  * Or maybe try setting the pipe buffer size to some forced value and
  * then only free the last data after pipe size more has been written.
  *
- * @return 0 if successful and errno if it could not be spliced from the beginning, e.g., because the file
- *         descriptor is not a pipe or because the file descriptor triggered a SIGPIPE.
+ * @return The number of bytes accepted by vmsplice and an error code. bytesWritten can be positive even
+ *         when the splice failed part-way through.
  */
-[[nodiscard]] inline int
-writeAllSpliceUnsafe( [[maybe_unused]] const int         outputFileDescriptor,
-                      [[maybe_unused]] const void* const dataToWrite,
-                      [[maybe_unused]] const size_t      dataToWriteSize )
+struct SpliceResult
+{
+    size_t bytesWritten{ 0 };
+    int errorCode{ 0 };
+};
+
+
+[[nodiscard]] inline SpliceResult
+writeAllSpliceUnsafe( const int         outputFileDescriptor,
+                      const void* const dataToWrite,
+                      const size_t      dataToWriteSize )
 {
     ::iovec dataToSplice{};
     /* The const_cast should be safe because vmsplice should not modify the input data. */
-    dataToSplice.iov_base = const_cast<void*>( reinterpret_cast<const void*>( dataToWrite ) );
+    dataToSplice.iov_base = const_cast<void*>( dataToWrite );
     dataToSplice.iov_len = dataToWriteSize;
+
+    size_t totalWritten = 0;
     while ( dataToSplice.iov_len > 0 ) {
-        /* Note: On a broken pipe signal (EPIPE), the C++ CLI will directly exit and will not resume
-         * on the following line while with the Python wrapper, it will resume!
-         * @see https://stackoverflow.com/a/18963142/2191065 */
         const auto nBytesWritten = ::vmsplice( outputFileDescriptor, &dataToSplice, 1, /* flags */ 0 );
         if ( nBytesWritten < 0 ) {
-            return errno;
+            if ( errno == EINTR ) {
+                continue;
+            }
+            return { totalWritten, errno };
         }
-        dataToSplice.iov_base = reinterpret_cast<char*>( dataToSplice.iov_base ) + nBytesWritten;
-        dataToSplice.iov_len -= nBytesWritten;
+        if ( nBytesWritten == 0 ) {
+            return { totalWritten, EIO };
+        }
+
+        totalWritten += static_cast<size_t>( nBytesWritten );
+        dataToSplice.iov_base = static_cast<char*>( dataToSplice.iov_base ) + nBytesWritten;
+        dataToSplice.iov_len -= static_cast<size_t>( nBytesWritten );
     }
-    return 0;
+    return { totalWritten, 0 };
 }
 
 
-[[nodiscard]] inline int
-writeAllSpliceUnsafe( [[maybe_unused]] const int                   outputFileDescriptor,
-                      [[maybe_unused]] const std::vector<::iovec>& dataToWrite )
+[[nodiscard]] inline SpliceResult
+writeAllSpliceUnsafe( const int                   outputFileDescriptor,
+                      const std::vector<::iovec>& dataToWrite )
 {
+    size_t totalWritten = 0;
     for ( size_t i = 0; i < dataToWrite.size(); ) {
         const auto segmentCount = std::min( static_cast<size_t>( IOV_MAX ), dataToWrite.size() - i );
-        auto nBytesWritten = ::vmsplice( outputFileDescriptor, &dataToWrite[i], segmentCount, /* flags */ 0 );
-
-        if ( nBytesWritten < 0 ) {
-            if ( i == 0 ) {
-                return errno;
+        const auto vmspliceResult = ::vmsplice( outputFileDescriptor, &dataToWrite[i], segmentCount, /* flags */ 0 );
+        if ( vmspliceResult < 0 ) {
+            if ( errno == EINTR ) {
+                continue;
             }
-
-            std::stringstream message;
-            message << "Failed to write all bytes because of: " << strerror( errno ) << " (" << errno << ")";
-            throw std::runtime_error( std::move( message ).str() );
+            return { totalWritten, errno };
+        }
+        if ( vmspliceResult == 0 ) {
+            return { totalWritten, EIO };
         }
 
+        auto nBytesWritten = static_cast<size_t>( vmspliceResult );
+        totalWritten += nBytesWritten;
+
         /* Skip over buffers that were written fully. */
-        for ( ; ( i < dataToWrite.size() ) && ( dataToWrite[i].iov_len <= static_cast<size_t>( nBytesWritten ) );
-              ++i ) {
+        for ( ; ( i < dataToWrite.size() ) && ( dataToWrite[i].iov_len <= nBytesWritten ); ++i ) {
             nBytesWritten -= dataToWrite[i].iov_len;
         }
 
@@ -583,19 +599,20 @@ writeAllSpliceUnsafe( [[maybe_unused]] const int                   outputFileDes
         if ( ( i < dataToWrite.size() ) && ( nBytesWritten > 0 ) ) {
             const auto& iovBuffer = dataToWrite[i];
 
-            assert( iovBuffer.iov_len > static_cast<size_t>( nBytesWritten ) );
-            const auto size = iovBuffer.iov_len - nBytesWritten;
+            assert( iovBuffer.iov_len > nBytesWritten );
+            const auto remainingSize = iovBuffer.iov_len - nBytesWritten;
 
-            const auto remainingData = reinterpret_cast<char*>( iovBuffer.iov_base ) + nBytesWritten;
-            const auto errorCode = writeAllSpliceUnsafe( outputFileDescriptor, remainingData, size );
-            if ( errorCode != 0 ) {
-                return errorCode;
+            const auto remainingData = static_cast<char*>( iovBuffer.iov_base ) + nBytesWritten;
+            const auto result = writeAllSpliceUnsafe( outputFileDescriptor, remainingData, remainingSize );
+            totalWritten += result.bytesWritten;
+            if ( result.errorCode != 0 ) {
+                return { totalWritten, result.errorCode };
             }
             ++i;
         }
     }
 
-    return 0;
+    return { totalWritten, 0 };
 }
 
 
@@ -632,43 +649,34 @@ public:
 
     /**
      * @param dataToWrite A pointer to the start of the data to write. This pointer should be part of @p splicedData!
-     * @param splicedData This owning shared pointer will be stored until enough other data has been spliced into
-     *                    the pipe.
+     * @param splicedData This owning shared pointer will be stored until the reader has consumed the data.
      */
     template<typename T>
-    [[nodiscard]] int
+    [[nodiscard]] SpliceResult
     splice( const void* const         dataToWrite,
-            size_t const              dataToWriteSize,
+            const size_t              dataToWriteSize,
             const std::shared_ptr<T>& splicedData )
     {
-        const auto errorCode = writeAllSpliceUnsafe( m_fileDescriptor, dataToWrite, dataToWriteSize );
-        if ( errorCode != 0 ) {
-            return errorCode;
+        const auto result = writeAllSpliceUnsafe( m_fileDescriptor, dataToWrite, dataToWriteSize );
+        if ( result.bytesWritten > 0 ) {
+            account( splicedData, result.bytesWritten );
         }
-
-        account( splicedData, dataToWriteSize );
-        return 0;
+        return result;
     }
 
     /**
      * Overload that works for iovec structures directly.
      */
     template<typename T>
-    [[nodiscard]] int
+    [[nodiscard]] SpliceResult
     splice( const std::vector<::iovec>& buffersToWrite,
             const std::shared_ptr<T>&   splicedData )
     {
-        const auto errorCode = writeAllSpliceUnsafe( m_fileDescriptor, buffersToWrite );
-        if ( errorCode != 0 ) {
-            return errorCode;
+        const auto result = writeAllSpliceUnsafe( m_fileDescriptor, buffersToWrite );
+        if ( result.bytesWritten > 0 ) {
+            account( splicedData, result.bytesWritten );
         }
-
-        const auto dataToWriteSize = std::accumulate(
-            buffersToWrite.begin(), buffersToWrite.end(), size_t( 0 ),
-            [] ( size_t sum, const auto& buffer ) { return sum + buffer.iov_len; } );
-
-        account( splicedData, dataToWriteSize );
-        return 0;
+        return result;
     }
 
 private:
@@ -734,6 +742,16 @@ private:
 
     AtomicMutex m_mutex;
 };
+
+
+template<typename T>
+[[nodiscard]] inline SpliceResult
+writeAllSplice( const int                   outputFileDescriptor,
+                const std::shared_ptr<T>&   splicedData,
+                const std::vector<::iovec>& buffersToWrite )
+{
+    return SpliceVault::getInstance( outputFileDescriptor ).first->splice( buffersToWrite, splicedData );
+}
 #endif  // LIBRAPIDARCHIVE_WITH_VMSPLICE
 
 

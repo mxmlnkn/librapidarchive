@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <core/FasterVector.hpp>
+#include <core/FileUtils.hpp>
 #include <rapidgzip/CompressedVector.hpp>
 #include <rapidgzip/DecodedData.hpp>
 #include <rapidgzip/gzip/crc32.hpp>
@@ -773,33 +774,6 @@ ChunkData::split( [[maybe_unused]] const size_t spacing ) const
 static_assert( !std::is_polymorphic_v<ChunkData>, "Simply making it polymorphic halves performance!" );
 
 
-#if defined( LIBRAPIDARCHIVE_WITH_VMSPLICE )
-/**
- * Tries to use writeAllSpliceUnsafe and, if successful, also extends lifetime by adding the block data
- * shared_ptr into a list.
- *
- * @note Limitations:
- *  - To avoid querying the pipe buffer size, it is only done once. This might introduce subtle errors when it is
- *    dynamically changed after this point.
- *  - The lifetime can only be extended on block granularity even though chunks would be more suited.
- *    This results in larger peak memory than strictly necessary.
- *  - In the worst case we would read only 1B out of each block, which would extend the lifetime
- *    of thousands of large blocks resulting in an out of memory issue.
- *    - This would only be triggerable by using the API. The current CLI and not even the Python
- *      interface would trigger this because either they don't splice to a pipe or only read
- *      sequentially.
- * @note It *does* account for pages to be spliced into yet another pipe buffer by waiting for buffer size
- *       amount of data being written before freeing, and likely reusing, the memory.
- */
-[[nodiscard]] inline int
-writeAllSplice( [[maybe_unused]] const int                         outputFileDescriptor,
-                [[maybe_unused]] const std::shared_ptr<ChunkData>& chunkData,
-                [[maybe_unused]] const std::vector<::iovec>&       buffersToWrite )
-{
-    return SpliceVault::getInstance( outputFileDescriptor ).first->splice( buffersToWrite, chunkData );
-}
-#endif  // LIBRAPIDARCHIVE_WITH_VMSPLICE
-
 
 [[nodiscard]] inline int
 writeAll( const std::shared_ptr<ChunkData>& chunkData,
@@ -813,11 +787,17 @@ writeAll( const std::shared_ptr<ChunkData>& chunkData,
 
 #ifdef LIBRAPIDARCHIVE_WITH_VMSPLICE
     const auto buffersToWrite = toIoVec( *chunkData, offsetInBlock, dataToWriteSize );
-    const auto errorCode = writeAllSplice( outputFileDescriptor, chunkData, buffersToWrite );
-    if ( errorCode != 0 ) {
+    const auto result = writeAllSplice( outputFileDescriptor, chunkData, buffersToWrite );
+    if ( result.errorCode != 0 ) {
+        /* Never rewrite a prefix that was already accepted by vmsplice. */
+        if ( result.bytesWritten > 0 ) {
+            return result.errorCode;
+        }
         return writeAllToFdVector( outputFileDescriptor, buffersToWrite );
     }
-#else
+    return 0;
+#endif
+
     using rapidgzip::deflate::DecodedData;
 
     for ( auto it = DecodedData::Iterator( *chunkData, offsetInBlock, dataToWriteSize );
@@ -829,7 +809,6 @@ writeAll( const std::shared_ptr<ChunkData>& chunkData,
             return errorCode;
         }
     }
-#endif
 
     return 0;
 }
