@@ -192,6 +192,8 @@ int BZ_API(BZ2_bzCompressInit)
    s->state             = BZ_S_INPUT;
    s->mode              = BZ_M_RUNNING;
    s->combinedCRC       = 0;
+   s->precomputedBlockCRC = 0;
+   s->usePrecomputedCRC = False;
    s->blockSize100k     = blockSize100k;
    s->nblockMAX         = 100000 * blockSize100k - 19;
    s->verbosity         = verbosity;
@@ -219,8 +221,10 @@ void add_pair_to_block ( EState* s )
 {
    Int32 i;
    UChar ch = (UChar)(s->state_in_ch);
-   for (i = 0; i < s->state_in_len; i++) {
-      BZ_UPDATE_CRC( s->blockCRC, ch );
+   if (!s->usePrecomputedCRC) {
+      for (i = 0; i < s->state_in_len; i++) {
+         BZ_UPDATE_CRC( s->blockCRC, ch );
+      }
    }
    s->inUse[s->state_in_ch] = True;
    switch (s->state_in_len) {
@@ -266,7 +270,8 @@ void flush_RL ( EState* s )
    if (zchh != zs->state_in_ch &&                 \
        zs->state_in_len == 1) {                   \
       UChar ch = (UChar)(zs->state_in_ch);        \
-      BZ_UPDATE_CRC( zs->blockCRC, ch );          \
+      if (!zs->usePrecomputedCRC)                 \
+         BZ_UPDATE_CRC( zs->blockCRC, ch );       \
       zs->inUse[zs->state_in_ch] = True;          \
       zs->block[zs->nblock] = (UChar)ch;          \
       zs->nblock++;                               \
@@ -689,14 +694,16 @@ void BZ_API(BZ2_bzWriteClose64)
 /*---------------------------------------------------*/
 
 /*---------------------------------------------------*/
-int BZ_API(BZ2_bzBuffToBuffCompress)
-                         ( char*         dest,
+static
+int bzBuffToBuffCompress ( char*         dest,
                            unsigned int* destLen,
                            char*         source,
                            unsigned int  sourceLen,
                            int           blockSize100k,
                            int           verbosity,
-                           int           workFactor )
+                           int           workFactor,
+                           int           usePrecomputedCRC,
+                           UInt32        crc )
 {
    bz_stream strm;
    int ret;
@@ -708,6 +715,11 @@ int BZ_API(BZ2_bzBuffToBuffCompress)
        workFactor < 0 || workFactor > 250)
       return BZ_PARAM_ERROR;
 
+   /* The precomputed CRC is only valid when the input stays in one block. */
+   if (usePrecomputedCRC &&
+       sourceLen > (unsigned int)( ( ( blockSize100k * 100000 - 19 ) * 4 ) / 5 ))
+      usePrecomputedCRC = 0;
+
    if (workFactor == 0) workFactor = 30;
    strm.bzalloc = NULL;
    strm.bzfree = NULL;
@@ -715,6 +727,12 @@ int BZ_API(BZ2_bzBuffToBuffCompress)
    ret = BZ2_bzCompressInit ( &strm, blockSize100k,
                               verbosity, workFactor );
    if (ret != BZ_OK) return ret;
+
+   if (usePrecomputedCRC) {
+      EState* s = (EState*)strm.state;
+      s->usePrecomputedCRC = True;
+      s->precomputedBlockCRC = crc;
+   }
 
    strm.next_in = source;
    strm.next_out = dest;
@@ -737,6 +755,37 @@ int BZ_API(BZ2_bzBuffToBuffCompress)
    errhandler:
    BZ2_bzCompressEnd ( &strm );
    return ret;
+}
+
+
+/*---------------------------------------------------*/
+int BZ_API(BZ2_bzBuffToBuffCompress)
+                         ( char*         dest,
+                           unsigned int* destLen,
+                           char*         source,
+                           unsigned int  sourceLen,
+                           int           blockSize100k,
+                           int           verbosity,
+                           int           workFactor )
+{
+   return bzBuffToBuffCompress ( dest, destLen, source, sourceLen,
+                                 blockSize100k, verbosity, workFactor, 0, 0 );
+}
+
+
+/*---------------------------------------------------*/
+int BZ_API(BZ2_bzBuffToBuffCompressWithCRC)
+                         ( char*         dest,
+                           unsigned int* destLen,
+                           char*         source,
+                           unsigned int  sourceLen,
+                           int           blockSize100k,
+                           int           verbosity,
+                           int           workFactor,
+                           unsigned int  crc )
+{
+   return bzBuffToBuffCompress ( dest, destLen, source, sourceLen,
+                                 blockSize100k, verbosity, workFactor, 1, crc );
 }
 
 

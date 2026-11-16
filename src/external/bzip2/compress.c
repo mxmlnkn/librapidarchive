@@ -598,7 +598,8 @@ void BZ2_compressBlock ( EState* s, Bool is_last_block )
 {
    if (s->nblock > 0) {
 
-      BZ_FINALISE_CRC ( s->blockCRC );
+      if (s->usePrecomputedCRC) s->blockCRC = s->precomputedBlockCRC;
+      else BZ_FINALISE_CRC ( s->blockCRC );
       s->combinedCRC = (s->combinedCRC << 1) | (s->combinedCRC >> 31);
       s->combinedCRC ^= s->blockCRC;
       if (s->blockNo > 1) s->numZ = 0;

@@ -22,6 +22,7 @@
 #include <core/FileUtils.hpp>
 #include <core/ThreadPool.hpp>
 #include <filereader/FileReader.hpp>
+#include <indexed_bzip2/Bzip2Crc32.hpp>
 #include <indexed_bzip2/Bzip2Format.hpp>
 
 
@@ -52,10 +53,17 @@ compressBzip2Stream( const uint8_t* const input,
     /* libbz2 rejects a null source pointer even for an empty input, so provide a valid dummy address. */
     static constexpr char EMPTY_INPUT = 0;
     const auto* const source = size > 0 ? reinterpret_cast<const char*>( input ) : &EMPTY_INPUT;
-    const auto result = BZ2_bzBuffToBuffCompress(
-        reinterpret_cast<char*>( compressed.data() ), &compressedSize,
-        const_cast<char*>( source ), static_cast<unsigned int>( size ),
-        level, /* verbosity */ 0, /* workFactor */ 0 );
+    const auto result =
+        size > 0
+        ? BZ2_bzBuffToBuffCompressWithCRC(
+            reinterpret_cast<char*>( compressed.data() ), &compressedSize,
+            const_cast<char*>( source ), static_cast<unsigned int>( size ),
+            level, /* verbosity */ 0, /* workFactor */ 0,
+            ~bzip2::updateCRC32( 0xFFFFFFFFU, reinterpret_cast<const char*>( input ), size ) )
+        : BZ2_bzBuffToBuffCompress(
+            reinterpret_cast<char*>( compressed.data() ), &compressedSize,
+            const_cast<char*>( source ), 0,
+            level, /* verbosity */ 0, /* workFactor */ 0 );
     if ( result != BZ_OK ) {
         throw std::runtime_error( "bzip2 compression failed with error code " + std::to_string( result ) );
     }

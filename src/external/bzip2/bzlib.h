@@ -172,6 +172,20 @@ BZ_EXTERN int BZ_API(BZ2_bzBuffToBuffCompress) (
       int           workFactor
    );
 
+/* @p crc must be the finalized bzip2 CRC of @p source and the input must fit
+   into a single block. This lets the caller compute the block CRC with a wide
+   kernel instead of byte by byte inside the RLE1 loop. */
+BZ_EXTERN int BZ_API(BZ2_bzBuffToBuffCompressWithCRC) (
+      char*         dest,
+      unsigned int* destLen,
+      char*         source,
+      unsigned int  sourceLen,
+      int           blockSize100k,
+      int           verbosity,
+      int           workFactor,
+      unsigned int  crc
+   );
+
 /*--
    Code contributed by Yoshioka Tsuneo (tsuneo@rr.iij4u.or.jp)
    to support better zlib compatibility.

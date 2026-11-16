@@ -243,6 +243,8 @@ typedef
       /* block and combined CRCs */
       UInt32   blockCRC;
       UInt32   combinedCRC;
+      UInt32   precomputedBlockCRC;
+      Bool     usePrecomputedCRC;
 
       /* misc administratium */
       Int32    verbosity;
