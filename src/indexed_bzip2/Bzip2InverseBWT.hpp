@@ -65,13 +65,18 @@ namespace bzip2
  * depends on the content is assumed about the marks: unfavorable inputs only make it as slow as one chain.
  *
  * The serial walk is the standard inverse BWT (Burrows and Wheeler, 1994; Ferragina and Manzini, 2000).
+ * Interleaving several independent traversals of the last-to-first cycle on one thread follows Kärkkäinen,
+ * Kempa, and Puglisi, "Slashing the Time for BWT Inversion", DCC 2012, pp. 99-108,
+ * DOI 10.1109/DCC.2012.18. libsais uses their super-alphabet/bi-gram variant as well; the chain decomposition
+ * below is the adaptation that does not need the traversal start rows stored in the stream.
  * Splitting the last-to-first permutation into marked chains is splitter-based parallel list ranking
  * (Helman and JáJá, 2001) applied to the last-to-first cycle: the marks are splitters, the chain segments are
  * sublists, and the successor links are the sublist links. The closest published parallel inverse BWT is
  * Weißenberger and Schmidt's GPU decoder (ICPP 2024, DOI 10.1145/3673038.3673067), which also uses splitters,
  * sublist links, and a global prefix pass. The regular row-index marks and fixed per-lane buffers here are a
  * CPU-specific variation; libsais 2.12 uses the same chunk/chain strategy (libsais_unbwt_init_single,
- * libsais_unbwt_decode_chains in src/libsais.c). Its README's SA-IS papers do not describe inverse BWT.
+ * libsais_unbwt_decode_chains in src/libsais.c). Its README's SA-IS papers do not describe inverse BWT;
+ * the 2012 paper is the primary source for the interleaving.
  *
  * libsais uses a general bi-gram P table, a 256x256 bucket2 table, fastbits, chunk slots, and per-chunk links.
  * This implementation instead expands the run records into a plain (rank, byte) table and uses fixed 8/24
