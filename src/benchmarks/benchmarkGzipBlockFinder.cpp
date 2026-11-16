@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <numeric>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -26,6 +27,7 @@
 #include <core/BitManipulation.hpp>
 #include <core/common.hpp>
 #include <core/DataGenerators.hpp>
+#include <core/FileRanges.hpp>
 #include <core/Statistics.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/Buffered.hpp>
@@ -590,6 +592,39 @@ toString( CheckPrecodeMethod method )
 
 
 constexpr auto OPTIMAL_CHECK_PRECODE_METHOD = CheckPrecodeMethod::COUNT_ALLOCATED_LEAVES;
+
+/**
+ * The precode check as it was before switching the chunk LUT from uint16_t to a saturated uint8_t.
+ * Kept here so that both implementations can be compared in one process on the same inputs.
+ */
+static constexpr auto OLD_PRECODE_TO_LEAF_COUNT_LUT =
+    [] ()
+    {
+        std::array<uint16_t, 1U << 12U> result{};
+        for ( size_t i = 0; i < result.size(); ++i ) {
+            result[i] = PrecodeCheck::CountAllocatedLeaves::computeLeafCount<3, 4>( i );
+        }
+        return result;
+    }();
+
+
+[[nodiscard]] forceinline Error
+checkPrecodeUint16Lut( const uint64_t next4Bits,
+                       const uint64_t next57Bits )
+{
+    const auto codeLengthCount = 4 + next4Bits;
+    const auto precodeBits = next57Bits & nLowestBitsSet<uint64_t>( codeLengthCount * 3U );
+    uint16_t virtualLeafCount{ 0 };
+    virtualLeafCount += OLD_PRECODE_TO_LEAF_COUNT_LUT[precodeBits & nLowestBitsSet<uint64_t, 12>()];
+    virtualLeafCount += OLD_PRECODE_TO_LEAF_COUNT_LUT[( precodeBits >> 12U ) & nLowestBitsSet<uint64_t, 12>()];
+    virtualLeafCount += OLD_PRECODE_TO_LEAF_COUNT_LUT[( precodeBits >> 24U ) & nLowestBitsSet<uint64_t, 12>()];
+    virtualLeafCount += OLD_PRECODE_TO_LEAF_COUNT_LUT[( precodeBits >> 36U ) & nLowestBitsSet<uint64_t, 12>()];
+    virtualLeafCount += OLD_PRECODE_TO_LEAF_COUNT_LUT[precodeBits >> 48U];
+    if ( virtualLeafCount == 64 ) {
+        return Error::NONE;
+    }
+    return virtualLeafCount == 128 ? Error::NONE : Error::INVALID_CODE_LENGTHS;
+}
 
 
 template<CheckPrecodeMethod CHECK_PRECODE_METHOD>
@@ -1390,6 +1425,335 @@ printLUTSizes()
 }
 
 
+/**
+ * Copying the input buffer is necessary because all scanners take ownership to construct a BitReader.
+ * Copying is deliberately done outside of the timed region so that only the scanning cost is measured.
+ */
+template<typename Result,
+         typename Functor>
+[[nodiscard]] std::pair<Result, std::vector<double> >
+timeRepeatedWithBufferCopy( const size_t                                iterations,
+                            const BufferedFileReader::AlignedBuffer&    data,
+                            Functor                                     functor )
+{
+    std::optional<Result> result;
+    std::vector<double> durations;
+    durations.reserve( iterations );
+
+    for ( size_t i = 0; i < iterations; ++i ) {
+        auto buffer = data;
+        const auto t0 = now();
+        auto currentResult = functor( std::move( buffer ) );
+        durations.push_back( duration( t0 ) );
+
+        if ( !result ) {
+            result = std::move( currentResult );
+        } else if ( *result != currentResult ) {
+            throw std::logic_error( "Focused benchmark returned indeterministic results!" );
+        }
+    }
+
+    return { std::move( *result ), std::move( durations ) };
+}
+
+
+/**
+ * Emulates the actual usage in GzipChunk::decodeChunkWithRapidgzip: it searches for dynamic Huffman blocks
+ * inside byte-limited chunks and restarts after each found block. This includes the precode check and the full
+ * Huffman header check of the real implementation, not a reimplementation in this benchmark file.
+ */
+template<uint8_t CACHED_BIT_COUNT>
+[[nodiscard]] std::vector<size_t>
+findDeflateBlocksWithSeekToNonFinalDynamic( BufferedFileReader::AlignedBuffer data )
+{
+    static constexpr size_t CHUNK_SIZE = 8_Ki * CHAR_BIT;
+
+    const auto nBitsToTest = data.size() * CHAR_BIT;
+    gzip::BitReader bitReader( std::make_unique<BufferedFileReader>( std::move( data ) ) );
+
+    std::vector<size_t> bitOffsets;
+    try {
+        for ( size_t chunkBegin = 0; chunkBegin < nBitsToTest; chunkBegin += CHUNK_SIZE ) {
+            const auto chunkEnd = std::min( chunkBegin + CHUNK_SIZE, nBitsToTest );
+            for ( size_t offset = chunkBegin; offset < chunkEnd; ) {
+                bitReader.seekTo( offset );
+                const auto match =
+                    blockfinder::seekToNonFinalDynamicDeflateBlock<CACHED_BIT_COUNT>( bitReader, chunkEnd );
+                if ( match == std::numeric_limits<size_t>::max() ) {
+                    break;
+                }
+                bitOffsets.push_back( match );
+                offset = match + 1;
+            }
+        }
+    } catch ( const EndOfFileReached& ) {
+    }
+    return bitOffsets;
+}
+
+
+void
+printFocusedResult( const std::string&          name,
+                    const std::vector<double>&  durations,
+                    const size_t                byteCount,
+                    const size_t                candidateCount )
+{
+    const auto bandwidths = formatBandwidth( durations, byteCount );
+    const auto minDuration = *std::min_element( durations.begin(), durations.end() );
+    const auto maxDuration = *std::max_element( durations.begin(), durations.end() );
+    std::cout << "[focused " << name << "] " << bandwidths
+              << " (time: " << minDuration << " .. " << maxDuration << " s, "
+              << candidateCount << " candidates)\n";
+}
+
+
+/**
+ * Focused mode for iterating on the validation hot path without running the monolithic benchmark.
+ * Usage: benchmarkGzipBlockFinder --focused <case> <file> [maxBytes] [iterations]
+ * Cases: lut, seek, preselection, header, filter, stats, verify, precode, lutsize, all
+ */
+void
+benchmarkFocused( const std::string& caseName,
+                  const std::string& fileName,
+                  const size_t       maxBytes,
+                  const size_t       iterations )
+{
+    const auto data = bufferFile( fileName, maxBytes );
+    std::cout << "Focused case: " << caseName << ", file: " << fileName << ", bytes: " << data.size()
+              << ", iterations: " << iterations << "\n";
+
+    const auto runLUT = [&] ()
+    {
+        const auto [blockCandidates, durations] = timeRepeatedWithBufferCopy<std::vector<size_t> >(
+            iterations, data,
+            [] ( BufferedFileReader::AlignedBuffer buffer )
+            {
+                return findDeflateBlocksRapidgzipLUT<blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE>(
+                    std::move( buffer ) );
+            } );
+        printFocusedResult( "lut", durations, data.size(), blockCandidates.size() );
+    };
+
+    const auto runSeek = [&] ()
+    {
+        const auto [blockCandidates, durations] = timeRepeatedWithBufferCopy<std::vector<size_t> >(
+            iterations, data,
+            [] ( BufferedFileReader::AlignedBuffer buffer )
+            {
+                return findDeflateBlocksWithSeekToNonFinalDynamic<blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE>(
+                    std::move( buffer ) );
+            } );
+        printFocusedResult( "seek", durations, data.size(), blockCandidates.size() );
+    };
+
+    const auto runPreselection = [&] ()
+    {
+        const auto [candidateCount, durations] = timeRepeatedWithBufferCopy<uint64_t>(
+            iterations, data,
+            [] ( BufferedFileReader::AlignedBuffer buffer )
+            {
+                return countDeflateBlocksPreselection<blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE>(
+                    std::move( buffer ) );
+            } );
+        printFocusedResult( "preselection", durations, data.size(), candidateCount );
+    };
+
+    const auto runHeader = [&] ()
+    {
+        const auto [blockCandidates, durations] = timeRepeatedWithBufferCopy<std::vector<size_t> >(
+            iterations, data,
+            [] ( BufferedFileReader::AlignedBuffer buffer )
+            {
+                return findDeflateBlocksRapidgzip( std::move( buffer ) );
+            } );
+        printFocusedResult( "header", durations, data.size(), blockCandidates.size() );
+    };
+
+    const auto runFilter = [&] ()
+    {
+        const auto [blockCandidates, durations] = timeRepeatedWithBufferCopy<std::vector<size_t> >(
+            iterations, data,
+            [] ( BufferedFileReader::AlignedBuffer buffer )
+            {
+                return countFilterEfficiencies( std::move( buffer ), true );
+            } );
+        printFocusedResult( "filter", durations, data.size(), blockCandidates.size() );
+    };
+
+    /* Cross-check the production seek function against the independent benchmark-local LUT scanner. */
+    const auto runVerify = [&] ()
+    {
+        const auto seekCandidates = findDeflateBlocksWithSeekToNonFinalDynamic<
+                blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE>( data );
+        const auto lutCandidates = findDeflateBlocksRapidgzipLUT<blockfinder::OPTIMAL_NEXT_DEFLATE_LUT_SIZE>(
+            data );
+        std::cout << "[focused verify] seek: " << seekCandidates.size()
+                  << " candidates, lut: " << lutCandidates.size() << " candidates: "
+                  << ( seekCandidates == lutCandidates ? "MATCH" : "MISMATCH" ) << "\n";
+        if ( seekCandidates != lutCandidates ) {
+            throw std::logic_error( "Focused seek and LUT scanners returned different block candidates!" );
+        }
+    };
+
+    /* Paired microbenchmark of the current and the previous precode check on identical inputs. */
+    const auto runPrecodeMicro = [&] ()
+    {
+        constexpr size_t INPUT_COUNT = 8_Mi;
+        std::vector<uint64_t> inputs( INPUT_COUNT );
+        std::mt19937_64 random( 0x19AAA8FDU );
+        for ( auto& value : inputs ) {
+            value = random() & nLowestBitsSet<uint64_t>( deflate::PRECODE_COUNT_BITS
+                                                          + deflate::MAX_PRECODE_COUNT * deflate::PRECODE_BITS );
+        }
+
+        const auto check = [&inputs] ( const auto& checker ) {
+            uint32_t errorCount{ 0 };
+            for ( const auto value : inputs ) {
+                const auto error = checker(
+                    value & nLowestBitsSet<uint64_t, deflate::PRECODE_COUNT_BITS>(),
+                    ( value >> deflate::PRECODE_COUNT_BITS )
+                    & nLowestBitsSet<uint64_t, deflate::MAX_PRECODE_COUNT * deflate::PRECODE_BITS>() );
+                errorCount += static_cast<uint32_t>( error != Error::NONE );
+            }
+            return errorCount;
+        };
+
+        std::vector<double> oldDurations;
+        std::vector<double> newDurations;
+        uint32_t oldResult{ 0 };
+        uint32_t newResult{ 0 };
+        for ( size_t i = 0; i < iterations; ++i ) {
+            const auto runOld = [&] () {
+                const auto t0 = now();
+                oldResult = check( checkPrecodeUint16Lut );
+                return duration( t0 );
+            };
+            const auto runNew = [&] () {
+                const auto t0 = now();
+                newResult = check( [] ( uint64_t a, uint64_t b ) {
+                    return PrecodeCheck::CountAllocatedLeaves::checkPrecode( a, b );
+                } );
+                return duration( t0 );
+            };
+            if ( i % 2 == 0 ) {
+                oldDurations.push_back( runOld() );
+                newDurations.push_back( runNew() );
+            } else {
+                newDurations.push_back( runNew() );
+                oldDurations.push_back( runOld() );
+            }
+        }
+
+        if ( oldResult != newResult ) {
+            throw std::logic_error( "Old and new precode checks disagree!" );
+        }
+        const auto oldMin = *std::min_element( oldDurations.begin(), oldDurations.end() );
+        const auto newMin = *std::min_element( newDurations.begin(), newDurations.end() );
+        std::cout << "[focused precode] old uint16 LUT: " << oldMin << " s, new saturating byte LUT: "
+                  << newMin << " s, speedup: " << oldMin / newMin << "x\n";
+    };
+
+    /* Ground truth via zlib. Note that this always reads the full file, not only @ref maxBytes. */
+    const auto runStats = [&] ()
+    {
+        const auto [streamOffsets, blockOffsets] = parseWithZlib( fileName );
+        std::vector<size_t> blockSizes( blockOffsets.size() );
+        std::adjacent_difference( blockOffsets.begin(), blockOffsets.end(), blockSizes.begin() );
+        if ( !blockSizes.empty() ) {
+            blockSizes.erase( blockSizes.begin() );
+        }
+        const Statistics<double> sizes( blockSizes.begin(), blockSizes.end() );
+        std::cout << "[focused stats] gzip streams: " << streamOffsets.size()
+                  << ", deflate blocks: " << blockOffsets.size();
+        if ( !blockSizes.empty() ) {
+            std::cout << ", block size in bits: min " << sizes.min
+                      << ", avg " << sizes.average()
+                      << ", max " << sizes.max;
+        }
+        std::cout << "\n";
+    };
+
+    /* Paired comparison of LUT sizes, instantiated in one process to cancel machine noise. */
+    const auto runLutSize = [&] ()
+    {
+        std::array<double, 3> bestDurations{};
+        bestDurations.fill( std::numeric_limits<double>::max() );
+        std::array<std::vector<size_t>, 3> candidates;
+
+        const auto runOne = [&] ( const auto& tag ) {
+            constexpr auto index = static_cast<size_t>( std::decay_t<decltype( tag )>::value ) - 13U;
+            const auto [blocks, durations] = timeRepeatedWithBufferCopy<std::vector<size_t> >(
+                iterations, data,
+                [] ( BufferedFileReader::AlignedBuffer buffer )
+                {
+                    return findDeflateBlocksWithSeekToNonFinalDynamic<std::decay_t<decltype( tag )>::value>(
+                        std::move( buffer ) );
+                } );
+            candidates[index] = blocks;
+            bestDurations[index] = std::min( bestDurations[index],
+                                             *std::min_element( durations.begin(), durations.end() ) );
+        };
+
+        /* Rotate the order so that a slow drift affects all LUT sizes equally. */
+        for ( size_t round = 0; round < 5; ++round ) {
+            const auto first = round % 3;
+            for ( size_t i = 0; i < 3; ++i ) {
+                switch ( ( first + i ) % 3 ) {
+                case 0: runOne( std::integral_constant<uint8_t, 13>{} ); break;
+                case 1: runOne( std::integral_constant<uint8_t, 14>{} ); break;
+                case 2: runOne( std::integral_constant<uint8_t, 15>{} ); break;
+                }
+            }
+        }
+
+        if ( ( candidates[0] != candidates[1] ) || ( candidates[0] != candidates[2] ) ) {
+            throw std::logic_error( "Different LUT sizes returned different candidates!" );
+        }
+        std::cout << "[focused lutsize] candidates: " << candidates[0].size() << "\n";
+        for ( size_t i = 0; i < 3; ++i ) {
+            std::cout << "[focused lutsize] " << ( 13 + i ) << " bits: " << bestDurations[i]
+                      << " s (" << data.size() / bestDurations[i] / 1e6 << " MB/s)\n";
+        }
+        std::cout << "[focused lutsize] speedup 14 vs 15: " << bestDurations[2] / bestDurations[1]
+                  << "x, 13 vs 15: " << bestDurations[2] / bestDurations[0] << "x\n";
+    };
+
+    if ( ( caseName == "lut" ) || ( caseName == "all" ) ) {
+        runLUT();
+    }
+    if ( ( caseName == "seek" ) || ( caseName == "all" ) ) {
+        runSeek();
+    }
+    if ( ( caseName == "preselection" ) || ( caseName == "all" ) ) {
+        runPreselection();
+    }
+    if ( ( caseName == "header" ) || ( caseName == "all" ) ) {
+        runHeader();
+    }
+    if ( caseName == "filter" ) {
+        runFilter();
+    }
+    if ( caseName == "stats" ) {
+        runStats();
+    }
+    if ( caseName == "verify" ) {
+        runVerify();
+    }
+    if ( caseName == "precode" ) {
+        runPrecodeMicro();
+    }
+    if ( caseName == "lutsize" ) {
+        runLutSize();
+    }
+    if ( ( caseName != "lut" ) && ( caseName != "seek" ) && ( caseName != "preselection" )
+         && ( caseName != "header" ) && ( caseName != "filter" ) && ( caseName != "stats" )
+         && ( caseName != "verify" ) && ( caseName != "precode" ) && ( caseName != "lutsize" )
+         && ( caseName != "all" ) ) {
+        throw std::invalid_argument( "Unknown focused case: " + caseName );
+    }
+}
+
+
 [[nodiscard]] std::string
 compressFile( const std::string&          command,
               const std::filesystem::path filePath,
@@ -1425,6 +1789,22 @@ main( int    argc,
       char** argv )
 {
     std::srand( 0x19AAA8FDU );
+
+    if ( ( argc > 1 ) && ( std::string( argv[1] ) == "--focused" ) ) {
+        if ( argc < 4 ) {
+            std::cerr << "Usage: " << argv[0] << " --focused <case> <file> [maxBytes e.g. 64MiB] [iterations]\n"
+                      << "Cases: lut, seek, preselection, header, filter, stats, verify, precode, lutsize, all\n";
+            return 1;
+        }
+        const auto maxBytes = argc > 4 ? parseByteSize( argv[4] ) : 16_Mi;
+        const auto iterations = argc > 5 ? std::stoull( argv[5] ) : 5;
+        if ( iterations == 0 ) {
+            std::cerr << "Iterations must be at least 1.\n";
+            return 1;
+        }
+        benchmarkFocused( argv[2], argv[3], maxBytes, iterations );
+        return 0;
+    }
 
     if ( argc > 1 ) {
         for ( int i = 1; i < argc; ++i ) {
