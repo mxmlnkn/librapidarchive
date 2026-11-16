@@ -53,36 +53,6 @@ constexpr auto IBZIP2_THIRD_PARTY_LIBRARIES = std::array{
 };
 
 
-/* Check whether the found offsets actually point to BZ2 magic bytes. */
-void
-checkOffsets( const std::string&           filePath,
-              const std::vector<uint64_t>& offsets )
-{
-    if ( !fileExists( filePath ) ) {
-        return;
-    }
-
-    const std::set<uint64_t> bitStringsToFind = { bzip2::MAGIC_BITS_BLOCK, bzip2::MAGIC_BITS_EOS };
-    bzip2::BitReader bitReader( std::make_unique<StandardFileReader>( filePath ) );
-    for ( const auto offset : offsets ) {
-        bitReader.seek( static_cast<long long int>( offset ) );
-        /* Because bitReader is limited to 32-bit. */
-        static_assert( bzip2::MAGIC_BITS_SIZE % 2 == 0, "Assuming magic bit string size to be an even number." );
-        constexpr uint8_t BITS_PER_READ = bzip2::MAGIC_BITS_SIZE / 2;
-        const auto magicBytes = ( static_cast<uint64_t>( bitReader.read( BITS_PER_READ ) ) << BITS_PER_READ )
-                                | bitReader.read( BITS_PER_READ );
-
-        if ( bitStringsToFind.count( magicBytes ) == 0 ) {
-            std::stringstream msg;
-            msg << "Magic bytes " << std::hex << magicBytes << std::dec << " at offset "
-                << ( offset / CHAR_BIT ) << " B " << ( offset % CHAR_BIT ) << "b "
-                << "do not match bzip2 magic bytes!";
-            throw std::logic_error( std::move( msg ).str() );
-        }
-    }
-}
-
-
 void
 dumpOffsets( const std::vector<uint64_t>& offsets,
              const CheckedWrite&          checkedWrite )
@@ -94,13 +64,10 @@ dumpOffsets( const std::vector<uint64_t>& offsets,
 }
 
 
-void
+[[nodiscard]] std::vector<uint64_t>
 findCompressedBlocks( const std::string& inputFilePath,
-                      const std::string& offsetOutputFilePath,
                       const unsigned int parallelism,
-                      const unsigned int bufferSize,
-                      const bool         test,
-                      const bool         verbose )
+                      const unsigned int bufferSize )
 {
     /* Having to go over the file twice is not optimal. This is because, the bit string finder is highly
      * optimized for finding non-EOS blocks for parallel decoding. Allowing a list of bit strings to test
@@ -124,18 +91,7 @@ findCompressedBlocks( const std::string& inputFilePath,
     }
 
     std::sort( offsets.begin(), offsets.end() );
-
-    if ( test ) {
-        checkOffsets( inputFilePath, offsets );
-    }
-
-    OutputFile output( offsetOutputFilePath );
-    dumpOffsets( offsets, [&output] ( const void* data, const size_t size ) { output.write( data, size ); } );
-    output.truncateToWrittenSize();
-
-    if ( verbose ) {
-        std::cout << "Found " << offsets.size() << " blocks\n";
-    }
+    return offsets;
 }
 
 void
@@ -695,12 +651,16 @@ ibzip2CLI( int argc, char const* const* argv )
         }
 
         /* If effectively only the compressed offsets are requested, then we can use the blockfinder directly! */
-        findCompressedBlocks( inputFilePath,
-                              compressedOffsetsFilePath,
-                              getParallelism( blockFinderParallelism ),
-                              static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ),
-                              test,
-                              parsedArgs.count( "verbose" ) > 0 );
+        const auto offsets = findCompressedBlocks(
+            inputFilePath, getParallelism( blockFinderParallelism ),
+            static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ) );
+        OutputFile output( compressedOffsetsFilePath );
+        dumpOffsets( offsets, [&output] ( const void* data, const size_t size ) { output.write( data, size ); } );
+        output.truncateToWrittenSize();
+
+        if ( verbose ) {
+            std::cout << "Found " << offsets.size() << " blocks\n";
+        }
         return 0;
     }
 
