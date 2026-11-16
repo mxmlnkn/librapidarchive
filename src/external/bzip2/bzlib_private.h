@@ -22,6 +22,7 @@
 #ifndef _BZLIB_PRIVATE_H
 #define _BZLIB_PRIVATE_H
 
+#include <stdint.h>
 #include <stdlib.h>
 
 #ifndef BZ_NO_STDIO
@@ -236,7 +237,7 @@ typedef
       UChar    unseqToSeq[256];
 
       /* the buffer for bit stream creation */
-      UInt32   bsBuff;
+      uint64_t bsBuff;
       Int32    bsLive;
 
       /* block and combined CRCs */

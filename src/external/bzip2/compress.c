@@ -46,7 +46,7 @@ static
 void bsFinishWrite ( EState* s )
 {
    while (s->bsLive > 0) {
-      s->zbits[s->numZ] = (UChar)(s->bsBuff >> 24);
+      s->zbits[s->numZ] = (UChar)(s->bsBuff >> 56);
       s->numZ++;
       s->bsBuff <<= 8;
       s->bsLive -= 8;
@@ -55,25 +55,23 @@ void bsFinishWrite ( EState* s )
 
 
 /*---------------------------------------------------*/
-#define bsNEEDW(nz)                           \
-{                                             \
-   while (s->bsLive >= 8) {                   \
-      s->zbits[s->numZ]                       \
-         = (UChar)(s->bsBuff >> 24);          \
-      s->numZ++;                              \
-      s->bsBuff <<= 8;                        \
-      s->bsLive -= 8;                         \
-   }                                          \
-}
-
-
-/*---------------------------------------------------*/
+/* Keeping up to 32 pending bits in a 64-bit buffer lets one call emit four bytes at a
+   time instead of flushing byte by byte. The bit stream and the final padding are unchanged. */
 static
 __inline__
 void bsW ( EState* s, Int32 n, UInt32 v )
 {
-   bsNEEDW ( n );
-   s->bsBuff |= (v << (32 - s->bsLive - n));
+   while (s->bsLive >= 32) {
+      const UInt32 word = (UInt32)(s->bsBuff >> 32);
+      s->zbits[s->numZ + 0] = (UChar)(word >> 24);
+      s->zbits[s->numZ + 1] = (UChar)(word >> 16);
+      s->zbits[s->numZ + 2] = (UChar)(word >> 8);
+      s->zbits[s->numZ + 3] = (UChar)word;
+      s->numZ += 4;
+      s->bsBuff <<= 32;
+      s->bsLive -= 32;
+   }
+   s->bsBuff |= (unsigned long long)v << (64 - s->bsLive - n);
    s->bsLive += n;
 }
 
