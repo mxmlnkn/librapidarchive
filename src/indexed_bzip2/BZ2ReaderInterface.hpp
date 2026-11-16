@@ -72,7 +72,7 @@ public:
 
     /* BZip2 specific methods */
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         if ( !m_blockMap.finalized() ) {

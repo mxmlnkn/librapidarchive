@@ -174,7 +174,7 @@ public:
                                             nMaxBytesToRead - nBytesRead );
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
@@ -201,13 +201,13 @@ public:
         return tell();
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
-        return m_file ? m_file->size() : m_buffer.size();
+        return m_file ? m_file->size() : std::optional<uintmax_t>{ m_buffer.size() };
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         return m_offset;
@@ -225,7 +225,7 @@ private:
     [[nodiscard]] size_t
     bufferEnd() const
     {
-        return m_originalBufferOffset + m_buffer.size();
+        return m_originalBufferOffset + static_cast<uintmax_t>( m_buffer.size() );
     }
 
     void
@@ -252,9 +252,11 @@ private:
             return 0;
         }
 
-        const auto nBytesToReadFromBuffer = std::min( bufferEnd() - m_offset, nMaxBytesToRead );
+        const auto nBytesToReadFromBuffer = static_cast<size_t>( std::min<uintmax_t>( bufferEnd() - m_offset,
+                                                                                      nMaxBytesToRead ) );
         if ( buffer != nullptr ) {
-            std::memcpy( buffer, m_buffer.data() + ( m_offset - m_originalBufferOffset ), nBytesToReadFromBuffer );
+            std::memcpy( buffer, m_buffer.data() + static_cast<size_t>( m_offset - m_originalBufferOffset ),
+                         nBytesToReadFromBuffer );
         }
         m_offset += nBytesToReadFromBuffer;
         return nBytesToReadFromBuffer;
@@ -289,9 +291,9 @@ protected:
      *  - Reads that bypass the buffer (remaining request >= m_maxBufferSize) retain it for later seeks back.
      *  - For buffer-only readers, m_originalBufferOffset is zero and m_buffer contains the whole file.
      */
-    size_t m_originalBufferOffset{ 0 };
+    uintmax_t m_originalBufferOffset{ 0 };
     AlignedBuffer m_buffer;
-    size_t m_offset{ 0 };
+    uintmax_t m_offset{ 0 };
     bool m_closed{ false };
 };
 }  // namespace rapidgzip

@@ -46,7 +46,7 @@ public:
         return std::make_unique<UnknownSizeFileReader>( m_data );
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         return std::nullopt;

@@ -40,7 +40,7 @@ class SinglePassFileReader final :
     public FileReader
 {
 public:
-    static constexpr size_t CHUNK_SIZE = 4_Mi;
+    static constexpr uintmax_t CHUNK_SIZE = 4_Mi;
 
 private:
     /**
@@ -188,7 +188,7 @@ public:
             return 0;
         }
 
-        bufferUpTo( saturatingAddition( m_currentPosition, nMaxBytesToRead ) );
+        bufferUpTo( saturatingAddition( m_currentPosition, static_cast<uintmax_t>( nMaxBytesToRead ) ) );
         const std::lock_guard lock( m_bufferMutex );
         const auto startChunk = getChunkIndexUnsafe( m_currentPosition );
 
@@ -221,7 +221,7 @@ public:
         return nBytesRead;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
@@ -232,7 +232,7 @@ public:
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         if ( m_underlyingFileEOF ) {
@@ -249,7 +249,7 @@ public:
         return std::nullopt;
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         return m_currentPosition;
@@ -263,7 +263,7 @@ public:
     }
 
     void
-    releaseUpTo( const size_t untilOffset )
+    releaseUpTo( const uintmax_t untilOffset )
     {
         const std::scoped_lock lock( m_bufferMutex );
 
@@ -275,7 +275,8 @@ public:
         }
 
         /* The untilOffset is exclusive, i.e., 0 should release nothing! */
-        const auto lastChunkToRelease = std::min( untilOffset / CHUNK_SIZE, m_buffer.size() - 2 );
+        const auto lastChunkToRelease = static_cast<size_t>(
+            std::min<uintmax_t>( untilOffset / CHUNK_SIZE, m_buffer.size() - 2 ) );
         for ( auto i = m_releasedChunkCount; i < lastChunkToRelease; ++i ) {
             if ( m_reusableChunks.size() < m_maxReusableChunkCount ) {
                 std::swap( m_buffer[i], m_reusableChunks.emplace_back() );
@@ -303,7 +304,7 @@ public:
 
 private:
     void
-    bufferUpTo( const size_t untilOffset )
+    bufferUpTo( const uintmax_t untilOffset )
     {
         if ( m_underlyingFileEOF || ( untilOffset <= m_bufferUntilOffset ) ) {
             return;
@@ -387,7 +388,7 @@ private:
              */
             chunk.resize( CHUNK_SIZE );
 
-            size_t nBytesBuffered{ 0 };
+            uintmax_t nBytesBuffered{ 0 };
             while ( nBytesBuffered < chunk.size() ) {
                 const auto nBytesRead = m_file->read( reinterpret_cast<char*>( chunk.data() ) + nBytesBuffered,
                                                       chunk.size() - nBytesBuffered );
@@ -396,7 +397,7 @@ private:
                 }
                 nBytesBuffered += nBytesRead;
             }
-            chunk.resize( nBytesBuffered );
+            chunk.resize( static_cast<size_t>( nBytesBuffered ) );
 
             {
                 const std::lock_guard lock( m_bufferMutex );
@@ -409,7 +410,7 @@ private:
     }
 
     [[nodiscard]] size_t
-    getChunkIndexUnsafe( const size_t offset ) const
+    getChunkIndexUnsafe( const uintmax_t offset ) const
     {
         /* Find start chunk to start reading from. */
         const auto startChunk = offset / CHUNK_SIZE;
@@ -427,7 +428,10 @@ private:
             }
         }
 
-        return startChunk;
+        if ( startChunk > std::numeric_limits<size_t>::max() ) {
+            throw std::logic_error( "Byte offset overflows the maximum addressable chunk index." );
+        }
+        return static_cast<size_t>( startChunk );
     }
 
     [[nodiscard]] const Chunk&
@@ -464,15 +468,15 @@ protected:
     const UniqueFileReader m_file;
     const int m_fileno;
 
-    size_t m_currentPosition{ 0 };
+    uintmax_t m_currentPosition{ 0 };
 
     /** Ensures that up to offset is buffered. Might also buffer more. May only increase. */
-    std::atomic<size_t> m_bufferUntilOffset{ 0 };
+    std::atomic<uintmax_t> m_bufferUntilOffset{ 0 };
     mutable std::mutex m_bufferUntilOffsetMutex;
 
     /** These are only modified by @ref m_readerThread. */
     std::atomic<bool> m_underlyingFileEOF{ false };
-    std::atomic<size_t> m_numberOfBytesRead{ 0 };
+    std::atomic<uintmax_t> m_numberOfBytesRead{ 0 };
 
     /**
      * This only exists to speed up subsequent @ref releaseUpTo calls to avoid having to check all chunks up

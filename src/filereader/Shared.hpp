@@ -45,7 +45,7 @@ private:
         m_mutex( dynamic_cast<SharedFileReader*>( file ) == nullptr
                  ? std::make_shared<std::mutex>()
                  : dynamic_cast<SharedFileReader*>( file )->m_mutex ),
-        m_fileSizeBytes( file == nullptr ? std::make_optional<size_t>( 0 ) : file->size() ),
+        m_fileSizeBytes( file == nullptr ? std::make_optional<uintmax_t>( 0 ) : file->size() ),
         m_currentPosition( file == nullptr ? 0 : file->tell() )
     {
         if ( file == nullptr ) {
@@ -212,7 +212,7 @@ public:
         return true;
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         const auto lock = getLock();
@@ -222,7 +222,7 @@ public:
         return m_sharedFile ? m_sharedFile->size() : std::nullopt;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
@@ -285,7 +285,7 @@ public:
             if ( m_statistics && m_statistics->enabled ) {
                 const std::scoped_lock lock{ m_statistics->mutex };
 
-                auto oldOffset = static_cast<size_t>( m_statistics->lastAccessOffset );
+                auto oldOffset = m_statistics->lastAccessOffset;
                 auto newOffset = m_currentPosition;
                 if ( m_fileSizeBytes ) {
                     oldOffset = std::min( oldOffset, *m_fileSizeBytes );
@@ -300,7 +300,8 @@ public:
                 m_statistics->lastAccessOffset = newOffset;
             }
 
-            nMaxBytesToRead = std::min( nMaxBytesToRead, *fileSize - m_currentPosition );
+            nMaxBytesToRead = static_cast<size_t>(
+                std::min<uintmax_t>( nMaxBytesToRead, *fileSize - m_currentPosition ) );
             const auto nBytesReadWithPread = ::pread( sharedFile->fileno(), buffer, nMaxBytesToRead,
                                                       m_currentPosition );  // NOLINT
             if ( ( nBytesReadWithPread == 0 ) && !m_fileSizeBytes.has_value() ) {
@@ -348,7 +349,7 @@ public:
         return nBytesRead;
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         /* Do not use m_sharedFile->tell() because another thread might move that internal file position! */
@@ -441,7 +442,7 @@ private:
     struct AccessStatistics {
         bool showProfileOnDestruction{ false };
         bool enabled{ false };
-        uint64_t lastAccessOffset{ 0 };  // necessary for pread because tell() won't work
+        uintmax_t lastAccessOffset{ 0 };  // necessary for pread because tell() won't work
         Statistics<uint64_t> read;
         Statistics<uint64_t> seekBack;
         Statistics<uint64_t> seekForward;
@@ -458,13 +459,13 @@ private:
     const std::shared_ptr<std::mutex> m_mutex;
 
     /** This is only for performance to avoid querying the file. */
-    std::optional<size_t> m_fileSizeBytes;
+    std::optional<uintmax_t> m_fileSizeBytes;
 
     /**
      * This is the independent file pointer that this class offers! Each seek call will only update this and
      * each read call will seek to this offset in an atomic manner before reading from the underlying file.
      */
-    size_t m_currentPosition{ 0 };
+    uintmax_t m_currentPosition{ 0 };
 
     bool m_usePread{ true };
 };

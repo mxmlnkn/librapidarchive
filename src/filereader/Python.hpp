@@ -105,15 +105,15 @@ fromPyObject<long long int>( PyObject* pythonObject )
 
 
 template<>
-[[nodiscard]] size_t
-fromPyObject<size_t>( PyObject* pythonObject )
+[[nodiscard]] inline std::uintmax_t
+fromPyObject<std::uintmax_t>( PyObject* pythonObject )
 {
-    const auto value = PyLong_AsSize_t( pythonObject );
-    if ( ( value == static_cast<size_t>( -1 ) ) && PyErr_Occurred() ) {
+    const auto value = PyLong_AsUnsignedLongLong( pythonObject );
+    if ( ( value == std::numeric_limits<unsigned long long int>::max() ) && PyErr_Occurred() ) {
         throw std::invalid_argument( "Failed to convert Python object to a non-negative integer: "
                                      + pythonErrorMessage() );
     }
-    return value;
+    return static_cast<std::uintmax_t>( value );
 }
 
 /* For bool objects, see https://docs.python.org/3/c-api/long.html */
@@ -454,7 +454,7 @@ public:
         return static_cast<size_t>( nBytesWritten );
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
@@ -477,24 +477,24 @@ public:
             break;
         }
 
-        m_currentPosition = callPyObject<size_t>( mpo_seek, offset, pythonWhence );
+        m_currentPosition = callPyObject<uintmax_t>( mpo_seek, offset, pythonWhence );
 
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
-        return m_seekable ? std::optional<size_t>{ m_fileSizeBytes } : std::nullopt;
+        return m_seekable ? std::optional<uintmax_t>{ m_fileSizeBytes } : std::nullopt;
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         if ( m_pythonObject == nullptr ) {
             throw std::invalid_argument( "Cannot call 'tell' on invalid file!" );
         }
-        return callPyObject<size_t>( mpo_tell );
+        return callPyObject<uintmax_t>( mpo_tell );
     }
 
     void
@@ -558,9 +558,9 @@ protected:
 
     long long int m_initialPosition{ 0 };
     bool m_seekable{ false };
-    size_t m_fileSizeBytes{ 0 };
+    uintmax_t m_fileSizeBytes{ 0 };
 
-    size_t m_currentPosition{ 0 };  /**< Only necessary for unseekable files. */
+    uintmax_t m_currentPosition{ 0 };  /**< Only necessary for unseekable files. */
     bool m_lastReadSuccessful{ true };
 };
 }  // namespace rapidgzip

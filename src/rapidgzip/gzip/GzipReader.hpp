@@ -139,13 +139,13 @@ public:
         throw std::logic_error( "Not implemented!" );
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const final
     {
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const final
     {
         if ( m_atEndOfFile ) {
@@ -159,7 +159,7 @@ public:
         throw std::invalid_argument( "Can't get stream size when not finished reading at least once!" );
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) final
     {
@@ -645,7 +645,7 @@ private:
 
     gzip::BitReader m_bitReader;
 
-    size_t m_currentPosition{ 0 };  /** the current position as can only be modified with read or seek calls. */
+    uintmax_t m_currentPosition{ 0 };  /** the current position as can only be modified with read or seek calls. */
     bool m_atEndOfFile{ false };
 
     /**

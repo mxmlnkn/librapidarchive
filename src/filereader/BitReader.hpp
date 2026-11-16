@@ -484,16 +484,16 @@ public:
     /**
      * @return current position / number of bits already read.
      */
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         /* Initialize with the byte buffer position converted to bits. */
-        size_t position = m_inputBufferPosition * CHAR_BIT;
+        uintmax_t position = static_cast<uintmax_t>( m_inputBufferPosition ) * CHAR_BIT;
 
         /* Add the file offset from which the byte buffer was read. */
         if ( m_file ) {
             const auto filePosition = m_file->tell();
-            if ( UNLIKELY( static_cast<size_t>( filePosition ) < m_inputBuffer.size() ) ) [[unlikely]] {
+            if ( UNLIKELY( filePosition < m_inputBuffer.size() ) ) [[unlikely]] {
                 throw std::logic_error( "The byte buffer should not contain more data than the file position!" );
             }
             position += ( filePosition - m_inputBuffer.size() ) * CHAR_BIT;
@@ -525,20 +525,23 @@ public:
         return m_file->fileno();
     }
 
-    size_t
+    uintmax_t
     seek( long long int offsetBits,
           int           origin = SEEK_SET ) override;
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
-        auto sizeInBytes = m_inputBuffer.size();
+        uintmax_t sizeInBytes = m_inputBuffer.size();
         if ( m_file ) {
             const auto fileSize = m_file->size();
             if ( !fileSize ) {
                 return std::nullopt;
             }
             sizeInBytes = *fileSize;
+        }
+        if ( sizeInBytes > std::numeric_limits<uintmax_t>::max() / CHAR_BIT ) {
+            return std::nullopt;
         }
         return sizeInBytes * CHAR_BIT;
     }
@@ -556,11 +559,11 @@ public:
      * @return The offset of the next unread bit inside @ref buffer in bits, or nothing if the bit buffer
      *         still holds bits of the previous buffer contents, which is the case right after a refill.
      */
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     bufferBitPosition() const noexcept
     {
-        const auto bitsMovedToBitBuffer = m_inputBufferPosition * CHAR_BIT;
-        const auto unreadBits = static_cast<size_t>( bitBufferSize() );
+        const auto bitsMovedToBitBuffer = static_cast<uintmax_t>( m_inputBufferPosition ) * CHAR_BIT;
+        const auto unreadBits = static_cast<uintmax_t>( bitBufferSize() );
         if ( bitsMovedToBitBuffer < unreadBits ) {
             return std::nullopt;
         }
@@ -571,14 +574,14 @@ public:
      * Continues reading at the given bit offset inside @ref buffer.
      */
     void
-    seekInsideBuffer( const size_t offsetInBits )
+    seekInsideBuffer( const uintmax_t offsetInBits )
     {
-        if ( offsetInBits > m_inputBuffer.size() * CHAR_BIT ) {
+        if ( offsetInBits > static_cast<uintmax_t>( m_inputBuffer.size() ) * CHAR_BIT ) {
             throw std::out_of_range( "The bit offset is outside of the buffered data!" );
         }
 
         clearBitBuffer();
-        m_inputBufferPosition = offsetInBits / CHAR_BIT;
+        m_inputBufferPosition = static_cast<size_t>( offsetInBits / CHAR_BIT );
         if ( const auto bitsToSkip = offsetInBits % CHAR_BIT; bitsToSkip > 0 ) {
             read( static_cast<bit_count_t>( bitsToSkip ) );
         }
@@ -597,8 +600,8 @@ public:
     }
 
 private:
-    size_t
-    fullSeek( size_t offsetBits );
+    uintmax_t
+    fullSeek( uintmax_t offsetBits );
 
     void
     refillBuffer()
@@ -909,7 +912,7 @@ public:
 
 
 template<bool MOST_SIGNIFICANT_BITS_FIRST, typename BitBuffer>
-inline size_t
+inline uintmax_t
 BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::seek(
     long long int offsetBits,
     int           origin )
@@ -929,7 +932,7 @@ BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::seek(
             /* Because we have seeked to get the full size, we have to force a full seek
              * to restore a valid file position for the next refillBuffer call. */
             const auto absoluteOffset = saturatingAddition( std::min( offsetBits, 0LL ), realFileSize );
-            return fullSeek( static_cast<size_t>( std::max( absoluteOffset, 0LL ) ) );
+            return fullSeek( static_cast<uintmax_t>( std::max( absoluteOffset, 0LL ) ) );
         }
     }
 
@@ -955,7 +958,7 @@ BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::seek(
     if ( positiveOffsetBits >= tell() ) {
         const auto relativeOffsets = positiveOffsetBits - tell();
         /* Seek forward inside bit buffer. */
-        if ( static_cast<size_t>( relativeOffsets ) <= bitBufferSize() ) {
+        if ( relativeOffsets <= static_cast<uintmax_t>( bitBufferSize() ) ) {
             seekAfterPeek( static_cast<decltype( bitBufferSize() )>( relativeOffsets ) );
             return positiveOffsetBits;
         }
@@ -966,9 +969,9 @@ BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::seek(
         if ( newInputBufferPosition <= m_inputBuffer.size() ) {
             clearBitBuffer();
 
-            m_inputBufferPosition = newInputBufferPosition;
+            m_inputBufferPosition = static_cast<size_t>( newInputBufferPosition );
             if ( stillToSeek % CHAR_BIT > 0 ) {
-                read( stillToSeek % CHAR_BIT );
+                read( static_cast<bit_count_t>( stillToSeek % CHAR_BIT ) );
             }
 
             return positiveOffsetBits;
@@ -982,7 +985,7 @@ BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::seek(
         }
 
         const auto seekBackWithBuffer = relativeOffsets + bitBufferSize();
-        const auto bytesToSeekBack = static_cast<size_t>( ceilDiv( seekBackWithBuffer, CHAR_BIT ) );
+        const auto bytesToSeekBack = ceilDiv( seekBackWithBuffer, static_cast<uintmax_t>( CHAR_BIT ) );
         /* Seek back inside byte buffer. */
         if ( bytesToSeekBack <= m_inputBufferPosition ) {
             m_inputBufferPosition -= static_cast<decltype( m_inputBufferPosition )>( bytesToSeekBack );
@@ -1002,8 +1005,8 @@ BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::seek(
 
 
 template<bool MOST_SIGNIFICANT_BITS_FIRST, typename BitBuffer>
-inline size_t
-BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::fullSeek( size_t offsetBits )
+inline uintmax_t
+BitReader<MOST_SIGNIFICANT_BITS_FIRST, BitBuffer>::fullSeek( uintmax_t offsetBits )
 {
     if ( !m_file ) {
         throw std::logic_error( "File has already been closed!" );

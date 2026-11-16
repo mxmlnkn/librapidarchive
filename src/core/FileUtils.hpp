@@ -181,14 +181,14 @@ fileExists( const std::string& filePath )
 }
 
 
-inline size_t
+inline uintmax_t
 fileSize( const std::string& filePath )
 {
     return std::filesystem::file_size( filePath );
 }
 
 
-inline size_t
+inline uintmax_t
 filePosition( std::FILE* file )
 {
     if ( file == nullptr ) {
@@ -204,7 +204,7 @@ filePosition( std::FILE* file )
     if ( offset < 0 ) {
         throw std::runtime_error( "Could not get the file position!" );
     }
-    return static_cast<size_t>( offset );
+    return static_cast<uintmax_t>( offset );
 }
 
 
@@ -451,7 +451,7 @@ readFile( const std::filesystem::path& filePath )
 #endif
 
 
-inline size_t
+inline uintmax_t
 fileSize( const int fileDescriptor )
 {
 #if defined(_MSC_VER)
@@ -468,7 +468,10 @@ fileSize( const int fileDescriptor )
         message << "Failed to get file size because of: " << strerror( errno ) << " (" << errno << ")";
         throw std::runtime_error( std::move( message ).str() );
     }
-    return fileStats.st_size;
+    if ( fileStats.st_size < 0 ) {
+        throw std::runtime_error( "The file size is negative!" );
+    }
+    return static_cast<uintmax_t>( fileStats.st_size );
 }
 
 

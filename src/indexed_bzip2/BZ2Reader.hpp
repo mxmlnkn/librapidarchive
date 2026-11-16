@@ -137,7 +137,7 @@ public:
         throw std::logic_error( "Not implemented!" );
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         if ( m_atEndOfFile ) {
@@ -151,7 +151,7 @@ public:
         return m_currentPosition;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override;
 
@@ -338,7 +338,7 @@ private:
 };
 
 
-inline size_t
+inline uintmax_t
 BZ2Reader::seek( long long int offset,
                  int           origin )
 {

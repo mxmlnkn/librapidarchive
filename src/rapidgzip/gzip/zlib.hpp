@@ -124,12 +124,12 @@ class ZlibInflateWrapper
 public:
     explicit
     ZlibInflateWrapper( gzip::BitReader&& bitReader,
-                        const size_t      untilOffset = std::numeric_limits<size_t>::max() ) :
+                        const uintmax_t   untilOffset = std::numeric_limits<uintmax_t>::max() ) :
         m_bitReader( std::move( bitReader ) ),
         m_encodedStartOffset( m_bitReader.tell() ),
         m_encodedUntilOffset(
             [untilOffset] ( const auto& size ) {
-                return size ? std::min( *size, untilOffset ) : untilOffset;
+                return size ? std::min<uintmax_t>( *size, untilOffset ) : untilOffset;
             } ( m_bitReader.size() )
         )
     {
@@ -252,8 +252,8 @@ private:
 
 private:
     gzip::BitReader m_bitReader;
-    const size_t m_encodedStartOffset;
-    const size_t m_encodedUntilOffset;
+    const uintmax_t m_encodedStartOffset;
+    const uintmax_t m_encodedUntilOffset;
     std::optional<size_t> m_setWindowSize;
     bool m_needToReadHeader{ false };
 
@@ -317,8 +317,9 @@ ZlibInflateWrapper::refillBuffer()
     }
 
     /* This reads byte-wise from BitReader. */
-    m_stream.avail_in = m_bitReader.read(
-        m_buffer.data(), std::min( ( m_encodedUntilOffset - m_bitReader.tell() ) / BYTE_SIZE, m_buffer.size() ) );
+    const auto nBytesToRead = std::min<uintmax_t>(
+        ( m_encodedUntilOffset - m_bitReader.tell() ) / BYTE_SIZE, m_buffer.size() );
+    m_stream.avail_in = m_bitReader.read( m_buffer.data(), static_cast<size_t>( nBytesToRead ) );
     m_stream.next_in = reinterpret_cast<unsigned char*>( m_buffer.data() );
 }
 

@@ -155,10 +155,12 @@ public:
         if ( buffer == nullptr ) {
             if ( seekable() ) {
                 /* Seeking beyond EOF is allowed, so the remaining byte count must not underflow. */
-                nBytesRead = std::min( nMaxBytesToRead,
-                                       m_currentPosition < m_fileSizeBytes
-                                       ? m_fileSizeBytes - m_currentPosition
-                                       : 0 );
+                nBytesRead = static_cast<size_t>(
+                    std::min<uintmax_t>(
+                        nMaxBytesToRead,
+                        m_currentPosition < m_fileSizeBytes
+                        ? m_fileSizeBytes - m_currentPosition
+                        : 0 ) );
                 fileSeek( m_file.get(), static_cast<long long int>( nBytesRead ), SEEK_CUR );
             } else {
                 std::array<char, 16_Ki> tmpBuffer{};
@@ -214,7 +216,7 @@ public:
         return nBytesRead;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
@@ -225,7 +227,7 @@ public:
         fileSeek( m_file.get(), offset, origin );
 
         if ( origin == SEEK_SET ) {
-            m_currentPosition = static_cast<size_t>( std::max( 0LL, offset ) );
+            m_currentPosition = static_cast<uintmax_t>( std::max( 0LL, offset ) );
         } else {
             /* Note that the file must be seekable at this point, meaning std::ftell will work! */
             m_currentPosition = filePosition( m_file.get() );
@@ -234,7 +236,7 @@ public:
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         /* A non-seekable stream such as a pipe reports st_size == 0, which is not its length.
@@ -245,7 +247,7 @@ public:
         return m_fileSizeBytes;
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         if ( m_seekable ) {
@@ -305,9 +307,9 @@ protected:
 
     std::fpos_t m_initialPosition{};
     const bool m_seekable;
-    const size_t m_fileSizeBytes;
+    const uintmax_t m_fileSizeBytes;
 
-    size_t m_currentPosition{ 0 };  /**< Only necessary for unseekable files. */
+    uintmax_t m_currentPosition{ 0 };  /**< Only necessary for unseekable files. */
     bool m_lastReadSuccessful{ true };
 };
 

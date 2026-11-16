@@ -74,7 +74,7 @@ public:
 private:
     void
     findBlockOffsets( const std::string_view& stringView,
-                      std::size_t             offset )
+                      uintmax_t               offset )
     {
         for ( auto position = stringView.find( EMPTY_DEFLATE_BLOCK.data(), 0, EMPTY_DEFLATE_BLOCK.size() );
               position != std::string_view::npos;
@@ -169,7 +169,7 @@ private:
 
 private:
     const UniqueFileReader m_fileReader;
-    const std::optional<std::size_t> m_fileSize;
+    const std::optional<uintmax_t> m_fileSize;
 
     alignas( 64 ) std::array<char, BUFFER_SIZE> m_buffer{};
     size_t m_bufferSize{ 0 };

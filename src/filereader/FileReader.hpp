@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <optional>
@@ -119,11 +120,11 @@ public:
     read( char*  buffer,
           size_t nMaxBytesToRead ) = 0;
 
-    virtual size_t
+    virtual std::uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) = 0;
 
-    size_t
+    std::uintmax_t
     seekTo( uint64_t offset )
     {
         if ( offset > static_cast<uint64_t>( std::numeric_limits<long long int>::max() ) ) {
@@ -132,10 +133,10 @@ public:
         return seek( static_cast<long long int>( offset ) );
     }
 
-    [[nodiscard]] virtual std::optional<size_t>
+    [[nodiscard]] virtual std::optional<std::uintmax_t>
     size() const = 0;
 
-    [[nodiscard]] virtual size_t
+    [[nodiscard]] virtual std::uintmax_t
     tell() const = 0;
 
     virtual void
@@ -182,11 +183,11 @@ protected:
      * Resolve an offset and clamp it to [0, size()]. Streaming readers may not know their size yet and
      * therefore do not clamp. Readers that must reject out-of-range seeks should use resolveOffset().
      */
-    [[nodiscard]] size_t
+    [[nodiscard]] std::uintmax_t
     effectiveOffset( long long int offset,
                      int           origin ) const
     {
-        const auto positiveOffset = static_cast<size_t>( std::max( resolveOffset( offset, origin ), 0LL ) );
+        const auto positiveOffset = static_cast<std::uintmax_t>( std::max( resolveOffset( offset, origin ), 0LL ) );
         /* Streaming file readers may return nullopt until EOF has been reached. */
         const auto fileSize = size();
         return fileSize.has_value() ? std::min( positiveOffset, *fileSize ) : positiveOffset;

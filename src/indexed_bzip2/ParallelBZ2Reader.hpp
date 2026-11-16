@@ -142,7 +142,7 @@ public:
         throw std::logic_error( "Not implemented!" );
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         if ( m_atEndOfFile ) {
@@ -306,7 +306,7 @@ public:
         return nBytesDecoded;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {

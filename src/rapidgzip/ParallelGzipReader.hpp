@@ -460,7 +460,7 @@ public:
         throw std::logic_error( "Not implemented!" );
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         if ( m_atEndOfFile ) {
@@ -474,7 +474,7 @@ public:
         return m_currentPosition;
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         if ( !m_blockMap->finalized() ) {
@@ -659,7 +659,7 @@ public:
         return nBytesDecoded;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {

@@ -98,15 +98,16 @@ public:
             return 0;
         }
 
-        const auto nBytesToReadFromBuffer = std::min( m_size - m_bufferPosition, nMaxBytesToRead );
+        const auto nBytesToReadFromBuffer = static_cast<size_t>( std::min<uintmax_t>( m_size - m_bufferPosition,
+                                                                                      nMaxBytesToRead ) );
         if ( buffer != nullptr ) {
-            std::memcpy( buffer, m_buffer + m_bufferPosition, nBytesToReadFromBuffer );
+            std::memcpy( buffer, m_buffer + static_cast<size_t>( m_bufferPosition ), nBytesToReadFromBuffer );
         }
         m_bufferPosition += nBytesToReadFromBuffer;
         return nBytesToReadFromBuffer;
     }
 
-    size_t
+    uintmax_t
     seek( long long int offset,
           int           origin = SEEK_SET ) override
     {
@@ -117,21 +118,21 @@ public:
         const auto newBufferPosition = resolveOffset( offset, origin );
 
         /* An in-memory view cannot seek outside its contents. effectiveOffset() would silently clamp to the end. */
-        if ( ( newBufferPosition < 0 ) || ( static_cast<size_t>( newBufferPosition ) > m_size ) ) {
+        if ( ( newBufferPosition < 0 ) || ( static_cast<uintmax_t>( newBufferPosition ) > m_size ) ) {
             throw std::invalid_argument( "Cannot seek outside of in-memory file range!" );
         }
 
-        m_bufferPosition = static_cast<size_t>( newBufferPosition );
+        m_bufferPosition = static_cast<uintmax_t>( newBufferPosition );
         return tell();
     }
 
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uintmax_t>
     size() const override
     {
         return m_size;
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uintmax_t
     tell() const override
     {
         return m_bufferPosition;
@@ -144,7 +145,7 @@ public:
 protected:
     bool m_closed{ false };
     const std::byte* const m_buffer;
-    const size_t m_size;
-    size_t m_bufferPosition{ 0 };
+    const uintmax_t m_size;
+    uintmax_t m_bufferPosition{ 0 };
 };
 }  // namespace rapidgzip

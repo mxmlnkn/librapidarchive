@@ -880,10 +880,11 @@ Block::readBlockData()
          * symbols are available. This is where almost all symbols are decoded. */
         if ( const auto bufferOffset = reader.bufferBitPosition(); bufferOffset.has_value() ) {
             const auto& buffer = reader.buffer();
-            auto offset = *bufferOffset;
+            /* The decoder offset is relative to the current buffer, which is bounded by size_t bytes. */
+            auto offset = static_cast<size_t>( *bufferOffset );
             status = decodeSymbols( state, buffer.data(), buffer.size(), offset, kernel );
             if ( offset != *bufferOffset ) {
-                reader.seekInsideBuffer( offset );
+                reader.seekInsideBuffer( static_cast<uintmax_t>( offset ) );
             }
             if ( status != SymbolDecoderStatus::NEED_INPUT ) {
                 break;

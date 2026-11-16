@@ -80,13 +80,13 @@ public:
         return nBytesRead;
     }
 
-    size_t seek( long long int, int ) override
+    uintmax_t seek( long long int, int ) override
     {
         throw std::logic_error( "NonSeekableFileReader cannot seek!" );
     }
 
-    [[nodiscard]] std::optional<size_t> size() const override { return std::nullopt; }
-    [[nodiscard]] size_t tell() const override { return m_position; }
+    [[nodiscard]] std::optional<uintmax_t> size() const override { return std::nullopt; }
+    [[nodiscard]] uintmax_t tell() const override { return m_position; }
     void clearerr() override { m_eof = false; }
 
 private:
@@ -261,7 +261,7 @@ testLastToFirstMappingKernels()
             REQUIRE( std::equal( mapping.begin(), mapping.begin() + size, referenceMapping.begin() ) );
         };
 
-#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
     compare( bzip2::createLastToFirstMappingSSE2 );
     if ( __builtin_cpu_supports( "avx2" ) ) {
         compare( bzip2::createLastToFirstMappingAVX2 );

@@ -681,7 +681,9 @@ public:
             auto result = decodeChunkWithInflateWrapper<InflateWrapper>(
                 std::move( sharedFileReader ),
                 blockOffset,
-                fileSize ? std::min( untilOffset, *fileSize * BYTE_SIZE ) : untilOffset,
+                fileSize
+                ? static_cast<size_t>( std::min<uintmax_t>( untilOffset, *fileSize * BYTE_SIZE ) )
+                : untilOffset,
                 *window,
                 decodedSize,
                 chunkDataConfiguration );

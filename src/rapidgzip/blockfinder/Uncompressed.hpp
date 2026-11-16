@@ -37,14 +37,15 @@ seekToNonFinalUncompressedDeflateBlock( gzip::BitReader& bitReader,
             : untilOffset + MAX_PRECEDING_BYTES;
         auto fileSize = bitReader.size();
         if ( fileSize ) {
-            untilOffsetSizeMember = std::min( untilOffsetSizeMember, *fileSize );
+            untilOffsetSizeMember = static_cast<size_t>( std::min<uintmax_t>( untilOffsetSizeMember, *fileSize ) );
         }
 
         const auto startOffset = bitReader.tell();
         /* Align to byte because we begin checking there instead of the deflate magic bits. */
-        const auto startOffsetByte = std::max(
-            static_cast<size_t>( BYTE_SIZE ),
-            ceilDiv( startOffset + DEFLATE_MAGIC_BIT_COUNT, BYTE_SIZE ) * BYTE_SIZE );
+        const auto startOffsetByte = static_cast<size_t>(
+            std::max<uintmax_t>(
+                BYTE_SIZE,
+                ceilDiv( startOffset + DEFLATE_MAGIC_BIT_COUNT, BYTE_SIZE ) * BYTE_SIZE ) );
         if ( startOffsetByte < untilOffsetSizeMember ) {
             bitReader.seekTo( startOffsetByte );
         }
