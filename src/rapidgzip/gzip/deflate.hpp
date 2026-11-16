@@ -14,7 +14,6 @@
 #include <array>
 #include <cassert>
 #include <cstring>
-#include <functional>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -420,12 +419,10 @@ namespace
  *       > ILb0EmERKNS_41HuffmanCodingReversedBitsCachedCompressedIhLh7EhLm19EEEmRKSt8functionIFhhEEEd_UlhE_ []’
  */
 [[nodiscard]] forceinline Error
-readDistanceAndLiteralCodeLengths( LiteralAndDistanceCLBuffer&              literalCL,
-                                   gzip::BitReader&                         bitReader,
-                                   const PrecodeHuffmanCoding&              precodeCoding,
-                                   const size_t                             literalCLSize,
-                                   const std::function<uint8_t( uint8_t )>& translateSymbol
-                                   = [] ( uint8_t symbol ) { return symbol; } )
+readDistanceAndLiteralCodeLengths( LiteralAndDistanceCLBuffer& literalCL,
+                                   gzip::BitReader&            bitReader,
+                                   const PrecodeHuffmanCoding& precodeCoding,
+                                   const size_t                literalCLSize )
 {
     size_t i = 0;
     for ( ; i < literalCLSize; ) {
@@ -433,7 +430,7 @@ readDistanceAndLiteralCodeLengths( LiteralAndDistanceCLBuffer&              lite
         if ( !decoded ) {
             return Error::INVALID_HUFFMAN_CODE;
         }
-        const auto code = translateSymbol( *decoded );
+        const auto code = *decoded;
 
         /* Note that this interpretation of the alphabet results in the maximum code length being 15! */
         if ( code <= 15 ) {
