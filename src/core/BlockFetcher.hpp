@@ -44,12 +44,12 @@ class BlockFetcher
 public:
     using BlockFinder = T_BlockFinder;
     using BlockData = T_BlockData;
-    using BlockCache = Cache</** block offset in bits */ size_t, std::shared_ptr<BlockData> >;
+    using BlockCache = Cache</** block offset in bits */ uint64_t, std::shared_ptr<BlockData> >;
 
     static_assert( std::is_base_of_v<BlockFinderInterface, BlockFinder>,
                    "Block finder must derive from the abstract interface." );
 
-    using GetPartitionOffset = std::function<size_t( size_t )>;
+    using GetPartitionOffset = std::function<uint64_t( uint64_t )>;
 
     struct Statistics
     {
@@ -225,7 +225,7 @@ public:
     }
 
     [[nodiscard]] bool
-    test( const size_t blockOffset ) const
+    test( const uint64_t blockOffset ) const
     {
         return ( m_prefetching.find( blockOffset ) != m_prefetching.end() )
                || m_cache.test( blockOffset )
@@ -244,7 +244,7 @@ public:
      * @return BlockData to requested blockOffset. Undefined what happens for an invalid blockOffset as input.
      */
     [[nodiscard]] std::shared_ptr<BlockData>
-    get( const size_t                blockOffset,
+    get( const uint64_t              blockOffset,
          const std::optional<size_t> dataBlockIndex = std::nullopt,
          const GetPartitionOffset&   getPartitionOffsetFromOffset = {} )
     {
@@ -384,7 +384,7 @@ public:
 
 private:
     void
-    insertIntoCache( const size_t               blockOffset,
+    insertIntoCache( const uint64_t             blockOffset,
                      std::shared_ptr<BlockData> blockData )
     {
         if ( m_fetchingStrategy.isSequential() ) {
@@ -394,7 +394,7 @@ private:
     }
 
     [[nodiscard]] bool
-    isInCacheOrQueue( const size_t blockOffset ) const
+    isInCacheOrQueue( const uint64_t blockOffset ) const
     {
         return ( m_prefetching.find( blockOffset ) != m_prefetching.end() )
                || m_cache.test( blockOffset )
@@ -402,7 +402,7 @@ private:
     }
 
     [[nodiscard]] bool
-    isFailedPrefetch( const size_t blockOffset ) const
+    isFailedPrefetch( const uint64_t blockOffset ) const
     {
         const std::scoped_lock lock( m_failedPrefetchCacheMutex );
         return m_failedPrefetchCache.test( blockOffset );
@@ -414,7 +414,7 @@ private:
      *         or wait for the result and insert it into a cache.
      */
     [[nodiscard]] std::pair<std::optional<std::shared_ptr<BlockData> >, std::future<BlockData> >
-    getFromCaches( const size_t blockOffset )
+    getFromCaches( const uint64_t blockOffset )
     {
         /* In case of a late prefetch, this might return an unfinished future. */
         auto resultFuture = takeFromPrefetchQueue( blockOffset );
@@ -438,7 +438,7 @@ private:
     }
 
     [[nodiscard]] std::future<BlockData>
-    takeFromPrefetchQueue( size_t blockOffset )
+    takeFromPrefetchQueue( uint64_t blockOffset )
     {
         /* Check whether the desired offset is prefetched. */
         std::future<BlockData> resultFuture;
@@ -508,7 +508,7 @@ private:
 
         auto blockIndexesToPrefetch = m_fetchingStrategy.prefetch( m_prefetchCache.capacity() );
 
-        std::vector<size_t> blockOffsetsToPrefetch;
+        std::vector<uint64_t> blockOffsetsToPrefetch;
         blockOffsetsToPrefetch.reserve( 2 * blockIndexesToPrefetch.size() );
         for ( auto blockIndexToPrefetch : blockIndexesToPrefetch ) {
             /* If we don't find the offset in the timeout of 0, then we very likely also don't have it cached yet. */
@@ -544,9 +544,9 @@ private:
             /* If the block with the requested index has not been found yet and if we have to wait on the requested
              * result future anyway, then wait a non-zero amount of time on the BlockFinder! */
             using GetReturnCode = BlockFinderInterface::GetReturnCode;
-            std::optional<size_t> prefetchBlockOffset;
+            std::optional<uint64_t> prefetchBlockOffset;
             auto prefetchGetReturnCode = GetReturnCode::FAILURE;
-            std::optional<size_t> nextPrefetchBlockOffset;
+            std::optional<uint64_t> nextPrefetchBlockOffset;
             auto nextPrefetchGetReturnCode = GetReturnCode::FAILURE;
             do
             {
@@ -598,7 +598,7 @@ private:
             auto prefetchedFuture = m_threadPool.submit(
                 [this, offset = *prefetchBlockOffset,
                  nextOffset = nextPrefetchBlockOffset ? *nextPrefetchBlockOffset
-                                                      : std::numeric_limits<size_t>::max()] () {
+                                                      : std::numeric_limits<uint64_t>::max()] () {
                     return decodeAndMeasureBlock( offset, nextOffset );
                 }, /* priority */ 0 );
             const auto [_, wasInserted] = m_prefetching.emplace( *prefetchBlockOffset, std::move( prefetchedFuture ) );
@@ -617,8 +617,8 @@ private:
     }
 
     [[nodiscard]] std::future<BlockData>
-    submitOnDemandTask( const size_t                blockOffset,
-                        const std::optional<size_t> nextBlockOffset )
+    submitOnDemandTask( const uint64_t                blockOffset,
+                        const std::optional<uint64_t> nextBlockOffset )
     {
         if ( m_statisticsEnabled ) {
             ++m_statistics.onDemandFetchCount;
@@ -627,7 +627,7 @@ private:
             [this, blockOffset, nextBlockOffset] ()
             {
                 return decodeAndMeasureBlock(
-                    blockOffset, nextBlockOffset ? *nextBlockOffset : std::numeric_limits<size_t>::max() );
+                    blockOffset, nextBlockOffset ? *nextBlockOffset : std::numeric_limits<uint64_t>::max() );
             },
             /* priority */ 0 );
         assert( resultFuture.valid() );
@@ -636,8 +636,8 @@ private:
 
 protected:
     [[nodiscard]] virtual BlockData
-    decodeBlock( size_t blockOffset,
-                 size_t nextBlockOffset ) const = 0;
+    decodeBlock( uint64_t blockOffset,
+                 uint64_t nextBlockOffset ) const = 0;
 
     /**
      * This must be called before variables that are used by @ref decodeBlock are destructed, i.e.,
@@ -690,8 +690,8 @@ protected:
 
 private:
     [[nodiscard]] BlockData
-    decodeAndMeasureBlock( size_t blockOffset,
-                           size_t nextBlockOffset ) const
+    decodeAndMeasureBlock( uint64_t blockOffset,
+                           uint64_t nextBlockOffset ) const
     {
         [[maybe_unused]] const auto tDecodeStart = now();
         auto blockData = decodeBlock( blockOffset, nextBlockOffset );
@@ -739,10 +739,10 @@ private:
 
     BlockCache m_cache;
     BlockCache m_prefetchCache;
-    Cache</* block offset in bits */ size_t, bool> m_failedPrefetchCache;
+    Cache</* block offset in bits */ uint64_t, bool> m_failedPrefetchCache;
     mutable std::mutex m_failedPrefetchCacheMutex;
 
-    std::map</* block offset */ size_t, std::future<BlockData> > m_prefetching;
+    std::map</* block offset */ uint64_t, std::future<BlockData> > m_prefetching;
     ThreadPool m_threadPool;
 
     /* Keeps a rethrown worker exception alive after the future and task state owning it are destroyed. */

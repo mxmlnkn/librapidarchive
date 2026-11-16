@@ -190,8 +190,8 @@ public:
     template<typename InflateWrapper>
     [[nodiscard]] static ChunkData
     decodeChunkWithInflateWrapper( UniqueFileReader          && sharedFileReader,
-                                   size_t                 const encodedOffsetInBits,
-                                   size_t                 const exactUntilOffset,
+                                   uint64_t               const encodedOffsetInBits,
+                                   uint64_t               const exactUntilOffset,
                                    WindowView             const initialWindow,
                                    std::optional<size_t>  const decodedSize,
                                    ChunkConfiguration    const& chunkDataConfiguration )
@@ -280,7 +280,7 @@ public:
     template<typename InflateWrapper>
     [[nodiscard]] static ChunkData
     finishDecodeChunkWithInexactOffset( gzip::BitReader* const  bitReader,
-                                        size_t           const  untilOffset,
+                                        uint64_t         const  untilOffset,
                                         WindowView       const  initialWindow,
                                         size_t           const  maxDecompressedChunkSize,
                                         ChunkData&&             result,
@@ -412,7 +412,7 @@ public:
 
     [[nodiscard]] static ChunkData
     decodeChunkWithRapidgzip( gzip::BitReader*          const bitReader,
-                              size_t                    const untilOffset,
+                              uint64_t                  const untilOffset,
                               std::optional<WindowView> const initialWindow,
                               ChunkConfiguration       const& chunkDataConfiguration )
     {
@@ -661,8 +661,8 @@ public:
 
     [[nodiscard]] static ChunkData
     decodeChunk( UniqueFileReader                      && sharedFileReader,
-                 size_t                             const blockOffset,
-                 size_t                             const untilOffset,
+                 uint64_t                           const blockOffset,
+                 uint64_t                           const untilOffset,
                  typename ChunkData::SharedWindow   const initialWindow,
                  std::optional<size_t>              const decodedSize,
                  std::atomic<bool>                 const& cancelThreads,
@@ -682,7 +682,7 @@ public:
                 std::move( sharedFileReader ),
                 blockOffset,
                 fileSize
-                ? static_cast<size_t>( std::min<uintmax_t>( untilOffset, *fileSize * BYTE_SIZE ) )
+                ? static_cast<uint64_t>( std::min<uintmax_t>( untilOffset, *fileSize * BYTE_SIZE ) )
                 : untilOffset,
                 *window,
                 decodedSize,
@@ -815,7 +815,7 @@ public:
                 break;
             }
 
-            const auto chunkEnd = std::min( static_cast<size_t>( chunkBegin + CHUNK_SIZE ), untilOffset );
+            const auto chunkEnd = std::min( static_cast<uint64_t>( chunkBegin + CHUNK_SIZE ), untilOffset );
 
             auto uncompressedOffsetRange = findNextUncompressed( chunkBegin, chunkEnd );
             auto dynamicHuffmanOffset = findNextDynamic( chunkBegin, chunkEnd );

@@ -33,7 +33,7 @@ public:
 
     [[nodiscard]] static ChunkData
     decodeUnknownBzip2Chunk( bzip2::BitReader*      const bitReader,
-                             size_t                 const untilOffset,
+                             uint64_t               const untilOffset,
                              std::optional<size_t>  const decodedSize,
                              ChunkConfiguration    const& chunkDataConfiguration )
     {
@@ -210,15 +210,15 @@ public:
 
     [[nodiscard]] static ChunkData
     decodeChunk( UniqueFileReader       && sharedFileReader,
-                 size_t              const chunkOffset,
-                 size_t              const untilOffset,
+                 uint64_t            const chunkOffset,
+                 uint64_t            const untilOffset,
                  std::atomic<bool>  const& cancelThreads,
                  ChunkConfiguration const& chunkDataConfiguration )
     {
         bzip2::BitReader bitReader( sharedFileReader->clone() );
 
         const auto tryToDecode =
-            [&] ( const size_t offset ) -> std::optional<ChunkData>
+            [&] ( const uint64_t offset ) -> std::optional<ChunkData>
             {
                 try {
                     bitReader.seekTo( offset );

@@ -45,7 +45,7 @@ public:
     using SharedDecompressedWindow = std::shared_ptr<const FasterVector<uint8_t> >;
     using WindowView = VectorView<uint8_t>;
     using BlockFinder = typename BaseType::BlockFinder;
-    using PostProcessingFutures = std::map</* block offset */ size_t, std::future<void> >;
+    using PostProcessingFutures = std::map</* block offset */ uint64_t, std::future<void> >;
     using UniqueSharedFileReader = std::unique_ptr<SharedFileReader>;
     using ProcessChunk = std::function<void( const std::shared_ptr<const ChunkData>& /* chunk */,
                                              FasterVector<uint8_t>                   /* lastWindow */ )>;
@@ -691,7 +691,7 @@ private:
             }
         }
 
-        if ( !chunkData || ( chunkData->encodedOffsetInBits == std::numeric_limits<size_t>::max() ) ) {
+        if ( !chunkData || ( chunkData->encodedOffsetInBits == std::numeric_limits<uint64_t>::max() ) ) {
             std::stringstream message;
             message << "Decoding failed at block offset " << formatBits( blockOffset ) << "!";
             throw std::domain_error( std::move( message ).str() );
@@ -720,8 +720,8 @@ private:
      * This is called in a threaded context! All member accesses must be thread-safe or locked!
      */
     [[nodiscard]] ChunkData
-    decodeBlock( size_t blockOffset,
-                 size_t nextBlockOffset ) const override
+    decodeBlock( uint64_t blockOffset,
+                 uint64_t nextBlockOffset ) const override
     {
         /* The decoded size of the block is only for optimization purposes. Therefore, we do not have to take care
          * of the correct ordering between BlockMap accesses and modifications (the BlockMap is still thread-safe). */
@@ -756,7 +756,7 @@ private:
             m_cancelThreads,
             chunkDataConfiguration,
             /* untilOffsetIsExact */ blockInfo.has_value()
-            || ( m_isBgzfFile && ( nextBlockOffset != std::numeric_limits<size_t>::max() ) ) );
+            || ( m_isBgzfFile && ( nextBlockOffset != std::numeric_limits<uint64_t>::max() ) ) );
     }
 
 public:
@@ -771,8 +771,8 @@ public:
      */
     [[nodiscard]] static ChunkData
     decodeBlock( UniqueFileReader             && sharedFileReader,
-                 size_t                    const blockOffset,
-                 size_t                    const untilOffset,
+                 uint64_t                  const blockOffset,
+                 uint64_t                  const untilOffset,
                  SharedWindow                    initialWindow,
                  std::optional<size_t>     const decodedSize,
                  std::atomic<bool>        const& cancelThreads,
@@ -809,7 +809,8 @@ private:
     size_t m_nextUnprocessedBlockIndex{ 0 };
 
     /* This is necessary when blocks have been split in order to find and reuse cached unsplit chunks. */
-    std::unordered_map</* block offset */ size_t, /* block offset of unsplit "parent" chunk */ size_t> m_unsplitBlocks;
+    std::unordered_map</* block offset */ uint64_t, /* block offset of unsplit "parent" chunk */ uint64_t>
+    m_unsplitBlocks;
 
     PostProcessingFutures m_markersBeingReplaced;
 

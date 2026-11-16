@@ -131,7 +131,7 @@ public:
     }
 
     [[nodiscard]] BlockHeaderData
-    readBlockHeader( size_t blockOffset ) const
+    readBlockHeader( uint64_t blockOffset ) const
     {
         BitReader bitReader( m_bitReader );
         bitReader.seekTo( blockOffset );
@@ -140,8 +140,8 @@ public:
 
 private:
     [[nodiscard]] BlockData
-    decodeBlock( size_t                  blockOffset,
-                 [[maybe_unused]] size_t nextBlockOffset ) const override
+    decodeBlock( uint64_t                  blockOffset,
+                 [[maybe_unused]] uint64_t nextBlockOffset ) const override
     {
         BitReader bitReader( m_bitReader );
         bitReader.seekTo( blockOffset );
