@@ -241,11 +241,13 @@ IsalInflateWrapper::refillBuffer()
     if ( m_bitReader.tell() % BYTE_SIZE != 0 ) {
         /* This might be called at the very first refillBuffer call when it does not start on a byte-boundary. */
         const auto nBitsToPrime = BYTE_SIZE - ( m_bitReader.tell() % BYTE_SIZE );
-        inflatePrime( nBitsToPrime, m_bitReader.read( nBitsToPrime ) );
+        inflatePrime( nBitsToPrime,
+                      m_bitReader.read( static_cast<gzip::BitReader::bit_count_t>( nBitsToPrime ) ) );
         assert( m_bitReader.tell() % BYTE_SIZE == 0 );
     } else if ( const auto remainingBits = m_encodedUntilOffset - m_bitReader.tell(); remainingBits < BYTE_SIZE ) {
         /* This might be called at the very last refillBuffer call, when it does not end on a byte-boundary. */
-        inflatePrime( remainingBits, m_bitReader.read( remainingBits ) );
+        inflatePrime( remainingBits,
+                      m_bitReader.read( static_cast<gzip::BitReader::bit_count_t>( remainingBits ) ) );
         return;
     }
 
