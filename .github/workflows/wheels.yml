@@ -66,6 +66,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/wheel-contents.json"
+
     - name: Set up Python
       uses: actions/setup-python@v7
       with:

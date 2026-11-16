@@ -1,0 +1,34 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "cmake-warning",
+      "severity": "warning",
+      "pattern": [
+        {
+          "regexp": "^CMake (?:Deprecation )?Warning(?: \\(dev\\))? at (.+?):(\\d+)",
+          "file": 1,
+          "line": 2
+        },
+        {
+          "regexp": "^\\s*(.*)$",
+          "message": 1
+        }
+      ]
+    },
+    {
+      "owner": "cmake-error",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^CMake Error at (.+?):(\\d+)",
+          "file": 1,
+          "line": 2
+        },
+        {
+          "regexp": "^\\s*(.*)$",
+          "message": 1
+        }
+      ]
+    }
+  ]
+}

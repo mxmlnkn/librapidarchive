@@ -37,6 +37,10 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+
     - uses: conda-incubator/setup-miniconda@v4
       with:
         auto-update-conda: true

@@ -27,6 +27,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
     - name: Install System Dependencies
       if: startsWith( matrix.os, 'ubuntu' )
       run: |

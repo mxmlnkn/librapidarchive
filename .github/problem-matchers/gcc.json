@@ -1,0 +1,30 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "gcc-warning",
+      "severity": "warning",
+      "pattern": [
+        {
+          "regexp": "^(.*?):(\\d+):(\\d+):\\s+warning:\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      ]
+    },
+    {
+      "owner": "gcc-error",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^(.*?):(\\d+):(\\d+):\\s+(?:error|fatal error):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      ]
+    }
+  ]
+}

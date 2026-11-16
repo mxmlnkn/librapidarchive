@@ -1,0 +1,16 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "wheel-contents",
+      "severity": "warning",
+      "pattern": [
+        {
+          "regexp": "^([^\\s:]+\\.whl):\\s+([WE]\\d{3}):\\s+(.*)$",
+          "file": 1,
+          "code": 2,
+          "message": 3
+        }
+      ]
+    }
+  ]
+}
