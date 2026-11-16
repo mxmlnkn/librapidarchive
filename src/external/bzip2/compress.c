@@ -147,8 +147,7 @@ void generateMTFValues ( EState* s )
       except for the last one, which is arranged in
       compressBlock().
    */
-   UInt32* ptr   = s->ptr;
-   UChar* block  = s->block;
+   UChar* bwt    = (UChar*)s->arr2 + s->nblock;
    UInt16* mtfv  = s->mtfv;
 
    makeMaps_e ( s );
@@ -163,8 +162,7 @@ void generateMTFValues ( EState* s )
    for (i = 0; i < s->nblock; i++) {
       UChar ll_i;
       AssertD ( wr <= i, "generateMTFValues(1)" );
-      j = ptr[i]-1; if (j < 0) j += s->nblock;
-      ll_i = s->unseqToSeq[block[j]];
+      ll_i = s->unseqToSeq[bwt[i]];
       AssertD ( ll_i < s->nInUse, "generateMTFValues(2a)" );
 
       if (yy[0] == ll_i) {
@@ -615,6 +613,10 @@ void BZ2_compressBlock ( EState* s, Bool is_last_block )
       BZ2_blockSort ( s );
    }
 
+   /* generateMTFValues reads the BWT staged directly after the block. The stream header
+      below reuses that area as the compressed-output buffer, so MTF values must be complete. */
+   if (s->nblock > 0) generateMTFValues ( s );
+
    s->zbits = (UChar*) (&((UChar*)s->arr2)[s->nblock]);
 
    /*-- If this is the first block, create the stream header. --*/
@@ -647,7 +649,6 @@ void BZ2_compressBlock ( EState* s, Bool is_last_block )
       bsW(s,1,0);
 
       bsW ( s, 24, s->origPtr );
-      generateMTFValues ( s );
       sendMTFValues ( s );
    }
 

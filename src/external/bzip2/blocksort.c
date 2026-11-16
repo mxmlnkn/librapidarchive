@@ -20,6 +20,7 @@
 
 
 #include "bzlib_private.h"
+#include "libsais.h"
 
 /*---------------------------------------------*/
 /*--- Fallback O(N log(N)^2) sorting        ---*/
@@ -1041,6 +1042,19 @@ void BZ2_blockSort ( EState* s )
    Int32   budgetInit;
    Int32   i;
 
+   /* The BWT output is staged in the output area directly after the block. It is later
+      consumed by generateMTFValues and then overwritten by the compressed bit stream. */
+   UChar* bwt = (UChar*)s->arr2 + nblock;
+
+   if (nblock >= 10000) {
+      Int32 origin = libsais_bwt_cyclic( (const uint8_t*)block, (uint8_t*)bwt,
+                                         (Int32*)s->arr1, nblock, 0, NULL );
+      if (origin >= 0) {
+         s->origPtr = origin;
+         return;
+      }
+   }
+
    if (nblock < 10000) {
       fallbackSort ( s->arr1, s->arr2, ftab, nblock, verb );
    } else {
@@ -1081,9 +1095,14 @@ void BZ2_blockSort ( EState* s )
    }
 
    s->origPtr = -1;
-   for (i = 0; i < s->nblock; i++)
-      if (ptr[i] == 0)
-         { s->origPtr = i; break; };
+   for (i = 0; i < s->nblock; i++) {
+      if (ptr[i] == 0) s->origPtr = i;
+      {
+         Int32 j = (Int32)ptr[i] - 1;
+         if (j < 0) j += s->nblock;
+         bwt[i] = block[j];
+      }
+   }
 
    AssertH( s->origPtr != -1, 1003 );
 }
