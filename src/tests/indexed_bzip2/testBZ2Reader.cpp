@@ -843,7 +843,8 @@ testConcatenatedStreamCRCVerification( const std::string& decodedTestFilePath,
     std::vector<char> firstStream( expected.size() );
     size_t nBytesRead = 0;
     while ( nBytesRead < firstStream.size() ) {
-        const auto nBytesReadNow = reader.read( firstStream.data() + nBytesRead, firstStream.size() - nBytesRead );
+        const auto nBytesReadNow = reader.read( firstStream.data() + nBytesRead,
+                                                firstStream.size() - nBytesRead );
         if ( nBytesReadNow == 0 ) {
             break;
         }

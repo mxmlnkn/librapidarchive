@@ -136,7 +136,7 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
 
             REQUIRE_EQUAL( static_cast<size_t>( nBytesReadDecoded ), nBytesReadEncoded );
 
-            decodedBuffer.resize( nBytesReadDecoded );
+            decodedBuffer.resize( static_cast<size_t>( nBytesReadDecoded ) );
             encodedBuffer.resize( nBytesReadEncoded );
 
             /* Encountering eof during read also sets fail bit meaning tellg will return -1! */
@@ -190,7 +190,7 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
     seek( 3_Mi );
 
     /* Seek after end of file */
-    seek( 1_Gi );
+    seek( static_cast<long long int>( decodedFileSize ) + 1000 );
 
     REQUIRE( encodedFile->blockOffsetsComplete() );
     REQUIRE_EQUAL( decodedFileSize, encodedFile->size().value() );
@@ -229,16 +229,16 @@ testDecodingBz2ForFirstTime( const std::string& decodedTestFilePath,
         read( 1 );
     }
 
-    /* Test thread joining feature intended for FUSE */
+    /* Test stopping background threads mid-stream, which is intended for FUSE. */
     seek( 333 );
     encodedFile->joinThreads();
-    read( 100 );  /* Direct read after current position even after closing threads. */
+    read( 100 );
     seek( 222 );
     read( 1_Mi );
     read( decodedFileSize + 1000 );
 
     encodedFile->joinThreads();
-    seek( 1 );  /* Direct read after current position even after closing threads. */
+    seek( 1 );
     read( 100 );
 
     std::cerr << "Test block offset loading\n";
