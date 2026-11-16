@@ -719,7 +719,7 @@ ibzip2CLI( int argc, char const* const* argv )
         findCompressedBlocks( inputFilePath,
                               compressedOffsetsFilePath,
                               getParallelism( blockFinderParallelism ),
-                              bufferSize > 0 ? bufferSize : 32_Ki,
+                              static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ),
                               test,
                               parsedArgs.count( "verbose" ) > 0 );
         return 0;

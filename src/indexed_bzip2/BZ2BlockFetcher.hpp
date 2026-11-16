@@ -120,7 +120,7 @@ public:
             return result;
         }
 
-        result.expectedCRC = bitReader.read( 32 );
+        result.expectedCRC = static_cast<uint32_t>( bitReader.read( 32 ) );
         const auto nBitsInByte = static_cast<uint8_t>( bitReader.tell() & 7LLU );
         if ( nBitsInByte > 0 ) {
             bitReader.read( static_cast<uint8_t>( 8 ) - nBitsInByte );

@@ -57,7 +57,7 @@ public:
         if ( window.empty() ) {
             return;
         }
-        if ( isal_inflate_set_dict( &m_stream, window.data(), window.size() ) != COMP_OK ) {
+        if ( isal_inflate_set_dict( &m_stream, window.data(), static_cast<uint32_t>( window.size() ) ) != COMP_OK ) {
             throw std::runtime_error( "Failed to set back-reference window in ISA-l!" );
         }
     }
@@ -250,8 +250,9 @@ IsalInflateWrapper::refillBuffer()
     }
 
     /* This reads byte-wise from BitReader. */
-    m_stream.avail_in = m_bitReader.read(
-        m_buffer.data(), std::min( ( m_encodedUntilOffset - m_bitReader.tell() ) / BYTE_SIZE, m_buffer.size() ) );
+    m_stream.avail_in = static_cast<uint32_t>(
+        m_bitReader.read(
+            m_buffer.data(), std::min( ( m_encodedUntilOffset - m_bitReader.tell() ) / BYTE_SIZE, m_buffer.size() ) ) );
     m_stream.next_in = reinterpret_cast<unsigned char*>( m_buffer.data() );
 }
 

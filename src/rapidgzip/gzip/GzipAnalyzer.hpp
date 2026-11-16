@@ -451,8 +451,8 @@ analyze( UniqueFileReader inputFile,
 
                 for ( const auto codeLength : codeLengths ) {
                     if ( codeLength > 0 ) {
-                        min = std::min( min, static_cast<uint32_t>( codeLength ) );
-                        max = std::max( max, static_cast<uint32_t>( codeLength ) );
+                        min = std::min<uint32_t>( min, static_cast<uint32_t>( codeLength ) );
+                        max = std::max<uint32_t>( max, static_cast<uint32_t>( codeLength ) );
                         nonZeroCount++;
                     }
                     lengthCounts.at( codeLength )++;
@@ -590,7 +590,7 @@ analyze( UniqueFileReader inputFile,
 
             for ( size_t i = 0; i < usedWindowSymbols.size(); ++i ) {
                 if ( usedWindowSymbols[i] ) {
-                    globalUsedWindowSymbolsHistogram.merge( i );
+                    globalUsedWindowSymbolsHistogram.merge( static_cast<uint16_t>( i ) );
                     ++globalUsedWindowSymbols.at( i );
                 }
             }
