@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -21,6 +22,12 @@
 namespace rapidgzip::PrecodeCheck::CountAllocatedLeaves
 {
 using LeafCount = uint16_t;
+
+/**
+ * A 4-value precode chunk can sum to at most 4 * 64 = 256 virtual leaves. Values above 128 are invalid,
+ * so saturating at 255 halves the LUT's memory footprint without changing any valid/invalid decision.
+ */
+using ChunkLeafCount = uint8_t;
 
 
 [[nodiscard]] constexpr LeafCount
@@ -64,9 +71,10 @@ template<uint8_t PRECODE_CHUNK_SIZE>
 static constexpr auto PRECODE_TO_LEAF_COUNT_LUT =
     [] ()
     {
-        std::array<LeafCount, 1ULL << uint16_t( PRECODE_CHUNK_SIZE * deflate::PRECODE_BITS )> result{};
+        std::array<ChunkLeafCount, 1ULL << uint16_t( PRECODE_CHUNK_SIZE * deflate::PRECODE_BITS )> result{};
         for ( size_t i = 0; i < result.size(); ++i ) {
-            result[i] = computeLeafCount<deflate::PRECODE_BITS, PRECODE_CHUNK_SIZE>( i );
+            result[i] = static_cast<ChunkLeafCount>(
+                std::min<LeafCount>( computeLeafCount<deflate::PRECODE_BITS, PRECODE_CHUNK_SIZE>( i ), 255 ) );
         }
         return result;
     }();
@@ -120,15 +128,15 @@ checkPrecode( const uint64_t next4Bits,
     constexpr auto CACHED_BITS = deflate::PRECODE_BITS * PRECODE_CHUNK_SIZE;
     const auto precodeBits = next57Bits & nLowestBitsSet<uint64_t>( codeLengthCount * deflate::PRECODE_BITS );
 
-    LeafCount virtualLeafCount{ 0 };
-    virtualLeafCount += LUT[precodeBits & nLowestBitsSet<uint64_t, CACHED_BITS>()];
-    virtualLeafCount += LUT[( precodeBits >> CACHED_BITS ) & nLowestBitsSet<uint64_t, CACHED_BITS>()];
-    /* Adding if ( codeLengthCount <= 12 ) here makes it slower: 95 -> 80 MB/s */
-    virtualLeafCount += LUT[( precodeBits >> ( 2U * CACHED_BITS ) ) & nLowestBitsSet<uint64_t, CACHED_BITS>()];
-    virtualLeafCount += LUT[( precodeBits >> ( 3U * CACHED_BITS ) ) & nLowestBitsSet<uint64_t, CACHED_BITS>()];
-   /* The last requires no bit masking because BitReader::read already has masked to the lowest 57 bits
-    * and this shifts 48 bits to the right, leaving only 9 (<12) bits set anyways. */
-    virtualLeafCount += LUT[precodeBits >> ( 4U * CACHED_BITS )];
+    /* Use two addition chains so that the L1 load latency of one chain can overlap with the other. */
+    const auto count1 = LUT[precodeBits & nLowestBitsSet<uint64_t, CACHED_BITS>()];
+    const auto count2 = LUT[( precodeBits >> CACHED_BITS ) & nLowestBitsSet<uint64_t, CACHED_BITS>()];
+    const auto count3 = LUT[( precodeBits >> ( 2U * CACHED_BITS ) ) & nLowestBitsSet<uint64_t, CACHED_BITS>()];
+    const auto count4 = LUT[( precodeBits >> ( 3U * CACHED_BITS ) ) & nLowestBitsSet<uint64_t, CACHED_BITS>()];
+    /* The last requires no bit masking because BitReader::read already has masked to the lowest 57 bits
+     * and this shifts 48 bits to the right, leaving only 9 (<12) bits set anyways. */
+    const auto count5 = LUT[precodeBits >> ( 4U * CACHED_BITS )];
+    const auto virtualLeafCount = static_cast<LeafCount>( count1 + count2 + count3 + count4 + count5 );
 
 #elif 0
     /**
