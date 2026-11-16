@@ -6,7 +6,6 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](http://opensource.org/licenses/MIT)
 [![C++ Code Checks](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml/badge.svg)](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml)
-[![codecov](https://codecov.io/gh/mxmlnkn/librapidarchive/branch/master/graph/badge.svg?token=94ZD4UTZQW)](https://codecov.io/gh/mxmlnkn/librapidarchive)
 ![C++17](https://img.shields.io/badge/C++-17-blue.svg)
 [![Discord](https://img.shields.io/discord/783411320354766878?label=discord)](https://discord.gg/Wra6t6akh2)
 [![Telegram](https://img.shields.io/badge/Chat-Telegram-%2330A3E6)](https://t.me/joinchat/FUdXxkXIv6c4Ib8bgaSxNg)
@@ -67,21 +66,22 @@ The author's version can be found [here](<results/paper/Knespel, Brunst - 2023 -
 </div>
 
 This module provides:
-  - an `ibzip2` command line tool to decompress bzip2 files in parallel and to compress them in
-    parallel with a similar command line interface to `bzip2` so that it can be used as a replacement.
-    `ibzip2 -z -P N --level 9 input` writes concatenated independent bzip2 streams, which GNU bzip2 and
-    `ibzip2` accept as one file.
-  - an `ibzip2.open` Python method for reading and seeking inside bzip2 files using multiple threads for a speedup of **6** over the built-in bzip2 module using a 12-core processor.
+  - an `ibzip2` command line tool to decompress bzip2 files in parallel and to compress them in parallel with a similar command line interface to `bzip2` so that it can be used as a replacement.
+    `ibzip2 -z -P N --level 9 input` writes concatenated independent bzip2 streams, which GNU bzip2 and `ibzip2` accept as one file.
+  - an `ibzip2.open` Python method for reading and seeking inside bzip2 files using multiple threads, reaching more than **30x** the bandwidth of Python's built-in `bz2` module on Silesia-20x and CTU-13 on a 12-core / 24-thread processor.
+    Compared with 1.7.0, the 2.0.0 decoder is **2-8x** faster depending on dataset and thread count.
 
-The parallel decompression capabilities are similar to [lbzip2](https://lbzip2.org/) but with a more permissive license and with support to be used as a library with random seeking capabilities similar to [seek-bzip2](https://github.com/galaxyproject/seek-bzip2).
+The parallel decompression capabilities are similar to [lbzip2](https://github.com/kjn/lbzip2) but with a more permissive license and with support to be used as a library with random seeking capabilities similar to [seek-bzip2](https://github.com/galaxyproject/seek-bzip2).
 
-| Module                                  | Runtime / s | Compressed / (MB/s) | Decompressed / (MB/s) | Speedup |
-|-----------------------------------------|-------------|--------------------:|----------------------:|---------|
-| bz2                                     | 386         |  5.2                | 207                   | 1       |
-| indexed_bzip2 with parallelization = 1  | 472         |  4.2                | 169                   | 0.8     |
-| indexed_bzip2 with parallelization = 2  | 265         |  7.6                | 301                   | 1.5     |
-| indexed_bzip2 with parallelization = 12 |  64         | 31.4                | 1246                  | 6.1     |
-| indexed_bzip2 with parallelization = 24 |  63         | 31.8                | 1266                  | 6.1     |
+<div align="center">
+
+![Concatenated Silesia bzip2 decoding benchmark](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/benchmarks/indexed_bzip2-2.0.0/data-2026-11-16/Ryzen-9-3900X-silesia-20x.png)
+
+</div>
+
+The plot compares `indexed_bzip2` 2.0.0 with 1.7.0 and the usual reference decoders on 20x concatenated Silesia dataset on an AMD Ryzen 9 3900X with 12 physical cores and 24 hardware threads. The concatenation is necessary because Silesia alone is too small to show scaling for large datasets as it takes less than a second to decompress.
+
+[**See here for the full benchmarks over more datasets and processors.**](results/benchmarks/indexed_bzip2-2.0.0/README.md)
 
 [**See here for the extended Readme.**](python/indexed_bzip2#readme)
 
@@ -136,3 +136,4 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
+

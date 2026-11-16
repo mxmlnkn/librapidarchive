@@ -7,10 +7,9 @@
 [![PyPI Platforms](https://img.shields.io/badge/pypi-linux%20%7C%20macOS%20%7C%20Windows-brightgreen)](https://pypi.org/project/indexed-bzip2/)
 [![Downloads](https://static.pepy.tech/badge/indexed-bzip2/month)](https://pepy.tech/project/indexed-bzip2)
 <br>
-[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/master/python/indexed_bzip2/CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/Changelog-Markdown-blue)](https://github.com/mxmlnkn/librapidarchive/blob/HEAD/python/indexed_bzip2/CHANGELOG.md)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](http://opensource.org/licenses/MIT)
 [![C++ Code Checks](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml/badge.svg)](https://github.com/mxmlnkn/librapidarchive/actions/workflows/test-cpp.yml)
-[![codecov](https://codecov.io/gh/mxmlnkn/librapidarchive/branch/master/graph/badge.svg?token=94ZD4UTZQW)](https://codecov.io/gh/mxmlnkn/librapidarchive)
 ![C++17](https://img.shields.io/badge/C++-17-blue.svg)
 [![Discord](https://img.shields.io/discord/783411320354766878?label=discord)](https://discord.gg/Wra6t6akh2)
 [![Telegram](https://img.shields.io/badge/Chat-Telegram-%2330A3E6)](https://t.me/joinchat/FUdXxkXIv6c4Ib8bgaSxNg)
@@ -23,9 +22,11 @@
 This module provides an IndexedBzip2File class, which can be used to seek inside bzip2 files without having to decompress them first.
 Alternatively, you can use this simply as a **parallelized** bzip2 decoder as a replacement for Python's builtin `bz2` module in order to fully utilize all your cores.
 
-On a 12-core processor, this can lead to a speedup of **6** over Python's `bz2` module, see [this](#comparison-with-bz2-module) example.
-Note that without parallelization, `indexed_bzip2` is unfortunately slower than Python's `bz2` module.
-Therefore, it is not recommended when neither seeking nor parallelization is used!
+On a 12-core processor, this can reach up to **37x** the bandwidth of Python's `bz2` module on
+Silesia-20x and **27x** on CTU-13, see [this](#comparison-with-bz2-module) example.
+The 2.0.0 single-thread decoder is already about **5.9x** faster than `bz2` on Silesia-20x and about
+**8.1x** on CTU-13; parallelization adds the rest. Compared with 1.7.0, the 2.0.0 decoder is
+**2-8x** faster depending on dataset and thread count.
 
 The internals are based on an improved version of the bzip2 decoder [bzcat](https://github.com/landley/toybox/blob/c77b66455762f42bb824c1aa8cc60e7f4d44bdab/toys/other/bzcat.c) from [toybox](https://landley.net/code/toybox/), which was refactored and extended to be able to export and import bzip2 block offsets, seek to block offsets, and to add support for threaded parallel decoding of blocks.
 
@@ -51,63 +52,18 @@ To use the parallel implementation you need to specify a `parallelization` argum
 
 # Performance comparison with bz2 module
 
-Results for an AMD Ryzen 3900X 12-core (24 virtual cores) processor and with
-`bz2FilePath='CTU-13-Dataset.tar.bz2'`, a 2 GB bz2 compressed archive, decompressing to 74.3 GiB, a compression ratio of 39.92.
+This is only a short selection. See the [benchmark README](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/benchmarks/indexed_bzip2-2.0.0/README.md) for all measured systems and datasets.
 
-| Module                                  | Runtime / s | Compressed / (MB/s) | Decompressed / (MB/s) | Speedup |
-|-----------------------------------------|-------------|--------------------:|----------------------:|---------|
-| bz2                                     | 386         |  5.2                | 207                   | 1       |
-| indexed_bzip2 with parallelization = 0  |  60         | 33.2                | 1329                  | 6.4     |
-| indexed_bzip2 with parallelization = 1  | 472         |  4.2                | 169                   | 0.8     |
-| indexed_bzip2 with parallelization = 2  | 265         |  7.6                | 301                   | 1.5     |
-| indexed_bzip2 with parallelization = 6  |  99         | 20.2                | 806                   | 3.9     |
-| indexed_bzip2 with parallelization = 12 |  64         | 31.4                | 1246                  | 6.1     |
-| indexed_bzip2 with parallelization = 24 |  63         | 31.8                | 1266                  | 6.1     |
-| indexed_bzip2 with parallelization = 32 |  63         | 31.7                | 1266                  | 6.1     |
+## Ryzen 9 3900X
+
+![Silesia on Ryzen 9 3900X](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/benchmarks/indexed_bzip2-2.0.0/data-2026-11-16/Ryzen-9-3900X-silesia-20x.png)
+
+![CTU-13 on Ryzen 9 3900X](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/benchmarks/indexed_bzip2-2.0.0/data-2026-11-16/Ryzen-9-3900X-CTU-13.png)
 
 
-The speedup of `indexed_bzip2` over the `bz2` module with `parallelization = 0` is **6**.
-When using only one core, `indexed_bzip2` is unfortunately slower by (559-392)/392 = 42%.
+## EPYC-7702
 
-These are simple timing tests for reading all the contents of a bzip2 file sequentially.
-
-<details>
-
-```python3
-import bz2
-import os
-import time
-
-fileSize = os.stat(bz2FilePath).st_size
-
-with bz2.open(bz2FilePath) as file:
-    t0 = time.time()
-    while file.read(512*1024):
-        pass
-    bz2Duration = time.time() - t0
-    print(f"Decoded file in {bz2Duration:.0f}s, bandwidth: {fileSize / bz2Duration / 1e6:.1f} MB/s")
-```
-
-The usage of indexed_bzip2 is slightly different:
-
-```python3
-import indexed_bzip2
-import time
-
-# parallelization = 0 means that it is automatically using all available cores.
-for parallelization in [0, 1, 2, 6, 12, 24, 32]:
-    with indexed_bzip2.IndexedBzip2File(bz2FilePath, parallelization = parallelization) as file:
-        t0 = time.time()
-        # Unfortunately, the chunk size is very performance critical! It might depend on the cache size.
-        while file.read(512*1024):
-            pass
-        ibz2Duration = time.time() - t0
-        print(f"Decoded file in {ibz2Duration:.0f}s"
-              f", bandwidth: {fileSize / ibz2Duration / 1e6:.1f} MB/s"
-              f", speedup: {bz2Duration/ibz2Duration:.1f}")
-```
-
-</details>
+![CTU-13 on EPYC-7702](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/benchmarks/indexed_bzip2-2.0.0/data-2026-11-16/EPYC-7702-CTU-13.png)
 
 
 # Installation
@@ -260,7 +216,7 @@ The finished `ibzip2` binary is created in the `tools` subfolder.
 To install it, it can be copied, e.g., to `/usr/local/bin` or anywhere else as long as it is available in your `PATH` variable.
 The command line options are similar to those of the existing `bzip2` tool.
 The full generated help is available in
-[`ibzip2-help.txt`](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/python/indexed_bzip2/ibzip2-help.txt).
+[`ibzip2-help.txt`](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/python/indexed_bzip2/ibzip2-help.txt).
 
 ```bash
 src/tools/ibzip2 --help
@@ -289,9 +245,9 @@ The parallelization of the bzip2 decoder and adding support to read from Python 
 An earlier architecture was discarded because it became to monolithic.
 That discarded one was able to even work with piped non-seekable input, with which the current parallel architecture does not work with yet.
 The serial `BZ2Reader` still exists but is not shown in the class diagram because it is deprecated and will be removed some time in the future after the `ParallelBZ2Reader` has proven itself.
-Click [here](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.png) or the image to get a larger image and [here](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.svg) to see an SVG version.
+Click [here](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/design/ParallelBZ2Reader.png) or the image to get a larger image and [here](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/design/ParallelBZ2Reader.svg) to see an SVG version.
 
-[![Class Diagram for ParallelBZ2Reader](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.png)](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/master/results/design/ParallelBZ2Reader.png)
+[![Class Diagram for ParallelBZ2Reader](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/design/ParallelBZ2Reader.png)](https://raw.githubusercontent.com/mxmlnkn/librapidarchive/HEAD/results/design/ParallelBZ2Reader.png)
 
 # Tracing the Decoder
 
