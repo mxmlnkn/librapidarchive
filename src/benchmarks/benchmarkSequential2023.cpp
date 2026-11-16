@@ -107,7 +107,9 @@ benchmarkBitReader( const std::vector<char>& data,
     uint64_t sum = 0;
     try {
         /* Without unrolling ~1.4 GB/s and with unrolling ~1.8 GB/s! */
+    #if defined( __GNUC__ ) || defined( __clang__ )
         #pragma GCC unroll 4
+    #endif
         while ( true ) {
             sum += bitReader.read( nBits );
         }

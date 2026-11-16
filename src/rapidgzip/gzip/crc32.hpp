@@ -90,7 +90,9 @@ crc32SliceByN( uint32_t    crc,
     constexpr const auto& LUT = CRC32_SLICE_BY_N_LUT;
     /* Unrolling by 8 increases speed from 4 GB/s to 4.5 GB/s (+12.5%).
      * Might be CPU-dependent (instruction cache size, ...). */
+#if defined( __GNUC__ ) || defined( __clang__ )
     #pragma GCC unroll 8
+#endif
     for ( size_t i = 0; i + SLICE_SIZE <= size; i += SLICE_SIZE ) {
         uint32_t firstDoubleWord{ 0 };
         std::memcpy( &firstDoubleWord, data + i, sizeof( uint32_t ) );
@@ -104,7 +106,9 @@ crc32SliceByN( uint32_t    crc,
 
         uint32_t result = 0;
         /* Has no effect. I assume it is automatically unrolled with -O3 even without this. */
+    #if defined( __GNUC__ ) || defined( __clang__ )
         #pragma GCC unroll 16
+    #endif
         for ( size_t j = 0; j < SLICE_SIZE; ++j ) {
             result ^= LUT[j][chunk[SLICE_SIZE - 1 - j]];
         }
