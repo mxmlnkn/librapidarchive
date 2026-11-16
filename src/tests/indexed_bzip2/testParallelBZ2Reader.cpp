@@ -42,9 +42,10 @@ testSimpleOpenAndClose( const std::string& bz2File )
 
 
 void
-testInvalidBlockOffsetsLeaveReaderUsable( const std::string& bz2File )
+testInvalidBlockOffsetsLeaveReaderUsable( const std::string& bz2File,
+                                          const size_t       parallelization )
 {
-    ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( bz2File ) );
+    ParallelBZ2Reader reader( std::make_unique<StandardFileReader>( bz2File ), parallelization );
 
     bool threw{ false };
     try {
@@ -773,7 +774,7 @@ main( int    argc,
     try
     {
         testSimpleOpenAndClose( encodedTestFilePath.string() );
-        testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string() );
+        testInvalidBlockOffsetsLeaveReaderUsable( encodedTestFilePath.string(), /* parallelization */ 1 );
         testMultiBlockCRCs( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testStreamCRCVerificationWithImportedOffsets( decodedTestFilePath.string(), encodedTestFilePath.string() );
         testStreamCRCVerificationAfterSeekToStart( decodedTestFilePath.string(), encodedTestFilePath.string() );
