@@ -15,12 +15,16 @@ jobs:
       with:
         persist-credentials: false
 
+    - name: Enable problem matchers
+      run: echo "::add-matcher::.github/problem-matchers/codespell.json"
+
     - name: Set up Python
       uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
     - name: Lint With Codespell
+      continue-on-error: true
       run: |
         python3 -m pip install --upgrade pip || true  # Fails on macOS because of homebrew
         python3 -m pip install codespell
@@ -36,6 +40,7 @@ jobs:
             '^Co-Authored-By:.*<(.*@)?(anthropic\.com|openai\.com|google\.com|github\.com|amazon\.com|cursor\.com|cline\.bot|windsurf\.com|devin\.ai)>[[:space:]]*$'
         then
           echo "::error::AI co-authorship attribution is not permitted."
+          echo "::error::AI Use Assisted-by or Generated-by, depending on how much the code was reviewed, if you want."
           echo "::error::AI tools may be used, but the merge request creator must take full responsibility for the submitted work."
           echo "::error::AI systems cannot assume responsibility for the changes and therefore must not be represented as co-authors."
           echo "::error::Co-authorship attribution is considered promotional/advertising content and is prohibited by repository policy."
@@ -105,6 +110,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
     - name: Install Dependencies
       run: |
         sudo apt update
@@ -131,6 +141,11 @@ jobs:
       with:
         persist-credentials: false
         submodules: recursive
+
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
 
     - name: Install System Dependencies
       if: "startsWith(matrix.os , 'macos')"
@@ -231,6 +246,11 @@ jobs:
       with:
         persist-credentials: false
         submodules: recursive
+
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
 
     - name: Install System Dependencies
       if: "startsWith(matrix.os , 'macos')"
@@ -353,6 +373,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
     - name: Install System Dependencies
       if: "startsWith(matrix.os , 'macos')"
       run: |
@@ -413,6 +438,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
     - name: Install System Dependencies
       if: "startsWith(matrix.os , 'macos')"
       run: |
@@ -466,6 +496,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
     - name: Fix pip
       run: |
         echo "PIP_BREAK_SYSTEM_PACKAGES=1" >> "${GITHUB_ENV}"
@@ -515,6 +550,11 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
     - name: Install Dependencies
       run: |
         sudo apt update
@@ -553,6 +593,11 @@ jobs:
       with:
         persist-credentials: false
         submodules: recursive
+
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
 
     - name: Install System Dependencies
       if: "startsWith(matrix.os , 'macos')"

@@ -51,6 +51,10 @@ jobs:
         persist-credentials: false
         submodules: true
 
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/${{ runner.os == 'Windows' && 'msvc' || 'gcc' }}.json"
+
     - name: Check that generated Cython files are not tracked
       shell: bash
       run: |
