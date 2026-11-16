@@ -321,6 +321,10 @@ def supportsFlag(compiler, flag):
     return True
 
 
+def isExternalSource(source):
+    return '/external/' in source.replace('\\', '/')
+
+
 def hasInclude(compiler, systemInclude):
     with tempfile.NamedTemporaryFile('w', suffix='.cpp') as file:
         file.write(f'#include <{systemInclude}>\n' + 'int main() { return 0; }')
@@ -378,6 +382,7 @@ class Build(build_ext):
             ]
             cppPostArgs = kwargs.get('extra_postargs', [])
             postArgs = [x for x in cppPostArgs if x not in cppCompileArgs]
+            externalWarningFlag = ['/w'] if self.compiler.compiler_type == 'msvc' else ['-w']
 
             if cSources:
                 for cSource in cSources:
@@ -390,6 +395,8 @@ class Build(build_ext):
                                 kwargs['extra_postargs'].append('-DENABLE_STATISTICS=1')
                         else:
                             kwargs['extra_postargs'] = postArgs
+                        if isExternalSource(cSource):
+                            kwargs['extra_postargs'] = kwargs['extra_postargs'] + externalWarningFlag
                     objects.extend(oldCompile([cSource], *args, **kwargs))
                     # We cannot have -std=c17 when compiling when compiling ISA-L!
                     if 'extra_postargs' in kwargs:
@@ -539,7 +546,7 @@ class Build(build_ext):
                     ext.extra_compile_args += ['-fcf-protection=full']
 
             if hasInclude(self.compiler, 'unistd.h'):
-                ext.extra_compile_args += ['-DZ_HAVE_UNISTD_H']
+                ext.extra_compile_args += ['-DHAVE_UNISTD_H']
 
         super(Build, self).build_extensions()
 

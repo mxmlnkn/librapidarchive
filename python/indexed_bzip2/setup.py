@@ -67,6 +67,10 @@ def supportsFlag(compiler, flag):
     return True
 
 
+def isExternalSource(source):
+    return '/external/' in source.replace('\\', '/')
+
+
 # https://github.com/cython/cython/blob/master/docs/src/tutorial/appendix.rst#python-38
 class Build(build_ext):
     def build_extensions(self):
@@ -86,11 +90,14 @@ class Build(build_ext):
             ]
             cppPostArgs = kwargs.get('extra_postargs', [])
             cPostArgs = [argument for argument in cppPostArgs if argument not in cppCompileArgs]
+            externalWarningFlag = ['/w'] if self.compiler.compiler_type == 'msvc' else ['-w']
 
             objects = oldCompile(cppSources, *args, **kwargs) if cppSources else []
-            if 'extra_postargs' in kwargs:
-                kwargs['extra_postargs'] = cPostArgs
             for cSource in cSources:
+                if 'extra_postargs' in kwargs:
+                    kwargs['extra_postargs'] = cPostArgs + (
+                        externalWarningFlag if isExternalSource(cSource) else []
+                    )
                 objects.extend(oldCompile([cSource], *args, **kwargs))
             if 'extra_postargs' in kwargs:
                 kwargs['extra_postargs'] = cppPostArgs
