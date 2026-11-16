@@ -294,7 +294,10 @@ ibzip2CLI( int argc, char const* const* argv )
             << thirdparty::cxxopts::license << "\n\n"
             << "# " << thirdparty::bzip2::name << "\n\n"
             << thirdparty::bzip2::url << "\n\n"
-            << thirdparty::bzip2::license << "\n";
+            << thirdparty::bzip2::license << "\n\n"
+            << "# " << thirdparty::libsais::name << "\n\n"
+            << thirdparty::libsais::url << "\n\n"
+            << thirdparty::libsais::license << "\n";
         return 0;
     }
 
@@ -316,7 +319,13 @@ ibzip2CLI( int argc, char const* const* argv )
             << "    license: bzip2-1.0.6\n"
             << "    licenses:\n"
             << "      - license: bzip2-1.0.6\n"
-            << "        text: " << toYamlString( thirdparty::bzip2::license ) << "\n";
+            << "        text: " << toYamlString( thirdparty::bzip2::license ) << "\n"
+            << "  - package_name: " << thirdparty::libsais::name << "\n"
+            << "    package_version: 2.12.1\n"
+            << "    license: Apache-2.0\n"
+            << "    licenses:\n"
+            << "      - license: Apache-2.0\n"
+            << "        text: " << toYamlString( thirdparty::libsais::license ) << "\n";
         return 0;
     }
 

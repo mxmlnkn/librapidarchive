@@ -13,3 +13,6 @@
 [submodule "src/external/zlib-ng"]
 	path = src/external/zlib-ng
 	url = https://github.com/zlib-ng/zlib-ng.git
+[submodule "src/external/libsais"]
+	path = src/external/libsais
+	url = https://github.com/IlyaGrebnov/libsais.git

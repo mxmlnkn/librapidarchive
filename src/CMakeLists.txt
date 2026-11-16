@@ -1,6 +1,7 @@
 
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include/cxxopts.hpp OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/zlib-ng/inflate.h OR
+   NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/libsais/src/libsais.c OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/rpmalloc/rpmalloc.h)
     find_package(Git REQUIRED)
 
@@ -160,6 +161,19 @@ elseif(NOT LIBRAPIDARCHIVE_USE_SYSTEM_ZLIB)
 endif()
 
 
+# libsais (inverse Burrows-Wheeler transform for bzip2)
+
+add_library(libsais STATIC)
+set(LIBSAIS_HOME "${CMAKE_CURRENT_SOURCE_DIR}/external/libsais")
+target_include_directories(libsais SYSTEM PUBLIC ${LIBSAIS_HOME}/include)
+target_sources(libsais PRIVATE
+    ${LIBSAIS_HOME}/src/libsais.c
+    ${LIBSAIS_HOME}/include/libsais.h
+)
+set_target_properties(libsais PROPERTIES C_STANDARD 11)
+set_target_properties(libsais PROPERTIES LINKER_LANGUAGE C)
+
+
 # bzip2 (compression backend for the ibzip2 CLI and the compressor test)
 
 if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
@@ -184,6 +198,7 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
             ${BZIP2_HOME}/bzlib.c
             ${BZIP2_HOME}/bzlib.h
         )
+        target_link_libraries(bzip2_vendored PRIVATE libsais)
         set_target_properties(bzip2_vendored PROPERTIES C_STANDARD 11)
         set_target_properties(bzip2_vendored PROPERTIES LINKER_LANGUAGE C)
         librapidarchive_silence_external_warnings(bzip2_vendored)
