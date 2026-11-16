@@ -13,6 +13,3 @@
 [submodule "src/external/zlib-ng"]
 	path = src/external/zlib-ng
 	url = https://github.com/zlib-ng/zlib-ng.git
-[submodule "src/external/bzip2"]
-	path = src/external/bzip2
-	url = https://gitlab.com/bzip2/bzip2.git

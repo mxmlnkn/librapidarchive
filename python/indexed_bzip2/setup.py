@@ -31,7 +31,6 @@ bzip2_sources = [
     'src/external/bzip2/crctable.c',
     'src/external/bzip2/randtable.c',
     'src/external/bzip2/compress.c',
-    'src/external/bzip2/decompress.c',
     'src/external/bzip2/bzlib.c',
 ]
 

@@ -1,7 +1,6 @@
 
 if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/cxxopts/include/cxxopts.hpp OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/zlib-ng/inflate.h OR
-   NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2/bzlib.c OR
    NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/external/rpmalloc/rpmalloc.h)
     find_package(Git REQUIRED)
 
@@ -182,7 +181,6 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
             ${BZIP2_HOME}/crctable.c
             ${BZIP2_HOME}/randtable.c
             ${BZIP2_HOME}/compress.c
-            ${BZIP2_HOME}/decompress.c
             ${BZIP2_HOME}/bzlib.c
             ${BZIP2_HOME}/bzlib.h
         )

@@ -24,7 +24,7 @@ jobs:
       run: |
         python3 -m pip install --upgrade pip || true  # Fails on macOS because of homebrew
         python3 -m pip install codespell
-        codespell --ignore-words-list thirdparty,Ned $( git ls-tree -r --name-only HEAD | 'grep' -E '[.](py|md|txt|sh|yml|cpp|c|hpp|h)$' )
+        codespell --ignore-words-list thirdparty,Ned,fave $( git ls-tree -r --name-only HEAD | 'grep' -E '[.](py|md|txt|sh|yml|cpp|c|hpp|h)$' )
 
     - name: Reject AI co-authorship
       if: github.event_name == 'pull_request'
