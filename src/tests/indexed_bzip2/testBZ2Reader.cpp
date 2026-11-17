@@ -250,7 +250,7 @@ testLastToFirstMappingKernels()
     const auto& referenceCounts = std::get<2>( referenceResult );
     REQUIRE_EQUAL( referenceSize, totalSize );
 
-    const auto compare =
+    [[maybe_unused]] const auto compare =
         [&] ( const auto& function )
         {
             std::vector<uint32_t> mapping( bzip2::LAST_TO_FIRST_MAPPING_SIZE );
