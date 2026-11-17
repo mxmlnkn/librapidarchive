@@ -183,6 +183,7 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
     if(LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2)
         # CMake 3.17, the minimum version required by this project, provides the BZip2::BZip2 target.
         find_package(BZip2 REQUIRED)
+        target_compile_definitions(bzip2_compression INTERFACE LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2)
         target_link_libraries(bzip2_compression INTERFACE BZip2::BZip2)
     else()
         add_library(bzip2_vendored STATIC)

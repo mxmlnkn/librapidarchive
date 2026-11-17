@@ -26,6 +26,10 @@
 #include <indexed_bzip2/Bzip2Format.hpp>
 
 
+/* The precomputed block-CRC entry point is part of the vendored GNU bzip2 1.1.0 sources. The system
+ * bzip2 option links stock bzip2 1.0.8, which computes the CRC internally. */
+
+
 namespace indexed_bzip2
 {
 struct Bzip2CompressionResult
@@ -53,6 +57,7 @@ compressBzip2Stream( const uint8_t* const input,
     /* libbz2 rejects a null source pointer even for an empty input, so provide a valid dummy address. */
     static constexpr char EMPTY_INPUT = 0;
     const auto* const source = size > 0 ? reinterpret_cast<const char*>( input ) : &EMPTY_INPUT;
+#ifndef LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2
     const auto result =
         size > 0
         ? BZ2_bzBuffToBuffCompressWithCRC(
@@ -64,6 +69,12 @@ compressBzip2Stream( const uint8_t* const input,
             reinterpret_cast<char*>( compressed.data() ), &compressedSize,
             const_cast<char*>( source ), 0,
             level, /* verbosity */ 0, /* workFactor */ 0 );
+#else
+    const auto result = BZ2_bzBuffToBuffCompress(
+        reinterpret_cast<char*>( compressed.data() ), &compressedSize,
+        const_cast<char*>( source ), static_cast<unsigned int>( size ),
+        level, /* verbosity */ 0, /* workFactor */ 0 );
+#endif
     if ( result != BZ_OK ) {
         throw std::runtime_error( "bzip2 compression failed with error code " + std::to_string( result ) );
     }
