@@ -137,3 +137,9 @@ Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
+# AI disclosure
+
+Parts of the indexed_bzip2 2.0.0 work, including code, tests, benchmark tooling, plots, and documentation,
+were generated with AI assistance (DeepSeek V4.1 Flash) and reviewed by the maintainer. The AI-generated
+performance reports, including failed experiments, are under [`results/ai`](results/ai). As before, correctness
+is checked by the test suite, fuzzing, ASAN/UBSAN/TSan, and checksum comparisons against reference decoders.
