@@ -1,7 +1,8 @@
-# Version 2.0.0 built on 2026-11-??
+# Version 2.0.0 built on 2026-11-18
 
 This major release introduces some small Python wrapper API breaks,
-comes with major 2-8x performance improvements, and is the first release using AI assistance.
+comes with major 2-8x performance improvements over 1.7.0 depending on dataset and thread count,
+and is the first release using AI assistance.
 
 ## Features
 
@@ -19,8 +20,11 @@ comes with major 2-8x performance improvements, and is the first release using A
    (1.01x single-core, 1.03x text64 at P4).
  - Decode run records and invert the BWT with interleaved chains instead of libsais
    (1.32x Silesia single-core, Huffman 0.74 s -> 0.64 s, and inverse BWT 0.64 s -> 0.41 s).
- - Add SSE4.1 and AVX2 symbol decoding kernels, selected per block from the Huffman code lengths
-   (1.23x Silesia and 1.26x text64 single-core).
+ - Replace the eight-pass byte-shifted `std::string_view::find` block-magic search with a single
+   word/SIMD scan and runtime dispatch to portable, SSE2, AVX2, or AVX-512 kernels (about 2x finder
+   bandwidth on cache-resident data and 1.5x on 64 MiB).
+ - Add SSE4.1, AVX2, and AVX-512 symbol decoding kernels, selected per block from the Huffman code
+   lengths (1.23x Silesia and 1.26x text64 single-core).
  - Dispatch the last-to-first mapping builder to AVX2 or AVX-512 at runtime so prebuilt wheels use the
    wider stores on capable x86 CPUs.
  - Pack the Huffman LUT entry and MTF list (1.07x text decode).
@@ -44,6 +48,9 @@ comes with major 2-8x performance improvements, and is the first release using A
  - Return `None` from `IndexedBzip2File.size()` when the uncompressed size is
    not known yet instead of returning 0.
  - Make `ibzip2 --test` work without also passing `--decompress`.
+ - Honor the requested block-finder parallelism in `ibzip2`, and keep explicit output when `--test`
+   is combined with an output path.
+ - Enable 64-bit file offsets on 32-bit builds so files larger than 2/4 GiB can be read and indexed.
  - Reject bzip2 run lengths that overflow the block size and data blocks with an empty symbol map.
  - Distinguish empty from truncated bzip2 streams and verify the bzip2 stream CRC in the parallel reader.
    Accept EOF immediately after a complete EOS on non-seekable inputs instead of reporting the next stream as truncated.
@@ -71,9 +78,16 @@ comes with major 2-8x performance improvements, and is the first release using A
    and block selectors with descriptive errors, and do not require the decoded block to end before the next candidate.
  - Fix block-zero prefetching, keep rethrown worker exceptions alive in the shared block fetcher, and
    keep the parallel readers usable after joining threads.
+ - Report a non-seekable empty input as EOF, reject imported indexes that omit the first data block,
+   and verify the stream CRC after seeking back to the start.
+ - Propagate buffer-acquisition failures and conversion errors from Python file-like objects, and
+   validate the requested parallelization before starting worker threads.
 
 ## API
 
+ - Widen file, bit, block, and chunk offsets to 64 bit where they were still `size_t`. Block finders
+   now return `std::optional<uint64_t>` instead of using `std::numeric_limits::max()` sentinels, and
+   the compression block-offset callback takes 64-bit offsets.
  - Add type annotations to the Python wrappers using the `FileOrPath`, `IndexFile`, and `WritableBuffer` aliases.
  - Remove the `fileno` method from the Python readers.
 
