@@ -27,6 +27,9 @@ if(MINGW)
     )
 endif()
 
+option(LIBRAPIDARCHIVE_ENABLE_PIE
+       "Compile and link executables as position-independent. Disable on toolchains whose crtbegin.o is not PIE-capable."
+       ON)
 option(LIBRAPIDARCHIVE_BUILD_BENCHMARKS "Build benchmarks" OFF)
 option(LIBRAPIDARCHIVE_BUILD_TESTS "Build tests" ON)
 option(LIBRAPIDARCHIVE_BUILD_FUZZERS "Build AFL++ fuzz targets" OFF)
@@ -131,7 +134,8 @@ add_compile_options(
     # https://www.phoronix.com/news/GCC-fhardened-Hardening-Option
     # https://developers.redhat.com/blog/2018/03/21/compiler-and-linker-flags-gcc
     # I have not observed any performance impact for these.
-    "$<$<OR:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<COMPILE_LANG_AND_ID:C,Clang,GNU>>:-fpie;-fstack-protector-strong>"
+    "$<$<OR:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<COMPILE_LANG_AND_ID:C,Clang,GNU>>:-fstack-protector-strong>"
+    "$<$<AND:$<BOOL:${LIBRAPIDARCHIVE_ENABLE_PIE}>,$<OR:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<COMPILE_LANG_AND_ID:C,Clang,GNU>>>:-fpie>"
     # -fstack-clash-protection crashes the MINGW compiler https://github.com/msys2/MINGW-packages/issues/5348
     "$<$<AND:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<NOT:$<PLATFORM_ID:Windows>>>:-fstack-clash-protection>"
     # Fix error with MINGW: Fatal error: can't write 94 bytes to section .text of testCLI.cpp.obj: 'file too big'
@@ -156,7 +160,7 @@ endif()
 add_link_options(
     "$<$<AND:$<COMPILE_LANG_AND_ID:CXX,AppleClang,Clang,GNU>,$<BOOL:${LIBRAPIDARCHIVE_CODE_COVERAGE}>>:--coverage>"
     # See the note about hardening inside add_compile_options.
-    "$<$<AND:$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<NOT:$<PLATFORM_ID:Windows>>>:-Wl,-pie,-z,relro,-z,now,-z,defs>"
+    "$<$<AND:$<BOOL:${LIBRAPIDARCHIVE_ENABLE_PIE}>,$<COMPILE_LANG_AND_ID:CXX,Clang,GNU>,$<NOT:$<PLATFORM_ID:Windows>>>:-Wl,-pie,-z,relro,-z,now,-z,defs>"
 )
 
 if(LIBRAPIDARCHIVE_CODE_COVERAGE)
