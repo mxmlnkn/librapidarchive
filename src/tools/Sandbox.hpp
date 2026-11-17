@@ -12,6 +12,7 @@
 #include <iostream>
 #include <vector>
 
+#include <fcntl.h>
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
@@ -20,6 +21,13 @@
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+
+#if defined( __has_include )
+    #if __has_include(<linux/landlock.h>)
+        #include <linux/landlock.h>
+        #define LIBRAPIDARCHIVE_HAS_LANDLOCK_HEADERS 1
+    #endif
+#endif
 
 #endif
 
@@ -45,19 +53,21 @@ struct Config
 };
 
 
-void
+#if defined( __linux__ )
+
+inline void
 warn( const rapidgzip::sandbox::Config& config,
       const std::string&                message,
       const int                         errorCode )
 {
     if ( !config.quiet ) {
-        std::cerr << "[Warning] Could not harden the CLI process: " << message
+        std::cerr << "[Warning] CLI sandbox: " << message
                   << " because of: " << std::strerror( errorCode ) << " (" << errorCode << ")\n";
     }
 }
 
 
-void
+inline void
 hardenProcess( const rapidgzip::sandbox::Config& config )
 {
     if ( prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) != 0 ) {
@@ -118,7 +128,7 @@ nativeAuditArchitecture()
 }
 
 
-void
+inline void
 installSeccompFilter( const rapidgzip::sandbox::Config& config )
 {
     constexpr auto nativeArchitecture = nativeAuditArchitecture();
@@ -338,6 +348,132 @@ installSeccompFilter( const rapidgzip::sandbox::Config& config )
 }
 
 
+#if defined( LIBRAPIDARCHIVE_HAS_LANDLOCK_HEADERS ) \
+    && defined( __NR_landlock_create_ruleset ) \
+    && defined( __NR_landlock_add_rule ) \
+    && defined( __NR_landlock_restrict_self )
+[[nodiscard]] inline int
+landlockAbiVersion()
+{
+    return static_cast<int>( syscall( __NR_landlock_create_ruleset, nullptr, 0u, LANDLOCK_CREATE_RULESET_VERSION ) );
+}
+
+
+[[nodiscard]] inline bool
+landlockIsAvailable()
+{
+    return landlockAbiVersion() >= 1;
+}
+
+
+inline void
+installLandlockSandbox( const rapidgzip::sandbox::Config& config )
+{
+    const int abiVersion = landlockAbiVersion();
+    if ( abiVersion < 1 ) {
+        if ( config.verbose && !config.quiet ) {
+            std::cerr << "[Info] Landlock is not available. Continuing without it.\n";
+        }
+        return;
+    }
+
+    std::uint64_t handledAccess =
+        LANDLOCK_ACCESS_FS_EXECUTE
+        | LANDLOCK_ACCESS_FS_WRITE_FILE
+        | LANDLOCK_ACCESS_FS_READ_FILE
+        | LANDLOCK_ACCESS_FS_READ_DIR
+        | LANDLOCK_ACCESS_FS_REMOVE_DIR
+        | LANDLOCK_ACCESS_FS_REMOVE_FILE
+        | LANDLOCK_ACCESS_FS_MAKE_CHAR
+        | LANDLOCK_ACCESS_FS_MAKE_DIR
+        | LANDLOCK_ACCESS_FS_MAKE_REG
+        | LANDLOCK_ACCESS_FS_MAKE_SOCK
+        | LANDLOCK_ACCESS_FS_MAKE_FIFO
+        | LANDLOCK_ACCESS_FS_MAKE_BLOCK
+        | LANDLOCK_ACCESS_FS_MAKE_SYM;
+#if defined( LANDLOCK_ACCESS_FS_REFER )
+    if ( abiVersion >= 2 ) {
+        handledAccess |= LANDLOCK_ACCESS_FS_REFER;
+    }
+#endif
+#if defined( LANDLOCK_ACCESS_FS_TRUNCATE )
+    if ( abiVersion >= 3 ) {
+        handledAccess |= LANDLOCK_ACCESS_FS_TRUNCATE;
+    }
+#endif
+#if defined( LANDLOCK_ACCESS_FS_IOCTL_DEV )
+    if ( abiVersion >= 5 ) {
+        handledAccess |= LANDLOCK_ACCESS_FS_IOCTL_DEV;
+    }
+#endif
+
+    struct landlock_ruleset_attr rulesetAttribute{};
+    rulesetAttribute.handled_access_fs = handledAccess;
+    const int rulesetFd = static_cast<int>(
+        syscall( __NR_landlock_create_ruleset, &rulesetAttribute, sizeof( rulesetAttribute ), 0u ) );
+    if ( rulesetFd < 0 ) {
+        const int errorCode = errno;
+        if ( ( errorCode == ENOSYS ) || ( errorCode == EOPNOTSUPP ) ) {
+            if ( config.verbose && !config.quiet ) {
+                std::cerr << "[Info] Landlock is not available. Continuing without it.\n";
+            }
+        } else {
+            warn( config, "creating a Landlock ruleset failed", errorCode );
+        }
+        return;
+    }
+
+    for ( const auto& path : config.readablePaths ) {
+        if ( path.empty() ) {
+            continue;
+        }
+
+        const int pathFd = open( path.c_str(), O_PATH | O_CLOEXEC );
+        if ( pathFd < 0 ) {
+            const int errorCode = errno;
+            warn( config, "opening the readable path '" + path + "' for Landlock failed", errorCode );
+            continue;
+        }
+
+        struct landlock_path_beneath_attr pathRule{};
+        pathRule.allowed_access = LANDLOCK_ACCESS_FS_READ_FILE;
+        pathRule.parent_fd = pathFd;
+        if ( syscall( __NR_landlock_add_rule, rulesetFd, LANDLOCK_RULE_PATH_BENEATH, &pathRule, 0u ) != 0 ) {
+            const int errorCode = errno;
+            warn( config, "adding a Landlock rule for '" + path + "' failed", errorCode );
+        }
+        close( pathFd );
+    }
+
+    if ( syscall( __NR_landlock_restrict_self, rulesetFd, 0u ) != 0 ) {
+        const int errorCode = errno;
+        warn( config, "restricting the process with Landlock failed", errorCode );
+    } else if ( config.verbose && !config.quiet ) {
+        std::cerr << "[Info] Installed Landlock ABI v" << abiVersion << " filesystem sandbox.\n";
+    }
+    close( rulesetFd );
+}
+#else
+[[nodiscard]] inline bool
+landlockIsAvailable()
+{
+    return false;
+}
+
+
+inline void
+installLandlockSandbox( const rapidgzip::sandbox::Config& config )
+{
+    if ( config.verbose && !config.quiet ) {
+        std::cerr << "[Info] Landlock headers are not available. Continuing without it.\n";
+    }
+}
+#endif
+
+
+#endif
+
+
 /**
  * Drops privileges and restricts the current process to its already opened file descriptors.
  *
@@ -351,6 +487,7 @@ installIfEnabled( const Config& config )
 {
     hardenProcess( config );
     installSeccompFilter( config );
+    installLandlockSandbox( config );
 }
 #else
 inline void

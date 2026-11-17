@@ -29,3 +29,17 @@ addCoreTest(testStreamedResults)
 
 addCoreTest(testStreamAdapter)
 addCoreTest(testThreadPool)
+
+# The sandbox is Linux-only and must not be linked into the in-process CLI tests.
+if( CMAKE_SYSTEM_NAME STREQUAL "Linux" )
+    add_executable(testSandbox)
+    target_sources(testSandbox PRIVATE ${CMAKE_CURRENT_LIST_DIR}/testSandbox.cpp)
+    target_include_directories(testSandbox PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../tools)
+    target_link_libraries(testSandbox PRIVATE Threads::Threads)
+    target_compile_features(testSandbox PRIVATE cxx_std_17)
+    add_test(NAME testSandbox COMMAND testSandbox)
+    if(SANITIZER_TEST_ENVIRONMENT)
+        set_tests_properties(testSandbox PROPERTIES ENVIRONMENT "${SANITIZER_TEST_ENVIRONMENT}")
+    endif()
+    add_dependencies(all_tests testSandbox)
+endif()
