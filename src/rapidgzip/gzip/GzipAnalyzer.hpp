@@ -10,6 +10,7 @@
 #include <numeric>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <sstream>
 #include <utility>
@@ -33,6 +34,29 @@
 
 namespace rapidgzip::deflate
 {
+[[nodiscard]] inline std::string
+escapeNonPrintable( std::string_view value )
+{
+    static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+
+    std::string result;
+    result.reserve( value.size() );
+    for ( const auto character : value ) {
+        const auto byte = static_cast<unsigned char>( character );
+        if ( byte == '\\' ) {
+            result += "\\\\";
+        } else if ( ( byte >= 0x20U ) && ( byte <= 0x7EU ) ) {
+            result.push_back( static_cast<char>( byte ) );
+        } else {
+            result += "\\x";
+            result.push_back( HEX_DIGITS[byte >> 4U] );
+            result.push_back( HEX_DIGITS[byte & 0x0FU] );
+        }
+    }
+    return result;
+}
+
+
 inline void
 analyzeExtraString( std::string_view extra,
                     std::string_view prefix = "" )
@@ -306,7 +330,7 @@ analyze( UniqueFileReader inputFile,
                 std::cout << "    Compressed Offset   : " << formatBits( headerOffset ) << "\n";
                 std::cout << "    Uncompressed Offset : " << totalBytesRead << " B\n";
                 if ( header.fileName ) {
-                    std::cout << "    File Name           : " << *header.fileName << "\n";
+                    std::cout << "    File Name           : " << escapeNonPrintable( *header.fileName ) << "\n";
                 }
                 std::cout << "    Modification Time   : " << header.modificationTime << "\n";
                 std::cout << "    OS                  : " << gzip::getOperatingSystemName( header.operatingSystem )
@@ -314,21 +338,12 @@ analyze( UniqueFileReader inputFile,
                 std::cout << "    Flags               : " << gzip::getExtraFlagsDescription( header.extraFlags )
                           << "\n";
                 if ( header.comment ) {
-                    std::cout << "    Comment             : " << *header.comment << "\n";
+                    std::cout << "    Comment             : " << escapeNonPrintable( *header.comment ) << "\n";
                 }
                 if ( header.extra ) {
-                    std::stringstream extraString;
-                    extraString << header.extra->size() << " B: ";
-                    for ( const auto value : *header.extra ) {
-                        if ( static_cast<bool>( std::isprint( value ) ) ) {
-                            extraString << value;
-                        } else {
-                            std::stringstream hexCode;
-                            hexCode << std::hex << std::setw( 2 ) << std::setfill( '0' ) << static_cast<int>( value );
-                            extraString << '\\' << 'x' << hexCode.str();
-                        }
-                    }
-                    std::cout << "    Extra               : " << extraString.str() << "\n";
+                    std::cout << "    Extra               : " << header.extra->size() << " B: "
+                              << escapeNonPrintable( { reinterpret_cast<const char*>( header.extra->data() ),
+                                                       header.extra->size() } ) << "\n";
                     analyzeExtraString( { reinterpret_cast<const char*>( header.extra->data() ),
                                           header.extra->size() },
                                         "        " );

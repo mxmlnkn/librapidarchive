@@ -30,4 +30,25 @@ returnError()
 [[ "$( cat ../src/tests/data/base64-256KiB.gz | $RAPIDGZIP --count )" -eq 262144 ]] ||
     returnError "$LINENO" 'Stdin count test failed!'
 
+# Header strings must not inject terminal escape sequences into --analyze output.
+tmpFolder=$( mktemp -d )
+trap 'rm -rf "$tmpFolder"' EXIT
+python3 - "$tmpFolder/escaped-name.gz" "$tmpFolder/backslash-name.gz" <<'PYTHON'
+import gzip
+import sys
+
+for path, name in zip( sys.argv[1:], [ '\x1b[31mred\x1b[0m\nnext', r'literal\x1b' ] ):
+    with open( path, 'wb' ) as file:
+        with gzip.GzipFile( fileobj=file, mode='wb', filename=name ) as gzipFile:
+            gzipFile.write( b'hello' )
+PYTHON
+analysis=$( $RAPIDGZIP --analyze "$tmpFolder/escaped-name.gz" )
+[[ "$analysis" == *'\x1b[31mred\x1b[0m\x0anext'* ]] ||
+    returnError "$LINENO" 'The gzip file name was not escaped in the --analyze output!'
+[[ "$analysis" != *$'\x1b'* ]] ||
+    returnError "$LINENO" 'The gzip file name injected a terminal escape sequence into the --analyze output!'
+analysis=$( $RAPIDGZIP --analyze "$tmpFolder/backslash-name.gz" )
+[[ "$analysis" == *'literal\\x1b'* ]] ||
+    returnError "$LINENO" 'A literal backslash in the gzip file name was not escaped in the --analyze output!'
+
 echo -e '\e[32mAll tests ran successfully.\e[0m'
