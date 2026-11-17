@@ -35,15 +35,15 @@
 #include <indexed_bzip2/ParallelBZ2Reader.hpp>
 
 #include "CLIHelper.hpp"
+#include "Sandbox.hpp"
 #include "thirdparty.hpp"
 
 
-using namespace rapidgzip;
-using namespace indexed_bzip2;
-
-
-namespace
+namespace indexed_bzip2
 {
+using namespace rapidgzip;
+
+
 void
 dumpOffsets( const std::vector<uint64_t>& offsets,
              const CheckedWrite&          checkedWrite )
@@ -184,6 +184,7 @@ ibzip2CLI( int argc, char const* const* argv )
     const auto quiet   = parsedArgs["quiet"].as<bool>();
     const auto test    = parsedArgs["test"].as<bool>();
     const auto verbose = parsedArgs["verbose"].as<bool>();
+    const auto sandboxEnabled = parsedArgs.count( "no-sandbox" ) == 0;
 
     const auto getParallelism = [] ( const auto p ) { return p > 0 ? p : availablePhysicalCores(); };
     const auto blockFinderParallelism = parsedArgs["block-finder-parallelism"].as<unsigned int>();
@@ -359,6 +360,10 @@ ibzip2CLI( int argc, char const* const* argv )
             exportIndexFile ? std::function<void( uint64_t, uint64_t )>( writeBlockOffset )
                             : std::function<void( uint64_t, uint64_t )>();
 
+        if ( sandboxEnabled ) {
+            rapidgzip::sandbox::installIfEnabled( { {}, verbose, quiet } );
+        }
+
         try {
             const auto tCompressionStart = now();
             const auto result = indexed_bzip2::compressBzip2Parallel(
@@ -418,6 +423,10 @@ ibzip2CLI( int argc, char const* const* argv )
         std::unique_ptr<StandardFileReader> importIndexFile;
         if ( !importIndexPath.empty() ) {
             importIndexFile = std::make_unique<StandardFileReader>( importIndexPath );
+        }
+
+        if ( sandboxEnabled ) {
+            rapidgzip::sandbox::installIfEnabled( { {}, verbose, quiet } );
         }
 
         std::unique_ptr<BZ2ReaderInterface> reader;
@@ -600,6 +609,9 @@ ibzip2CLI( int argc, char const* const* argv )
         }
         auto sharedInputFile = ensureSharedFileReader( std::move( inputFile ) );
 
+        if ( sandboxEnabled ) {
+            sandbox::installIfEnabled( { { inputFilePath }, verbose, quiet } );
+        }
         const auto offsets = findCompressedBlocks(
             *sharedInputFile, getParallelism( blockFinderParallelism ),
             static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ) );
@@ -621,10 +633,13 @@ ibzip2CLI( int argc, char const* const* argv )
 }
 
 
-#if !defined( WITH_PYTHON_SUPPORT ) && !defined( WITHOUT_MAIN )
+#if defined( WITH_PYTHON_SUPPORT )
+using namespace indexed_bzip2;
+using namespace rapidgzip;
+#elif !defined( WITHOUT_MAIN )
 int
 main( int argc, char** argv )
 {
-    return runCLI( [argc, argv] () { return ibzip2CLI( argc, argv ); } );
+    return rapidgzip::runCLI( [argc, argv] () { return indexed_bzip2::ibzip2CLI( argc, argv ); } );
 }
 #endif

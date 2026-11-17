@@ -92,6 +92,9 @@ Usage:
                          only --export-index is used with nothing else then
                          it affects the input buffer for the block finder.
                          (default: 0)
+      --no-sandbox       Disable the Linux process sandbox that drops
+                         privileges and restricts file and network access.
+                         Only use this for debugging.
 
 If no file names are given, ibzip2 decompresses from standard input to standard output.
 

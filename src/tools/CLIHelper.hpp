@@ -149,6 +149,10 @@ addCommonFileOptions( cxxopts::Options&      options,
                 "the first 10 bytes, 1024 bytes at offset 15 KiB, as well as the 5 lines after skipping the first "
                 "20 lines, and lastly, everything after skipping the first 40.",
       cxxopts::value<std::string>() );
+
+    options.add_options( "Advanced" )
+    ( "no-sandbox", "Disable the Linux process sandbox that drops privileges and restricts file and network access. "
+                    "Only use this for debugging." );
 }
 
 

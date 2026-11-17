@@ -29,13 +29,11 @@
 #include <rapidgzip/rapidgzip.hpp>
 
 #include "CLIHelper.hpp"
+#include "Sandbox.hpp"
 #include "thirdparty.hpp"
 
 
-using namespace rapidgzip;
-
-
-namespace
+namespace rapidgzip
 {
 struct Arguments
 {
@@ -44,6 +42,8 @@ struct Arguments
     std::string indexLoadPath;
     std::string indexSavePath;
     bool verbose{ false };
+    bool quiet{ false };
+    bool sandbox{ true };
     bool crc32Enabled{ true };
     bool keepIndex{ false };
     bool windowSparsity{ true };
@@ -171,6 +171,10 @@ decompressParallel( const Arguments&   args,
     std::unique_ptr<OutputFile> indexSaveFile;
     if ( !args.indexSavePath.empty() ) {
         indexSaveFile = std::make_unique<OutputFile>( args.indexSavePath );
+    }
+
+    if ( args.sandbox ) {
+        sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
     }
 
     auto reader = std::make_unique<Reader>( std::move( inputFile ), args.decoderParallelism, args.chunkSize );
@@ -328,6 +332,8 @@ rapidgzipCLI( int                  argc,
     const auto force = parsedArgs["force"].as<bool>();
     const auto quiet = parsedArgs["quiet"].as<bool>();
     args.verbose = parsedArgs["verbose"].as<bool>();
+    args.quiet = quiet;
+    args.sandbox = parsedArgs.count( "no-sandbox" ) == 0;
 
     if ( args.verbose ) {
         std::cerr << "Called with:";
@@ -477,6 +483,9 @@ rapidgzipCLI( int                  argc,
     /* Check if analysis is requested. */
 
     if ( analyze ) {
+        if ( args.sandbox ) {
+            sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
+        }
         return rapidgzip::deflate::analyze( std::move( inputFile ), args.verbose, args.analyzeFeatures )
                == rapidgzip::Error::NONE ? 0 : 1;
     }
@@ -774,10 +783,12 @@ rapidgzipCLI( int                  argc,
 }
 
 
-#if !defined( WITH_PYTHON_SUPPORT ) && !defined( WITHOUT_MAIN )
+#if defined( WITH_PYTHON_SUPPORT )
+using namespace rapidgzip;
+#elif !defined( WITHOUT_MAIN )
 int
 main( int argc, char** argv )
 {
-    return runCLI( [argc, argv] () { return rapidgzipCLI( argc, argv ); } );
+    return rapidgzip::runCLI( [argc, argv] () { return rapidgzip::rapidgzipCLI( argc, argv ); } );
 }
 #endif

@@ -24,10 +24,10 @@
 #include "Bzip2TestHelpers.hpp"
 
 
+namespace indexed_bzip2
+{
 using namespace rapidgzip;
 
-namespace
-{
 struct CLIInvocation
 {
     int exitCode{ 0 };
@@ -366,7 +366,6 @@ testTestOption( const std::filesystem::path& dataFolder )
     REQUIRE( blockResult.exitCode != 0 );
     bzip2_test::requireBlockCRCError( blockResult.exceptionMessage );
 }
-}  // namespace
 
 
 void
@@ -387,6 +386,7 @@ testCompressionOutputPath()
     REQUIRE( !std::filesystem::exists( tmpFolder.path() / "input" ) );
     REQUIRE( !std::filesystem::exists( tmpFolder.path() / "input.out" ) );
 }
+}  // namespace indexed_bzip2
 
 
 int
@@ -397,6 +397,8 @@ main( int    argc,
         std::cerr << "Expected at least the launch command as the first argument!\n";
         return 1;
     }
+
+    using namespace indexed_bzip2;
 
     const std::string binaryFilePath( argv[0] );
     auto binaryFolder = std::filesystem::path( binaryFilePath ).parent_path().string();
