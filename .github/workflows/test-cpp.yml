@@ -350,6 +350,42 @@ jobs:
         path: ${{ runner.temp }}/crashes
         if-no-files-found: ignore
 
+  Check-32-bit:
+    name: Check 32-bit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Enable problem matchers
+      run: |
+        echo "::add-matcher::.github/problem-matchers/gcc.json"
+        echo "::add-matcher::.github/problem-matchers/cmake.json"
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt update
+        sudo apt-get -y install g++-multilib gcc-multilib ninja-build
+
+    - name: Build and Run 32-bit Tests
+      run: |
+        cmake -G Ninja -B build-32 -DCMAKE_BUILD_TYPE=Debug \
+          -DLIBRAPIDARCHIVE_WITH_ISAL=OFF \
+          -DLIBRAPIDARCHIVE_USE_SYSTEM_ZLIB=OFF \
+          -DLIBRAPIDARCHIVE_BUILD_TESTS=ON \
+          -DCMAKE_C_FLAGS="-m32" \
+          -DCMAKE_CXX_FLAGS="-m32" \
+          -DCMAKE_EXE_LINKER_FLAGS="-m32" .
+        cmake --build build-32 --target \
+          testBZ2Reader testParallelBZ2Reader testBitStringFinder testParallelBitStringFinder \
+          testGzipBlockFinder testBzip2Compressor -j 4
+        ctest --test-dir build-32 --output-on-failure -j 1 \
+          -R 'testBZ2Reader|testParallelBZ2Reader|testBitStringFinder|testParallelBitStringFinder|testGzipBlockFinder|testBzip2Compressor'
+
   Sanitize:
     name: Sanitize
 
