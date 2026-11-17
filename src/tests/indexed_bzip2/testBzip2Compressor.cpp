@@ -158,7 +158,7 @@ testWorstCaseRleExpansionWithIndex()
         output.write( reinterpret_cast<const char*>( input.data() ), static_cast<std::streamsize>( input.size() ) );
     }
 
-    std::map<size_t, size_t> offsets;
+    std::map<uint64_t, uint64_t> offsets;
     auto inputFile = std::make_unique<StandardFileReader>( inputPath.string() );
     auto outputFile = std::make_unique<OutputFile>( outputPath.string() );
     const auto statistics = compressBzip2Parallel(

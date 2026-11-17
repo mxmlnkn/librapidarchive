@@ -484,16 +484,16 @@ ibzip2CLI( int argc, char const* const* argv )
             exportIndexFile.emplace( exportIndexPath, outputFile->writingToStdout() );
         }
         const auto writeBlockOffset =
-            [&exportIndexFile] ( const size_t compressedOffset, const size_t decodedOffset )
+            [&exportIndexFile] ( const uint64_t compressedOffset, const uint64_t decodedOffset )
             {
                 writeBzip2IndexEntry(
                     [&exportIndexFile] ( const void* data, const size_t size )
                     { exportIndexFile->write( data, size ); },
                     compressedOffset, decodedOffset );
             };
-        const std::function<void( size_t, size_t )> blockOffsetCallback =
-            exportIndexFile ? std::function<void( size_t, size_t )>( writeBlockOffset )
-                            : std::function<void( size_t, size_t )>();
+        const std::function<void( uint64_t, uint64_t )> blockOffsetCallback =
+            exportIndexFile ? std::function<void( uint64_t, uint64_t )>( writeBlockOffset )
+                            : std::function<void( uint64_t, uint64_t )>();
 
         try {
             const auto tCompressionStart = now();

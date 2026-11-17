@@ -248,11 +248,11 @@ scanBzip2ChunkOffsets( const std::vector<uint8_t>& compressed )
  *        that still contain additional blocks are reported and those inner offsets are omitted.
  */
 [[nodiscard]] inline Bzip2CompressionResult
-compressBzip2Parallel( rapidgzip::FileReader&                                    inputFile,
-                       const std::function<void( const std::vector<uint8_t>& )>& writeData,
-                       const int                                                 level,
-                       const size_t                                              parallelism,
-                       const std::function<void( size_t, size_t )>&              onBlockOffset = {} )
+compressBzip2Parallel( rapidgzip::FileReader&                                        inputFile,
+                       const std::function<void( const std::vector<uint8_t>& )>&     writeData,
+                       const int                                                     level,
+                       const size_t                                                  parallelism,
+                       const std::function<void( uint64_t, uint64_t )>&              onBlockOffset = {} )
 {
     if ( ( level < 1 ) || ( level > 9 ) ) {
         throw std::invalid_argument( "bzip2 compression level must be in the range 1..9." );
@@ -264,8 +264,8 @@ compressBzip2Parallel( rapidgzip::FileReader&                                   
     struct PendingStream
     {
         std::future<std::vector<uint8_t> > future;
-        size_t decodedOffset{ 0 };
-        size_t uncompressedSize{ 0 };
+        uint64_t decodedOffset{ 0 };
+        uint64_t uncompressedSize{ 0 };
     };
     std::deque<PendingStream> pending;
     Bzip2CompressionResult result;
@@ -325,6 +325,7 @@ compressBzip2Parallel( rapidgzip::FileReader&                                   
             break;
         }
 
+        /* The block-offset callback uses size_t, matching the index file format's offsets. */
         const auto decodedOffset = result.uncompressedBytes;
         result.uncompressedBytes += bytesRead;
         std::vector<uint8_t> data( block.begin(), block.begin() + bytesRead );
@@ -381,11 +382,11 @@ compressBzip2Parallel( rapidgzip::FileReader&                                   
  * Writes the compressed stream to a file descriptor.
  */
 [[nodiscard]] inline Bzip2CompressionResult
-compressBzip2Parallel( rapidgzip::FileReader&                       inputFile,
-                       const int                                    outputFileDescriptor,
-                       const int                                    level,
-                       const size_t                                 parallelism,
-                       const std::function<void( size_t, size_t )>& onBlockOffset = {} )
+compressBzip2Parallel( rapidgzip::FileReader&                           inputFile,
+                       const int                                        outputFileDescriptor,
+                       const int                                        level,
+                       const size_t                                     parallelism,
+                       const std::function<void( uint64_t, uint64_t )>& onBlockOffset = {} )
 {
     if ( outputFileDescriptor < 0 ) {
         throw std::invalid_argument( "A valid output file descriptor is required for bzip2 compression." );
