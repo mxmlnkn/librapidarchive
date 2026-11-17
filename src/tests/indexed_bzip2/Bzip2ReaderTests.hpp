@@ -340,7 +340,7 @@ testIncompleteIndexIsRejected( const std::string& encodedTestFilePath,
     REQUIRE( complete.size() >= 4 );
 
     const auto expectRejected =
-        [&] ( const std::map<size_t, size_t>& offsets )
+        [&] ( const std::map<uint64_t, uint64_t>& offsets )
         {
             auto reader = Policy::make( std::make_unique<StandardFileReader>( encodedTestFilePath ),
                                         parallelization );
@@ -392,7 +392,7 @@ testIncompleteIndexIsRejected( const std::string& encodedTestFilePath,
 
     /* A single EOS entry from anywhere in a nonempty stream is not the canonical empty-stream index. */
     {
-        const std::map<size_t, size_t> eosOnly{ { std::prev( complete.end(), 2 )->first, 0 } };
+        const std::map<uint64_t, uint64_t> eosOnly{ { std::prev( complete.end(), 2 )->first, 0 } };
         expectRejected( eosOnly );
     }
 

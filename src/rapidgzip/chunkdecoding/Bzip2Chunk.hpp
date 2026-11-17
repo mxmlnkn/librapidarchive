@@ -242,11 +242,11 @@ public:
             std::move( sharedFileReader ), bzip2::MAGIC_BITS_BLOCK, /* fileBufferSizeBytes */ 64_Ki };
         while ( !cancelThreads ) {
             const auto foundRelativeOffset = blockFinder.find();
-            if ( foundRelativeOffset == std::numeric_limits<size_t>::max() ) {
+            if ( !foundRelativeOffset ) {
                 break;
             }
 
-            const auto blockOffset = blockFinderOffsetInBytes * BYTE_SIZE + foundRelativeOffset;
+            const auto blockOffset = blockFinderOffsetInBytes * BYTE_SIZE + *foundRelativeOffset;
             if ( blockOffset >= untilOffset ) {
                 break;
             }

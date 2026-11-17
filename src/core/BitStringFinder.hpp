@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -514,7 +515,7 @@ findBitStringsGeneric( std::string_view const& buffer,
  * No matter the input, the data is read from an input buffer.
  * If a file is given, then that input buffer will be refilled when the input buffer empties.
  * It is less a file object and acts more like an iterator.
- * It offers a @ref find method returning the next match or std::numeric_limits<size_t>::max() if the end was reached.
+ * It offers a @ref find method returning the next match or std::nullopt if the end was reached.
  */
 template<uint8_t bitStringSize>
 class BitStringFinder
@@ -587,9 +588,9 @@ public:
     }
 
     /**
-     * @return the next match or std::numeric_limits<size_t>::max() if the end was reached.
+     * @return the next match or std::nullopt if the end was reached.
      */
-    [[nodiscard]] virtual size_t
+    [[nodiscard]] virtual std::optional<uint64_t>
     find();
 
 protected:
@@ -642,7 +643,7 @@ protected:
      * This value is incremented whenever the buffer is refilled. It basically acts like an overflow counter
      * for @ref m_bufferBitsRead and is required to return the absolute bit pos.
      */
-    size_t m_nTotalBytesRead = 0;
+    uint64_t m_nTotalBytesRead = 0;
 };
 
 
@@ -745,11 +746,11 @@ detail::findBitStringsGeneric( std::string_view const& buffer,
 
 
 template<uint8_t bitStringSize>
-size_t
+std::optional<uint64_t>
 BitStringFinder<bitStringSize>::find()
 {
     if ( bitStringSize == 0 ) {
-        return std::numeric_limits<size_t>::max();
+        return std::nullopt;
     }
 
     if ( !m_offsetsInBuffer.empty() ) {
@@ -763,7 +764,7 @@ BitStringFinder<bitStringSize>::find()
         if ( bufferEof() ) {
             const auto nBytesRead = refillBuffer();
             if ( nBytesRead == 0 ) {
-                return std::numeric_limits<size_t>::max();
+                return std::nullopt;
             }
         }
 
@@ -787,7 +788,7 @@ BitStringFinder<bitStringSize>::find()
         }
     }
 
-    return std::numeric_limits<size_t>::max();
+    return std::nullopt;
 }
 
 

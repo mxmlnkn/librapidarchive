@@ -51,7 +51,7 @@ public:
     /**
      * @return offset of deflate block in bits (not the gzip stream offset!).
      */
-    [[nodiscard]] size_t
+    [[nodiscard]] std::optional<uint64_t>
     find() override
     {
         while ( m_blockOffsets.empty() && !m_fileReader->eof() && !m_fileReader->fail() && !m_fileReader->closed() ) {
@@ -63,7 +63,7 @@ public:
         }
 
         if ( m_blockOffsets.empty() ) {
-            return std::numeric_limits<std::size_t>::max();
+            return std::nullopt;
         }
 
         m_lastReturnedBlockOffset = m_blockOffsets.back() * CHAR_BIT;
@@ -87,7 +87,7 @@ private:
                 const auto totalOffset = offset + position + EMPTY_DEFLATE_BLOCK.size();
                 auto fileSize = m_fileSize ? m_fileSize : m_fileReader->size();
                 if ( !fileSize || ( totalOffset < *fileSize ) ) {
-                    m_blockOffsets.push_back( totalOffset );
+                    m_blockOffsets.push_back( static_cast<uint64_t>( totalOffset ) );
                 }
             }
         }
@@ -154,7 +154,7 @@ private:
 
         if ( ( rapidgzip::gzip::checkHeader( bitReader ) == rapidgzip::Error::NONE )
              && ( bitReader.tell() % CHAR_BIT == 0 ) ) {
-            m_blockOffsets.push_back( bitReader.tell() / CHAR_BIT );
+            m_blockOffsets.push_back( static_cast<uint64_t>( bitReader.tell() / CHAR_BIT ) );
             /* Do not seek directly to one byte after the found offset in order to keep I/O aligned. */
             m_fileReader->seekTo( 0 );
             m_bufferSize = 0;
@@ -176,8 +176,8 @@ private:
     const size_t m_readSize;
 
     bool foundFirstBlock{ false };
-    std::vector<std::size_t> m_blockOffsets;
-    std::size_t m_lastReturnedBlockOffset{ 0 };
+    std::vector<uint64_t> m_blockOffsets;
+    uint64_t m_lastReturnedBlockOffset{ 0 };
 
     static constexpr std::string_view EMPTY_DEFLATE_BLOCK{
         "\0\0\xFF\xFF", 4  /* required or else strlen is used resulting in zero */

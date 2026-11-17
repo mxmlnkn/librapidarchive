@@ -555,8 +555,8 @@ public:
 public:
     Statistics statistics;
 
-    size_t encodedOffsetInBits = 0;
-    size_t encodedSizeInBits = 0;
+    uint64_t encodedOffsetInBits = 0;
+    uint64_t encodedSizeInBits = 0;
 
 private:
     uint64_t magicBytes{ 0 };

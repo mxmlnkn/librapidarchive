@@ -31,7 +31,7 @@ namespace indexed_bzip2
  * The format deliberately has no magic bytes or binary fields so that it stays readable with standard tools
  * and remains compatible with the CSV-like files written by older ibzip2 versions.
  */
-using BlockOffsets = std::map<size_t, size_t>;
+using BlockOffsets = std::map<uint64_t, uint64_t>;
 
 using CheckedWrite = std::function<void ( const void*, size_t )>;
 
@@ -163,8 +163,8 @@ readBzip2Index( rapidgzip::UniqueFileReader indexFile )
 
 inline void
 writeBzip2IndexEntry( const CheckedWrite& checkedWrite,
-                      const size_t        compressedOffset,
-                      const size_t        uncompressedOffset )
+                      const uint64_t      compressedOffset,
+                      const uint64_t      uncompressedOffset )
 {
     const auto line = std::to_string( compressedOffset ) + "," + std::to_string( uncompressedOffset ) + "\n";
     checkedWrite( line.data(), line.size() );
@@ -172,9 +172,9 @@ writeBzip2IndexEntry( const CheckedWrite& checkedWrite,
 
 
 inline void
-writeBzip2IndexEntry( std::ostream& out,
-                      const size_t  compressedOffset,
-                      const size_t  uncompressedOffset )
+writeBzip2IndexEntry( std::ostream&  out,
+                      const uint64_t compressedOffset,
+                      const uint64_t uncompressedOffset )
 {
     out << compressedOffset << "," << uncompressedOffset << "\n";
 }

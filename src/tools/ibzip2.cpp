@@ -44,8 +44,8 @@ namespace
 {
 /* Check whether the found offsets actually point to BZ2 magic bytes. */
 void
-checkOffsets( const std::string&         filePath,
-              const std::vector<size_t>& offsets )
+checkOffsets( const std::string&           filePath,
+              const std::vector<uint64_t>& offsets )
 {
     if ( !fileExists( filePath ) ) {
         return;
@@ -73,8 +73,8 @@ checkOffsets( const std::string&         filePath,
 
 
 void
-dumpOffsets( const std::vector<size_t>&  offsets,
-             const CheckedWrite&         checkedWrite )
+dumpOffsets( const std::vector<uint64_t>& offsets,
+             const CheckedWrite&          checkedWrite )
 {
     for ( const auto offset : offsets ) {
         const auto line = std::to_string( offset ) + "\n";
@@ -94,7 +94,7 @@ findCompressedBlocks( const std::string& inputFilePath,
     /* Having to go over the file twice is not optimal. This is because, the bit string finder is highly
      * optimized for finding non-EOS blocks for parallel decoding. Allowing a list of bit strings to test
      * for would make that algorithm more complex and possibly slower. It was not intended for debugging output */
-    std::vector<size_t> offsets;
+    std::vector<uint64_t> offsets;
     const std::set<uint64_t> bitStringsToFind = { bzip2::MAGIC_BITS_BLOCK, bzip2::MAGIC_BITS_EOS };
     for ( const auto bitStringToFind : bitStringsToFind ) {
         using Finder = BitStringFinder<bzip2::MAGIC_BITS_SIZE>;
@@ -107,8 +107,8 @@ findCompressedBlocks( const std::string& inputFilePath,
             ? std::make_unique<Finder>( std::move( file ), bitStringToFind, bufferSize )
             : std::make_unique<ParallelFinder>( std::move( file ), bitStringToFind, parallelism, 0, bufferSize );
 
-        for ( auto offset = finder->find(); offset != std::numeric_limits<size_t>::max(); offset = finder->find() ) {
-            offsets.push_back( offset );
+        for ( auto offset = finder->find(); offset; offset = finder->find() ) {
+            offsets.push_back( *offset );
         }
     }
 
@@ -627,7 +627,7 @@ ibzip2CLI( int argc, char const* const* argv )
                 reader->seek( static_cast<long long int>( range.offset ), SEEK_SET );
                 auto remaining = range.size;
                 while ( remaining > 0 ) {
-                    const auto toRead = std::min( buffer.size(), remaining );
+                    const auto toRead = static_cast<size_t>( std::min<uint64_t>( buffer.size(), remaining ) );
                     const auto nBytesRead = reader->read( -1, buffer.data(), toRead );
                     if ( nBytesRead == 0 ) {
                         break;

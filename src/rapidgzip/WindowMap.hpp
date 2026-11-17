@@ -22,7 +22,7 @@ public:
     using Window = CompressedVector<FasterVector<uint8_t> >;
     using WindowView = VectorView<std::uint8_t>;
     using SharedWindow = std::shared_ptr<const Window>;
-    using Windows = std::map</* encoded block offset */ size_t, SharedWindow>;
+    using Windows = std::map</* encoded block offset */ uint64_t, SharedWindow>;
 
 public:
     WindowMap() = default;
@@ -37,7 +37,7 @@ public:
     {}
 
     void
-    emplace( const size_t    encodedBlockOffset,
+    emplace( const uint64_t  encodedBlockOffset,
              WindowView      window,
              CompressionType compressionType )
     {
@@ -45,8 +45,8 @@ public:
     }
 
     void
-    emplaceShared( const size_t encodedBlockOffset,
-                   SharedWindow sharedWindow )
+    emplaceShared( const uint64_t encodedBlockOffset,
+                   SharedWindow   sharedWindow )
     {
         if ( !sharedWindow ) {
             return;
@@ -77,7 +77,7 @@ public:
     }
 
     [[nodiscard]] SharedWindow
-    get( size_t encodedOffsetInBits ) const
+    get( uint64_t encodedOffsetInBits ) const
     {
         /* Note that insertions might invalidate iterators but not references to values and especially not the
          * internal pointers of the vectors we are storing in the values. Meaning, it is safe to simply return
@@ -104,7 +104,7 @@ public:
     }
 
     void
-    releaseUpTo( size_t encodedOffset )
+    releaseUpTo( uint64_t encodedOffset )
     {
         const std::scoped_lock lock( m_mutex );
         auto start = m_windows.begin();
@@ -127,7 +127,7 @@ public:
         return { std::unique_lock( m_mutex ), &m_windows };
     }
 
-    [[nodiscard]] size_t
+    [[nodiscard]] uint64_t
     size() const
     {
         const std::scoped_lock lock( m_mutex );

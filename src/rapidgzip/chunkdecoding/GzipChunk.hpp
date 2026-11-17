@@ -45,7 +45,7 @@ public:
 
     static void
     startNewSubchunk( std::vector<Subchunk>& subchunks,
-                      const size_t           encodedOffset )
+                      const uint64_t         encodedOffset )
     {
         const auto nextDecodedOffset = subchunks.empty()
                                        ? 0

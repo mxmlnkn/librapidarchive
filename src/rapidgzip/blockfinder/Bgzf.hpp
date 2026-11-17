@@ -106,7 +106,7 @@ public:
     explicit
     Bgzf( UniqueFileReader fileReader ) :
         m_fileReader( std::move( fileReader ) ),
-        m_currentBlockOffset( m_fileReader->tell() )
+        m_currentBlockOffset( static_cast<uint64_t>( m_fileReader->tell() ) )
     {
         HeaderBytes header;
         const auto nBytesRead = m_fileReader->read( reinterpret_cast<char*>( header.data() ), header.size() );
@@ -131,7 +131,7 @@ public:
                 throw std::invalid_argument( "Given file does not end with a BGZF footer!" );
             }
 
-            m_fileReader->seekTo( m_currentBlockOffset );
+            m_fileReader->seekTo( *m_currentBlockOffset );
         }
     }
 
@@ -194,49 +194,49 @@ public:
     /**
      * @return offset of deflate block in bits (not the gzip stream offset!).
      */
-    [[nodiscard]] size_t
+    [[nodiscard]] std::optional<uint64_t>
     find() override
     {
-        if ( m_currentBlockOffset == std::numeric_limits<size_t>::max() ) {
-            return m_currentBlockOffset;
+        if ( !m_currentBlockOffset ) {
+            return std::nullopt;
         }
 
-        const auto result = ( m_currentBlockOffset + HeaderBytes().size() ) * 8;
+        const auto result = ( *m_currentBlockOffset + HeaderBytes().size() ) * 8U;
 
-        m_fileReader->seekTo( m_currentBlockOffset );
+        m_fileReader->seekTo( *m_currentBlockOffset );
         HeaderBytes header;
         const auto nBytesRead = m_fileReader->read( reinterpret_cast<char*>( header.data() ), header.size() );
         if ( nBytesRead == header.size() ) {
             const auto blockSize = getBgzfCompressedSize( header );
             if ( blockSize ) {
-                m_currentBlockOffset += *blockSize + 1;
+                *m_currentBlockOffset += *blockSize + 1U;
                 const auto fileSize = m_fileReader->size();
-                if ( fileSize && ( m_currentBlockOffset >= *fileSize ) ) {
-                    m_currentBlockOffset = std::numeric_limits<size_t>::max();
+                if ( fileSize && ( *m_currentBlockOffset >= *fileSize ) ) {
+                    m_currentBlockOffset = std::nullopt;
                 }
                 return result;
             }
 
             if ( !m_fileReader->eof() ) {
                 std::cerr << "Ignoring all junk data after invalid block offset "
-                          << m_currentBlockOffset << " B!\n";
+                          << *m_currentBlockOffset << " B!\n";
             }
             std::cerr << "Failed to get Bgzf metadata!\n";
-            m_currentBlockOffset = std::numeric_limits<size_t>::max();
+            m_currentBlockOffset = std::nullopt;
         } else {
             if ( nBytesRead > 0 ) {
                 std::cerr << "Got partial header!\n";
             }
-            m_currentBlockOffset = std::numeric_limits<size_t>::max();
+            m_currentBlockOffset = std::nullopt;
         }
 
         /* Do not report an offset for a block whose header could not be parsed. Otherwise, the block finder
          * would insert an offset into junk data, and decoding it would fail even for a valid archive. */
-        return std::numeric_limits<size_t>::max();
+        return std::nullopt;
     }
 
 private:
     const UniqueFileReader m_fileReader;
-    size_t m_currentBlockOffset = 0;  /**< in bytes because these are gzip stream offsets */
+    std::optional<uint64_t> m_currentBlockOffset{ 0 };  /**< in bytes because these are gzip stream offsets */
 };
 }  // rapidgzip::blockfinder

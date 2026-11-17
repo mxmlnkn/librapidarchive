@@ -211,11 +211,11 @@ testBitStringFinder( TemplatedBitStringFinder&& bitStringFinder,
      * and never will require that many matches, so somethings must have gone wrong */
     std::vector<size_t> matches;
     for ( int i = 0; i < 16; ++i ) {
-        matches.push_back( bitStringFinder.find() );
-        if ( matches.back() == std::numeric_limits<size_t>::max() ) {
-            matches.pop_back();
+        const auto match = bitStringFinder.find();
+        if ( !match ) {
             break;
         }
+        matches.push_back( static_cast<size_t>( *match ) );
     }
 
     ++gnTests;

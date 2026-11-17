@@ -351,12 +351,12 @@ readGzipIndex( UniqueFileReader         indexFile,
     try {
         rapidgzip::blockfinder::Bgzf blockfinder( sharedArchiveFile->clone() );
         const auto firstBlockOffset = blockfinder.find();
-        if ( firstBlockOffset == std::numeric_limits<size_t>::max() ) {
+        if ( !firstBlockOffset ) {
             throw std::invalid_argument( "" );
         }
 
         auto& firstCheckPoint = index.checkpoints.emplace_back();
-        firstCheckPoint.compressedOffsetInBits = firstBlockOffset;
+        firstCheckPoint.compressedOffsetInBits = *firstBlockOffset;
         firstCheckPoint.uncompressedOffsetInBytes = 0;
     } catch ( const std::invalid_argument& exception ) {
         std::stringstream message;

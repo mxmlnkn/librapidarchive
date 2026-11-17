@@ -208,7 +208,7 @@ public:
      * chunks while the cache still contains the unsplit chunk.
      */
     [[nodiscard]] std::optional<std::pair</* decoded offset */ size_t, std::shared_ptr<ChunkData> > >
-    get( size_t offset )
+    get( uint64_t offset )
     {
         /* In case we already have decoded the block once, we can simply query it from the block map and the fetcher. */
         auto blockInfo = m_blockMap->findDataOffset( offset );
@@ -279,7 +279,7 @@ public:
 
 private:
     [[nodiscard]] std::pair</* decoded offset */ size_t, std::shared_ptr<ChunkData> >
-    getIndexedChunk( const size_t               offset,
+    getIndexedChunk( const uint64_t             offset,
                      const BlockMap::BlockInfo& blockInfo )
     {
         const auto blockOffset = blockInfo.encodedOffsetInBits;
@@ -554,7 +554,7 @@ private:
     {
         /* Trigger jobs for ready block data to replace markers. */
         const auto& cacheElements = this->prefetchCache().contents();
-        std::vector<size_t> sortedOffsets( cacheElements.size() );
+        std::vector<uint64_t> sortedOffsets( cacheElements.size() );
         std::transform( cacheElements.begin(), cacheElements.end(), sortedOffsets.begin(),
                         [] ( const auto& keyValue ) { return keyValue.first; } );
         std::sort( sortedOffsets.begin(), sortedOffsets.end() );
@@ -621,8 +621,8 @@ private:
      *        This is important because this offset is stored in the returned ChunkData as the real one.
      */
     [[nodiscard]] std::shared_ptr<ChunkData>
-    getBlock( const size_t blockOffset,
-              const size_t blockIndex )
+    getBlock( const uint64_t blockOffset,
+              const size_t   blockIndex )
     {
         const auto getPartitionOffsetFromOffset =
             [this] ( auto offset ) { return m_blockFinder->partitionOffsetContainingOffset( offset ); };

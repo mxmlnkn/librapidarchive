@@ -596,7 +596,7 @@ private:
         }
 
         /* Generate simple compressed to uncompressed offset map from index. */
-        std::map<size_t, size_t> newBlockOffsets;
+        std::map<uint64_t, uint64_t> newBlockOffsets;
         auto windowMap = std::make_shared<WindowMap>();
         for ( const auto& checkpoint: index.checkpoints ) {
             newBlockOffsets.emplace( checkpoint.compressedOffsetInBits, checkpoint.uncompressedOffsetInBytes );
@@ -622,7 +622,7 @@ private:
     }
 
     void
-    setBlockOffsets( const std::map<size_t, size_t>& offsets )
+    setBlockOffsets( const std::map<uint64_t, uint64_t>& offsets )
     {
         if ( offsets.empty() ) {
             if ( !m_blockMap || m_blockMap->dataBlockCount() == 0 ) {

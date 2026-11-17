@@ -91,7 +91,7 @@ public:
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
      */
-    virtual std::map<size_t, size_t>
+    virtual std::map<uint64_t, uint64_t>
     blockOffsets()
     {
         if ( !m_blockMap.finalized() ) {
@@ -107,14 +107,14 @@ public:
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
      */
-    [[nodiscard]] virtual std::map<size_t, size_t>
+    [[nodiscard]] virtual std::map<uint64_t, uint64_t>
     availableBlockOffsets() const
     {
         return m_blockMap.blockOffsets();
     }
 
     virtual void
-    setBlockOffsets( std::map<size_t, size_t> offsets ) = 0;
+    setBlockOffsets( std::map<uint64_t, uint64_t> offsets ) = 0;
 
     /**
      * Called for each newly appended block offset in compressed bits and decoded bytes. Duplicate insertions and

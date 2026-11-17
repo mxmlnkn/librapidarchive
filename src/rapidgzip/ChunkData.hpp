@@ -142,9 +142,9 @@ struct ChunkData :
         }
 
     public:
-        size_t encodedOffset{ 0 };
+        uint64_t encodedOffset{ 0 };
         size_t decodedOffset{ 0 };
-        size_t encodedSize{ 0 };
+        uint64_t encodedSize{ 0 };
         size_t decodedSize{ 0 };
         std::optional<size_t> newlineCount{};
         SharedWindow window{};
@@ -401,16 +401,16 @@ public:
     }
 
     [[nodiscard]] bool
-    matchesEncodedOffset( size_t offset ) const noexcept
+    matchesEncodedOffset( uint64_t offset ) const noexcept
     {
-        if ( maxEncodedOffsetInBits == std::numeric_limits<size_t>::max() ) {
+        if ( maxEncodedOffsetInBits == std::numeric_limits<uint64_t>::max() ) {
             return offset == encodedOffsetInBits;
         }
         return ( encodedOffsetInBits <= offset ) && ( offset <= maxEncodedOffsetInBits );
     }
 
     void
-    setEncodedOffset( size_t offset );
+    setEncodedOffset( uint64_t offset );
 
     void
     setSubchunks( std::vector<Subchunk>&& newSubchunks )
@@ -422,7 +422,7 @@ public:
      * @note Probably should not be called internally because it is allowed to be shadowed by a child class method.
      */
     void
-    finalize( size_t newEncodedEndOffsetInBits )
+    finalize( uint64_t newEncodedEndOffsetInBits )
     {
         const auto oldMarkerSize = BaseType::dataWithMarkersSize();
         cleanUnmarkedData();
@@ -460,8 +460,8 @@ public:
      * @return true if it was appended, false if the last boundary is identical to the given one.
      */
     bool
-    appendDeflateBlockBoundary( const size_t encodedOffset,
-                                const size_t decodedOffset )
+    appendDeflateBlockBoundary( const uint64_t encodedOffset,
+                                const size_t   decodedOffset )
     {
         if ( blockBoundaries.empty()
              || ( blockBoundaries.back().encodedOffset != encodedOffset )
@@ -545,20 +545,20 @@ protected:
     split( size_t spacing ) const;
 
 public:
-    size_t encodedOffsetInBits{ std::numeric_limits<size_t>::max() };
-    size_t encodedSizeInBits{ 0 };
+    uint64_t encodedOffsetInBits{ std::numeric_limits<uint64_t>::max() };
+    uint64_t encodedSizeInBits{ 0 };
 
-    /* This should only be evaluated when it is unequal std::numeric_limits<size_t>::max() and unequal
+    /* This should only be evaluated when it is unequal std::numeric_limits<uint64_t>::max() and unequal
      * Base::encodedOffsetInBits. Then, [Base::encodedOffsetInBits, maxEncodedOffsetInBits] specifies a valid range
      * for the block offset. Such a range might happen for finding uncompressed deflate blocks because of the
      * byte-padding. */
-    size_t maxEncodedOffsetInBits{ std::numeric_limits<size_t>::max() };
+    uint64_t maxEncodedOffsetInBits{ std::numeric_limits<uint64_t>::max() };
     /* Initialized with size() after thread has finished writing into ChunkData. Redundant but avoids a lock
      * because the marker replacement will momentarily lead to different results returned by size! */
-    size_t decodedSizeInBytes{ 0 };
+    uint64_t decodedSizeInBytes{ 0 };
     /* This is currently only set in @ref finalize and used in @ref setEncodedOffset to initialize
      * @ref encodedSizeInBits. */
-    size_t encodedEndOffsetInBits{ std::numeric_limits<size_t>::max() };
+    uint64_t encodedEndOffsetInBits{ std::numeric_limits<uint64_t>::max() };
 
     Configuration configuration;
 
@@ -608,13 +608,13 @@ operator<<( std::ostream&    out,
 
 
 inline void
-ChunkData::setEncodedOffset( size_t offset )
+ChunkData::setEncodedOffset( uint64_t offset )
 {
     if ( !matchesEncodedOffset( offset ) ) {
         throw std::invalid_argument( "The real offset to correct to should lie inside the offset range!" );
     }
 
-    if ( encodedEndOffsetInBits == std::numeric_limits<size_t>::max() ) {
+    if ( encodedEndOffsetInBits == std::numeric_limits<uint64_t>::max() ) {
         throw std::invalid_argument( "Finalize must be called before setEncodedOffset!" );
     }
 
@@ -643,7 +643,7 @@ ChunkData::setEncodedOffset( size_t offset )
 [[nodiscard]] inline std::vector<ChunkData::Subchunk>
 ChunkData::split( [[maybe_unused]] const size_t spacing ) const
 {
-    if ( encodedEndOffsetInBits == std::numeric_limits<size_t>::max() ) {
+    if ( encodedEndOffsetInBits == std::numeric_limits<uint64_t>::max() ) {
         throw std::invalid_argument( "Finalize must be called before splitting the chunk!" );
     }
 
@@ -740,8 +740,8 @@ ChunkData::split( [[maybe_unused]] const size_t spacing ) const
     }
 
     const auto subchunkEncodedSizeSum =
-        std::accumulate( result.begin(), result.end(), size_t( 0 ),
-                         [] ( size_t sum, const auto& block ) { return sum + block.encodedSize; } );
+        std::accumulate( result.begin(), result.end(), uint64_t( 0 ),
+                         [] ( uint64_t sum, const auto& block ) { return sum + block.encodedSize; } );
     const auto subchunkDecodedSizeSum =
         std::accumulate( result.begin(), result.end(), size_t( 0 ),
                          [] ( size_t sum, const auto& block ) { return sum + block.decodedSize; } );
@@ -875,7 +875,7 @@ struct ChunkDataCounter final :
     }
 
     void
-    finalize( size_t newEncodedEndOffsetInBits )
+    finalize( uint64_t newEncodedEndOffsetInBits )
     {
         encodedEndOffsetInBits = newEncodedEndOffsetInBits;
         encodedSizeInBits = encodedEndOffsetInBits - encodedOffsetInBits;

@@ -29,7 +29,7 @@ namespace rapidgzip
  * No matter the input, the data is read from an input buffer.
  * If a file is given, then that input buffer will be refilled when the input buffer empties.
  * It is less a file object and acts more like an iterator.
- * It offers a @ref find method returning the next match or std::numeric_limits<size_t>::max() if the end was reached.
+ * It offers a @ref find method returning the next match or std::nullopt if the end was reached.
  */
 template<uint8_t bitStringSize>
 class ParallelBitStringFinder :
@@ -72,9 +72,9 @@ public:
     }
 
     /**
-     * @return the next match and the requested bytes or std::numeric_limits<size_t>::max() if at end of file.
+     * @return the next match and the requested bytes or std::nullopt if at end of file.
      */
-    [[nodiscard]] size_t
+    [[nodiscard]] std::optional<uint64_t>
     find() override;
 
 private:
@@ -86,7 +86,7 @@ private:
      */
     struct ThreadResults
     {
-        std::queue<size_t>      foundOffsets;
+        std::queue<uint64_t>    foundOffsets;
         std::mutex              mutex;
         std::future<void>       future;
         std::condition_variable changed;
@@ -111,7 +111,7 @@ private:
     /**
      * Calls findBitStrings and handles all the parallel synchronization stuff like sending
      * the results to the reading thread through the result buffer.
-     * When it is finished, it will return std::numeric_limits<size_t>::max() to signal that the future can be waited
+     * When it is finished, it will return std::numeric_limits<uint64_t>::max() to signal that the future can be waited
      * for.
      *
      * @param buffer pointer data to look for bitstrings. [buffer, buffer+size) will be searched.
@@ -125,7 +125,7 @@ private:
                 size_t         const bufferSizeInBytes,
                 uint8_t        const firstBitsToIgnore,
                 uint64_t       const bitStringToFind,
-                size_t         const bitOffsetToAdd,
+                uint64_t       const bitOffsetToAdd,
                 ThreadResults* const result )
     {
         auto offsets = BaseType::findBitStrings( { buffer, bufferSizeInBytes }, bitStringToFind );
@@ -137,7 +137,7 @@ private:
                 result->foundOffsets.push( bitOffsetToAdd + offset );
             }
         }
-        result->foundOffsets.push( std::numeric_limits<size_t>::max() );
+        result->foundOffsets.push( std::numeric_limits<uint64_t>::max() );
         result->changed.notify_one();
     }
 
@@ -164,7 +164,7 @@ private:
  *      More than one chunk should not be necessary for this! This is ensured in the chunkSize method.
  */
 template<uint8_t bitStringSize>
-size_t
+std::optional<uint64_t>
 ParallelBitStringFinder<bitStringSize>::find()
 {
 #ifdef WITH_PYTHON_SUPPORT
@@ -183,7 +183,7 @@ ParallelBitStringFinder<bitStringSize>::find()
             while ( !result.foundOffsets.empty() || result.future.valid() ) {
                 /* In the easiest case we have something to return already. */
                 if ( !result.foundOffsets.empty() ) {
-                    if ( result.foundOffsets.front() == std::numeric_limits<size_t>::max() ) {
+                    if ( result.foundOffsets.front() == std::numeric_limits<uint64_t>::max() ) {
                         result.foundOffsets.pop();
                         if ( result.future.valid() ) {
                             result.future.get();
@@ -221,7 +221,7 @@ ParallelBitStringFinder<bitStringSize>::find()
         if ( this->bufferEof() ) {
             const auto nBytesRead = BaseType::refillBuffer();
             if ( nBytesRead == 0 ) {
-                return std::numeric_limits<size_t>::max();
+                return std::nullopt;
             }
         }
 
@@ -270,6 +270,6 @@ ParallelBitStringFinder<bitStringSize>::find()
         }
     }
 
-    return std::numeric_limits<size_t>::max();
+    return std::nullopt;
 }
 }  // namespace rapidgzip

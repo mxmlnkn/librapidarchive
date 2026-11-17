@@ -159,12 +159,15 @@ testPigzStringViewShortBoundary()
     blockfinder::PigzStringView blockFinder(
         std::make_unique<BufferViewFileReader>( data ), /* readSize */ 3U );
 
-    REQUIRE_EQUAL( blockFinder.find(), 10U * CHAR_BIT );  // First deflate block after the gzip header.
+    const auto firstBlockOffset = blockFinder.find();
+    REQUIRE( firstBlockOffset.has_value() );
+    REQUIRE_EQUAL( *firstBlockOffset, 10U * CHAR_BIT );  // First deflate block after the gzip header.
 
     /* The pattern is at byte offset 4, so it is only visible after the boundary view includes bytes 3..7. */
     const auto blockOffset = blockFinder.find();
-    REQUIRE_EQUAL( blockOffset, 8U * CHAR_BIT );
-    REQUIRE_EQUAL( blockFinder.find(), std::numeric_limits<size_t>::max() );
+    REQUIRE( blockOffset.has_value() );
+    REQUIRE_EQUAL( *blockOffset, 8U * CHAR_BIT );
+    REQUIRE( !blockFinder.find() );
 }
 
 

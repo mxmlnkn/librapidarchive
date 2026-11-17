@@ -17,8 +17,8 @@ namespace rapidgzip
 {
 struct FileRange
 {
-    size_t offset{ 0 };
-    size_t size{ 0 };
+    uint64_t offset{ 0 };
+    uint64_t size{ 0 };
     bool offsetIsLine{ false };
     bool sizeIsLine{ false };
 
@@ -57,7 +57,7 @@ skipWhitespaces( const char* const first,
 [[nodiscard]] inline const char*
 readNumber( const char* const first,
             const char* const last,
-            size_t&           value,
+            uint64_t&         value,
             bool&             valueIsLine )
 {
     const auto result = std::from_chars( first, last, value );
@@ -66,7 +66,7 @@ readNumber( const char* const first,
                                      + std::string( first, last ) );
     }
 
-    static const std::vector<std::pair<std::string_view, size_t> > PREFIXES{
+    static const std::vector<std::pair<std::string_view, uint64_t> > PREFIXES{
         { "ki", 1ULL << 10U },  /* Strily speaking neither valid SI or IEC, but I like it for consistency with SI. */
         { "Ki", 1ULL << 10U },
         { "Mi", 1ULL << 20U },
@@ -86,8 +86,8 @@ readNumber( const char* const first,
     const auto* current = skipWhitespaces( result.ptr, last );
     const std::string_view unitString{ current, static_cast<size_t>( std::distance( current, last ) ) };
 
-    size_t longestMatch{ 0 };
-    size_t longestMatchFactor{ 1 };
+    uint64_t longestMatch{ 0 };
+    uint64_t longestMatchFactor{ 1 };
     bool longestMatchIsLine{ false };
     for ( const auto suffix : { std::string_view( "B" ), std::string_view( "L" ), std::string_view( "" ) } ) {
         for ( const auto& [prefix, factor] : PREFIXES ) {
@@ -107,6 +107,9 @@ readNumber( const char* const first,
     valueIsLine = longestMatchIsLine;
     if ( longestMatch == 0 ) {
         return result.ptr;
+    }
+    if ( value > std::numeric_limits<uint64_t>::max() / longestMatchFactor ) {
+        throw std::invalid_argument( "File range value is too large!" );
     }
     value *= longestMatchFactor;
     return current + longestMatch;
@@ -162,7 +165,7 @@ parseFileRanges( const std::string_view expression )
                                                static_cast<size_t>( std::distance( current, expressionEnd ) ) ),
                              INFINITY_STRING ) )
             {
-                range.size = std::numeric_limits<size_t>::max();
+                range.size = std::numeric_limits<uint64_t>::max();
                 current += INFINITY_STRING.size();
             } else {
                 current = readNumber( current, expressionEnd, range.size, range.sizeIsLine );

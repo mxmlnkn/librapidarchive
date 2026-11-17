@@ -35,7 +35,7 @@ class GzipBlockFinder final :
     public BlockFinderInterface
 {
 public:
-    using BlockOffsets = std::vector<size_t>;
+    using BlockOffsets = std::vector<uint64_t>;
 
 public:
     explicit
@@ -103,7 +103,7 @@ public:
      * partitioning will be done before the largest inserted block offset.
      */
     void
-    insert( size_t blockOffset )
+    insert( uint64_t blockOffset )
     {
         const std::scoped_lock lock( m_mutex );
         insertUnsafe( blockOffset );
@@ -117,7 +117,7 @@ public:
      *         be returned based on @ref m_spacingInBits.
      * @todo ADD TESTS FOR THIS
      */
-    [[nodiscard]] std::pair<std::optional<size_t>, GetReturnCode>
+    [[nodiscard]] std::pair<std::optional<uint64_t>, GetReturnCode>
     get( size_t                  blockIndex,
          [[maybe_unused]] double timeoutInSeconds ) override
     {
@@ -163,7 +163,7 @@ public:
      * @return Index for the block at the requested offset.
      */
     [[nodiscard]] size_t
-    find( size_t encodedBlockOffsetInBits ) const override
+    find( uint64_t encodedBlockOffsetInBits ) const override
     {
         const std::scoped_lock lock( m_mutex );
 
@@ -193,7 +193,7 @@ public:
     }
 
     void
-    setBlockOffsets( const std::vector<size_t>& blockOffsets )
+    setBlockOffsets( const std::vector<uint64_t>& blockOffsets )
     {
         /* Replace all state under the same lock that get(), find(), and size() use. Calling finalize() here
          * would take the non-recursive mutex a second time. */
@@ -203,7 +203,7 @@ public:
     }
 
     [[nodiscard]] size_t
-    partitionOffsetContainingOffset( size_t blockOffset ) const
+    partitionOffsetContainingOffset( uint64_t blockOffset ) const
     {
         /* Round down to m_spacingInBits grid. */
         return ( blockOffset / m_spacingInBits ) * m_spacingInBits;
@@ -216,7 +216,7 @@ public:
     }
 
 private:
-    [[nodiscard]] std::optional<size_t>
+    [[nodiscard]] std::optional<uint64_t>
     fileSize()
     {
         if ( m_fileSizeInBits ) {
@@ -233,14 +233,8 @@ private:
     }
 
     bool
-    insertUnsafe( size_t blockOffset )
+    insertUnsafe( uint64_t blockOffset )
     {
-        /* The Bgzf finder returns this sentinel at EOF. A file with unknown size must not store it as a block
-         * offset because the finder would then keep returning it forever. */
-        if ( blockOffset == std::numeric_limits<size_t>::max() ) {
-            return false;
-        }
-
         const auto size = fileSize();
         if ( size.has_value() && ( blockOffset >= *size ) ) {
             return false;
@@ -263,19 +257,19 @@ private:
     {
         while ( blockIndex + m_batchFetchCount >= m_blockOffsets.size() ) {
             const auto nextOffset = m_bgzfBlockFinder->find();
-            if ( nextOffset == std::numeric_limits<size_t>::max() ) {
+            if ( !nextOffset ) {
                 break;
             }
-            if ( nextOffset < m_blockOffsets.back() + m_spacingInBits ) {
+            if ( *nextOffset < m_blockOffsets.back() + m_spacingInBits ) {
                 continue;
             }
-            if ( !insertUnsafe( nextOffset ) ) {
+            if ( !insertUnsafe( *nextOffset ) ) {
                 break;
             }
         }
     }
 
-    [[nodiscard]] std::pair<std::optional<size_t>, GetReturnCode>
+    [[nodiscard]] std::pair<std::optional<uint64_t>, GetReturnCode>
     getBgzfBlock( size_t blockIndex )
     {
         if ( m_bgzfBlockFinder && !m_finalized ) {
@@ -310,15 +304,15 @@ private:
     mutable std::mutex m_mutex;
 
     const UniqueFileReader m_file;
-    std::optional<size_t> m_fileSizeInBits;
+    std::optional<uint64_t> m_fileSizeInBits;
     bool m_finalized{ false };
-    const size_t m_spacingInBits;
+    const uint64_t m_spacingInBits;
 
     /**
      * These should only contain confirmed block offsets in order. Use a deque to avoid having to move all
      * subsequent elements when inserting into the sorted container.
      */
-    std::deque<size_t> m_blockOffsets;
+    std::deque<uint64_t> m_blockOffsets;
 
     /** Only used for Bgzf files in which case it will gather offsets in chunks of this. */
     FileType m_fileType{ FileType::NONE };

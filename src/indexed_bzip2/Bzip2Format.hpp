@@ -34,7 +34,7 @@ static constexpr size_t MAX_BLOCK_SIZE = 900000;
  */
 template<typename BitReader>
 [[nodiscard]] inline bool
-isEmptyBzip2BlockMap( const std::map<std::size_t, std::size_t>& offsets,
+isEmptyBzip2BlockMap( const std::map<uint64_t, uint64_t>&       offsets,
                       BitReader&                                bitReader )
 {
     if ( offsets.size() != 1 ) {
@@ -55,7 +55,7 @@ isEmptyBzip2BlockMap( const std::map<std::size_t, std::size_t>& offsets,
 
     /* Only the stream header end or zero as its alias may identify the empty stream. Accepting an arbitrary EOS
      * offset would also accept the final EOS of a nonempty stream as a one-entry empty-stream index. */
-    const auto magicOffset = ( MAGIC_BYTES_BZ2.size() + 1 ) * 8U;
+    const auto magicOffset = ( static_cast<uint64_t>( MAGIC_BYTES_BZ2.size() ) + 1U ) * 8U;
     if ( ( compressedOffset != 0 ) && ( compressedOffset != magicOffset ) ) {
         return false;
     }
@@ -81,7 +81,7 @@ isEmptyBzip2BlockMap( const std::map<std::size_t, std::size_t>& offsets,
  */
 template<typename BitReader>
 inline void
-validateBzip2BlockOffsets( const std::map<std::size_t, std::size_t>& offsets,
+validateBzip2BlockOffsets( const std::map<uint64_t, uint64_t>&       offsets,
                            BitReader&                                bitReader )
 {
     const auto emptyStream = isEmptyBzip2BlockMap( offsets, bitReader );

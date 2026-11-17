@@ -293,8 +293,9 @@ public:
                                         "shouldn't be according to block map!" );
             }
 
-            const auto nBytesToDecode = std::min( blockData->data.size() - offsetInBlock,
-                                                  nBytesToRead - nBytesDecoded );
+            const auto nBytesToDecode = static_cast<size_t>(
+                std::min<uint64_t>( blockData->data.size() - offsetInBlock,
+                                    nBytesToRead - nBytesDecoded ) );
             if ( writeFunctor ) {
                 writeFunctor( blockData->data.data() + offsetInBlock, nBytesToDecode );
             }
@@ -373,7 +374,7 @@ public:
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
      */
-    [[nodiscard]] std::map<size_t, size_t>
+    [[nodiscard]] std::map<uint64_t, uint64_t>
     blockOffsets() override
     {
         if ( !m_blockMap.finalized() ) {
@@ -388,7 +389,7 @@ public:
 
     // NOLINTBEGIN(misc-no-recursion)
     void
-    setBlockOffsets( std::map<size_t, size_t> offsets ) override
+    setBlockOffsets( std::map<uint64_t, uint64_t> offsets ) override
     {
         if ( offsets.empty() ) {
             throw std::invalid_argument( "May not clear offsets. Construct a new ParallelBZ2Reader instead!" );
@@ -514,7 +515,7 @@ private:
     }
 
     void
-    setBlockFinderOffsets( const std::map<size_t, size_t>& offsets )
+    setBlockFinderOffsets( const std::map<uint64_t, uint64_t>& offsets )
     {
         if ( offsets.empty() ) {
             throw std::invalid_argument( "A non-empty list of block offsets is required!" );

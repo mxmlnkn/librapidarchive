@@ -32,7 +32,7 @@ public:
     {
     public:
         [[nodiscard]] bool
-        contains( size_t dataOffset ) const
+        contains( uint64_t dataOffset ) const
         {
             return ( decodedOffsetInBytes <= dataOffset ) && ( dataOffset < decodedOffsetInBytes + decodedSizeInBytes );
         }
@@ -52,16 +52,16 @@ public:
 
     public:
         /** Each block in the stream will be given an increasing index number. */
-        size_t blockIndex{ 0 };
-        size_t encodedOffsetInBits{ 0 };
-        size_t encodedSizeInBits{ 0 };
-        size_t decodedOffsetInBytes{ 0 };
-        size_t decodedSizeInBytes{ 0 };
+        uint64_t blockIndex{ 0 };
+        uint64_t encodedOffsetInBits{ 0 };
+        uint64_t encodedSizeInBits{ 0 };
+        uint64_t decodedOffsetInBytes{ 0 };
+        uint64_t decodedSizeInBytes{ 0 };
     };
 
-    using BlockOffsets = std::vector<std::pair</* encoded offset in bits */ size_t,
-                                               /* decoded offset in bytes */ size_t> >;
-    using BlockOffsetCallback = std::function<void ( size_t encodedOffset, size_t decodedOffset )>;
+    using BlockOffsets = std::vector<std::pair</* encoded offset in bits */ uint64_t,
+                                               /* decoded offset in bytes */ uint64_t> >;
+    using BlockOffsetCallback = std::function<void ( uint64_t encodedOffset, uint64_t decodedOffset )>;
 
 public:
     BlockMap() = default;
@@ -69,12 +69,12 @@ public:
     /**
      * @return decoded offset in bytes, i.e., the sum of all previously decoded block data.
      */
-    size_t
-    push( size_t encodedBlockOffset,
-          size_t encodedSize,
-          size_t decodedSize )
+    uint64_t
+    push( uint64_t encodedBlockOffset,
+          uint64_t encodedSize,
+          uint64_t decodedSize )
     {
-        std::optional<std::pair<size_t, size_t> > inserted;
+        std::optional<std::pair<uint64_t, uint64_t> > inserted;
         BlockOffsetCallback callback;
         {
             const std::scoped_lock lock( m_mutex );
@@ -83,7 +83,7 @@ public:
                 throw std::invalid_argument( "May not insert into finalized block map!" );
             }
 
-            std::optional<size_t> decodedOffset;
+            std::optional<uint64_t> decodedOffset;
             if ( m_blockToDataOffsets.empty() ) {
                 decodedOffset = 0;
             } else if ( encodedBlockOffset > m_blockToDataOffsets.back().first ) {
@@ -136,14 +136,14 @@ public:
      * offset. In that case it will be the last block.
      */
     [[nodiscard]] BlockInfo
-    findDataOffset( size_t dataOffset ) const
+    findDataOffset( uint64_t dataOffset ) const
     {
         const std::scoped_lock lock( m_mutex );
 
         /* find offset from map (key and values should be sorted in ascending order, so we can bisect!) */
         const auto blockOffset = std::lower_bound(
             m_blockToDataOffsets.rbegin(), m_blockToDataOffsets.rend(), std::make_pair( 0, dataOffset ),
-            [] ( std::pair<size_t, size_t> a, std::pair<size_t, size_t> b ) { return a.second > b.second; } );
+            [] ( std::pair<uint64_t, uint64_t> a, std::pair<uint64_t, uint64_t> b ) { return a.second > b.second; } );
 
         if ( blockOffset == m_blockToDataOffsets.rend() ) {
             return {};
@@ -157,14 +157,14 @@ public:
     }
 
     [[nodiscard]] std::optional<BlockInfo>
-    getEncodedOffset( size_t encodedOffsetInBits ) const
+    getEncodedOffset( uint64_t encodedOffsetInBits ) const
     {
         const std::scoped_lock lock( m_mutex );
 
         /* find offset from map (key and values should be sorted in ascending order, so we can bisect!) */
         const auto blockOffset = std::lower_bound(
             m_blockToDataOffsets.rbegin(), m_blockToDataOffsets.rend(), std::make_pair( encodedOffsetInBits, 0 ),
-            [] ( std::pair<size_t, size_t> a, std::pair<size_t, size_t> b ) { return a.first > b.first; } );
+            [] ( std::pair<uint64_t, uint64_t> a, std::pair<uint64_t, uint64_t> b ) { return a.first > b.first; } );
 
         if ( ( blockOffset == m_blockToDataOffsets.rend() ) || ( blockOffset->first != encodedOffsetInBits ) ) {
             return std::nullopt;
@@ -184,7 +184,7 @@ public:
      * Returns number of non-EOS blocks. This is necessary to have a number in sync with BlockFinder,
      * which does not find EOS blocks!
      */
-    [[nodiscard]] size_t
+    [[nodiscard]] uint64_t
     dataBlockCount() const
     {
         const std::scoped_lock lock( m_mutex );
@@ -194,7 +194,7 @@ public:
     void
     finalize()
     {
-        std::optional<std::pair<size_t, size_t> > added;
+        std::optional<std::pair<uint64_t, uint64_t> > added;
         BlockOffsetCallback callback;
         {
             const std::scoped_lock lock( m_mutex );
@@ -252,7 +252,7 @@ public:
     }
 
     void
-    setBlockOffsets( std::map<size_t, size_t> const& blockOffsets )
+    setBlockOffsets( std::map<uint64_t, uint64_t> const& blockOffsets )
     {
         if ( blockOffsets.empty() ) {
             throw std::invalid_argument( "Block offset map must not be empty!" );
@@ -280,7 +280,7 @@ public:
         m_finalized = true;
     }
 
-    [[nodiscard]] std::map<size_t, size_t>
+    [[nodiscard]] std::map<uint64_t, uint64_t>
     blockOffsets() const
     {
         const std::scoped_lock lock( m_mutex );
@@ -288,7 +288,7 @@ public:
         return { m_blockToDataOffsets.begin(), m_blockToDataOffsets.end() };
     }
 
-    [[nodiscard]] std::pair<size_t, size_t>
+    [[nodiscard]] std::pair<uint64_t, uint64_t>
     back() const
     {
         const std::scoped_lock lock( m_mutex );
@@ -338,11 +338,11 @@ private:
 
     /** If complete, the last block will be of size 0 and indicate the end of stream! */
     BlockOffsets m_blockToDataOffsets;
-    std::vector<size_t> m_eosBlocks;
+    std::vector<uint64_t> m_eosBlocks;
     BlockOffsetCallback m_blockOffsetCallback;
     bool m_finalized{ false };
 
-    size_t m_lastBlockEncodedSize{ 0 };  /**< Encoded block size of m_blockToDataOffsets.rbegin() */
-    size_t m_lastBlockDecodedSize{ 0 };  /**< Decoded block size of m_blockToDataOffsets.rbegin() */
+    uint64_t m_lastBlockEncodedSize{ 0 };  /**< Encoded block size of m_blockToDataOffsets.rbegin() */
+    uint64_t m_lastBlockDecodedSize{ 0 };  /**< Decoded block size of m_blockToDataOffsets.rbegin() */
 };
 }  // namespace rapidgzip

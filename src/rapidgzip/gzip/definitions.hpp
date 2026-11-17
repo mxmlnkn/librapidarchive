@@ -120,7 +120,7 @@ toString( StoppingPoint stoppingPoint )
 
 struct BlockBoundary
 {
-    size_t encodedOffset{ 0 };
+    uint64_t encodedOffset{ 0 };
     size_t decodedOffset{ 0 };
 
     [[nodiscard]] bool

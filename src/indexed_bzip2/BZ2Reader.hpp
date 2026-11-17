@@ -172,7 +172,7 @@ public:
     }
 
     void
-    setBlockOffsets( std::map<size_t, size_t> offsets ) override
+    setBlockOffsets( std::map<uint64_t, uint64_t> offsets ) override
     {
         bzip2::validateBzip2BlockOffsets( offsets, m_bitReader );
         m_blockMap.setBlockOffsets( offsets );

@@ -796,8 +796,8 @@ testReimportOwnIndex( const std::filesystem::path& encoded,
 
 
 void
-testIndexCreation( const std::filesystem::path&    encoded,
-                   const std::map<size_t, size_t>& expectedBlockOffsets )
+testIndexCreation( const std::filesystem::path&        encoded,
+                   const std::map<uint64_t, uint64_t>& expectedBlockOffsets )
 {
     std::cerr << "Testing index for " << encoded.filename() << "\n";
     ParallelGzipReader reader( std::make_unique<StandardFileReader>( encoded.string() ) );

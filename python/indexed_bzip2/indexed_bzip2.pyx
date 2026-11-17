@@ -6,6 +6,7 @@ Cython wrapper for the BZ2Reader and ParallelBZ2Reader C++ classes.
 """
 
 from libc.stdlib cimport malloc, free
+from libc.stdint cimport uint64_t
 from libc.stdio cimport SEEK_SET
 from libcpp.string cimport string
 from libcpp.map cimport map
@@ -52,9 +53,9 @@ cdef extern from "indexed_bzip2/BZ2Reader.hpp":
         size_t tellCompressed() except +
         size_t read(int, char*, size_t) except +
         bool blockOffsetsComplete() except +
-        map[size_t, size_t] blockOffsets() except +
-        map[size_t, size_t] availableBlockOffsets() except +
-        void setBlockOffsets(map[size_t, size_t]) except +
+        map[uint64_t, uint64_t] blockOffsets() except +
+        map[uint64_t, uint64_t] availableBlockOffsets() except +
+        void setBlockOffsets(map[uint64_t, uint64_t]) except +
         void importIndex(PyObject*) except +
         void exportIndex(PyObject*) except +
 
@@ -75,9 +76,9 @@ cdef extern from "indexed_bzip2/ParallelBZ2Reader.hpp":
         size_t tellCompressed() except +
         size_t read(int, char*, size_t) except +
         bool blockOffsetsComplete() except +
-        map[size_t, size_t] blockOffsets() except +
-        map[size_t, size_t] availableBlockOffsets() except +
-        void setBlockOffsets(map[size_t, size_t]) except +
+        map[uint64_t, uint64_t] blockOffsets() except +
+        map[uint64_t, uint64_t] availableBlockOffsets() except +
+        void setBlockOffsets(map[uint64_t, uint64_t]) except +
         void importIndex(PyObject*) except +
         void exportIndex(PyObject*) except +
         void joinThreads() except +

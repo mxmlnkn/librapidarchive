@@ -620,7 +620,8 @@ public:
                 throw std::logic_error( std::move( message ).str() );
             }
 
-            const auto nBytesToDecode = std::min( blockSize - offsetInBlock, nBytesToRead - nBytesDecoded );
+            const auto nBytesToDecode = static_cast<size_t>(
+                std::min<uint64_t>( blockSize - offsetInBlock, nBytesToRead - nBytesDecoded ) );
 
             processGzipStreamSizes( chunkData, decodedOffsetInBytes );
 
@@ -742,7 +743,7 @@ public:
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
      */
-    [[nodiscard]] std::map<size_t, size_t>
+    [[nodiscard]] std::map<uint64_t, uint64_t>
     blockOffsets()
     {
         if ( !m_blockMap->finalized() ) {
@@ -803,11 +804,13 @@ public:
         }
 
         /* Heuristically determine a checkpoint spacing from the existing checkpoints. */
-        size_t maximumDecompressedSpacing{ 0 };
+        uint64_t maximumDecompressedSpacing{ 0 };
         for ( auto it = offsets.begin(), nit = std::next( offsets.begin() ); nit != offsets.end(); ++it, ++nit ) {
-            maximumDecompressedSpacing = std::max( maximumDecompressedSpacing, nit->second - it->second );
+            maximumDecompressedSpacing = std::max<uint64_t>( maximumDecompressedSpacing, nit->second - it->second );
         }
-        index.checkpointSpacing = maximumDecompressedSpacing / 32_Ki * 32_Ki;
+        index.checkpointSpacing = static_cast<uint32_t>(
+            std::min<uint64_t>( maximumDecompressedSpacing, std::numeric_limits<uint32_t>::max() )
+            / 32_Ki * 32_Ki );
 
         auto lineOffset = m_newlineOffsets.begin();
         for ( const auto& [compressedOffsetInBits, uncompressedOffsetInBytes] : offsets ) {
@@ -852,7 +855,7 @@ public:
      * @return vectors of block data: offset in file, offset in decoded data
      *         (cumulative size of all prior decoded blocks).
      */
-    [[nodiscard]] std::map<size_t, size_t>
+    [[nodiscard]] std::map<uint64_t, uint64_t>
     availableBlockOffsets() const
     {
         return m_blockMap->blockOffsets();
@@ -942,7 +945,7 @@ public:
 
 private:
     void
-    setBlockOffsets( const std::map<size_t, size_t>& offsets )
+    setBlockOffsets( const std::map<uint64_t, uint64_t>& offsets )
     {
         /**
          * @todo Join very small consecutive block offsets until it roughly reflects the chunk size?
@@ -1044,7 +1047,7 @@ public:
         }
 
         /* Generate simple compressed to uncompressed offset map from index. */
-        std::map<size_t, size_t> newBlockOffsets;
+        std::map<uint64_t, uint64_t> newBlockOffsets;
         for ( size_t i = 0; i < index.checkpoints.size(); ++i ) {
             const auto& checkpoint = index.checkpoints[i];
 
@@ -1482,7 +1485,7 @@ private:
     }
 
     void
-    setBlockFinderOffsets( const std::map<size_t, size_t>& offsets )  // NOLINT(misc-no-recursion)
+    setBlockFinderOffsets( const std::map<uint64_t, uint64_t>& offsets )  // NOLINT(misc-no-recursion)
     {
         if ( offsets.empty() ) {
             throw std::invalid_argument( "A non-empty list of block offsets is required!" );

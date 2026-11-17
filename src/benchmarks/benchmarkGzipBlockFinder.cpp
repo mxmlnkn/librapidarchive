@@ -108,10 +108,10 @@ findWithBlockFinder( const std::string_view path )
 
         while ( true ) {
             const auto offset = blockFinder.find();
-            if ( offset == std::numeric_limits<size_t>::max() ) {
+            if ( !offset ) {
                 break;
             }
-            streamOffsets.push_back( offset );
+            streamOffsets.push_back( static_cast<size_t>( *offset ) );
         }
     } catch ( const std::invalid_argument& ) {
         return {};

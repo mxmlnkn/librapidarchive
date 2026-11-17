@@ -30,7 +30,7 @@ namespace rapidgzip
  * This class also acts as a database (StreamedResults is the actual database) after all results have been computed
  * and can be initialized with the results to avoid recomputing them.
  *
- * @tparam RawBlockFinder Must implement a `size_t find()` method which returns block offsets.
+ * @tparam RawBlockFinder Must implement a `std::optional<uint64_t> find()` method which returns block offsets.
  */
 template<typename T_RawBlockFinder>
 class BlockFinder final :
@@ -38,7 +38,7 @@ class BlockFinder final :
 {
 public:
     using RawBlockFinder = T_RawBlockFinder;
-    using BlockOffsets = StreamedResults<size_t>::Values;
+    using BlockOffsets = StreamedResults<uint64_t>::Values;
 
 public:
     explicit
@@ -119,7 +119,7 @@ public:
      * Per default, with the infinite timeout, either a result can be returned or if not it means
      * we are finalized and the requested block is out of range!
      */
-    [[nodiscard]] std::pair<std::optional<size_t>, GetReturnCode>
+    [[nodiscard]] std::pair<std::optional<uint64_t>, GetReturnCode>
     get( size_t blockNumber,
          double timeoutInSeconds ) override
     {
@@ -142,7 +142,7 @@ public:
 
     /** @return Index for the block at the requested offset. */
     [[nodiscard]] size_t
-    find( size_t encodedBlockOffsetInBits ) const override
+    find( uint64_t encodedBlockOffsetInBits ) const override
     {
         const std::scoped_lock lock( m_mutex );
 
@@ -195,13 +195,13 @@ private:
              */
             lock.unlock();  // Unlock for a little while so that others can acquire the lock!
             const auto blockOffset = m_rawBlockFinder->find();
-            if ( blockOffset == std::numeric_limits<size_t>::max() ) {
+            if ( !blockOffset ) {
                 m_blockOffsets.finalize();
                 break;
             }
 
             lock.lock();
-            m_blockOffsets.push( blockOffset );
+            m_blockOffsets.push( *blockOffset );
         }
 
         /* Do not finalize on cancellation. A later startThreads() must be able to resume the finder. */
@@ -211,7 +211,7 @@ private:
     mutable std::mutex m_mutex;  /**< Only variables accessed by the asynchronous main loop need to be locked. */
     std::condition_variable m_changed;
 
-    StreamedResults<size_t> m_blockOffsets;
+    StreamedResults<uint64_t> m_blockOffsets;
 
     size_t m_highestRequestedBlockNumber{ 0 };
 

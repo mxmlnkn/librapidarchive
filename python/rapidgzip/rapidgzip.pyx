@@ -80,9 +80,9 @@ cdef extern from "indexed_bzip2/BZ2Reader.hpp":
         size_t tellCompressed() except +
         size_t read(int, char*, size_t) except +
         bool blockOffsetsComplete() except +
-        map[size_t, size_t] blockOffsets() except +
-        map[size_t, size_t] availableBlockOffsets() except +
-        void setBlockOffsets(map[size_t, size_t]) except +
+        map[uint64_t, uint64_t] blockOffsets() except +
+        map[uint64_t, uint64_t] availableBlockOffsets() except +
+        void setBlockOffsets(map[uint64_t, uint64_t]) except +
         void importIndex(PyObject*) except +
         void exportIndex(PyObject*) except +
 
@@ -103,9 +103,9 @@ cdef extern from "indexed_bzip2/ParallelBZ2Reader.hpp":
         size_t tellCompressed() except +
         size_t read(int, char*, size_t) except +
         bool blockOffsetsComplete() except +
-        map[size_t, size_t] blockOffsets() except +
-        map[size_t, size_t] availableBlockOffsets() except +
-        void setBlockOffsets(map[size_t, size_t]) except +
+        map[uint64_t, uint64_t] blockOffsets() except +
+        map[uint64_t, uint64_t] availableBlockOffsets() except +
+        void setBlockOffsets(map[uint64_t, uint64_t]) except +
         void importIndex(PyObject*) except +
         void exportIndex(PyObject*) except +
         void joinThreads() except +
@@ -448,8 +448,8 @@ cdef extern from "rapidgzip/ParallelGzipReader.hpp" namespace "rapidgzip":
         size_t tellCompressed() except +
         size_t read(int, char*, size_t) except +
         bool blockOffsetsComplete() except +
-        map[size_t, size_t] blockOffsets() except +
-        map[size_t, size_t] availableBlockOffsets() except +
+        map[uint64_t, uint64_t] blockOffsets() except +
+        map[uint64_t, uint64_t] availableBlockOffsets() except +
         void setStatisticsEnabled(bool) except +
         void setShowProfileOnDestruction(bool) except +
         void importIndex(PyObject*) except +

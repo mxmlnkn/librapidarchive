@@ -619,11 +619,11 @@ findBitStringsFinder( const std::vector<char>& data )
 
     Finder bitStringFinder( std::make_unique<BufferViewFileReader>( data ), bitStringToFind );
     while ( true ) {
-        matches.push_back( bitStringFinder.find() );
-        if ( matches.back() == std::numeric_limits<size_t>::max() ) {
-            matches.pop_back();
+        const auto match = bitStringFinder.find();
+        if ( !match ) {
             break;
         }
+        matches.push_back( static_cast<size_t>( *match ) );
     }
     return matches;
 }
@@ -805,11 +805,11 @@ findBitStringsParallel( const std::vector<char>& data )
         bitStringToFind, parallelization, 0, parallelization * 1_Mi
     );
     while ( true ) {
-        matches.push_back( bitStringFinder.find() );
-        if ( matches.back() == std::numeric_limits<size_t>::max() ) {
-            matches.pop_back();
+        const auto match = bitStringFinder.find();
+        if ( !match ) {
             break;
         }
+        matches.push_back( static_cast<size_t>( *match ) );
         if ( ( matches.size() > 1 ) && ( matches[matches.size() - 2] >= matches.back() ) ) {
             throw std::logic_error( "Returned offsets should be unique and monotonically increasing!" );
         }

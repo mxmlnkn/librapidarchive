@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cstddef>
+#include <cstdint>
+#include <optional>
 
 
 namespace rapidgzip::blockfinder
@@ -11,7 +12,7 @@ public:
     virtual
     ~Interface() = default;
 
-    [[nodiscard]] virtual size_t
+    [[nodiscard]] virtual std::optional<uint64_t>
     find() = 0;
 };
 }  // rapidgzip::blockfinder
