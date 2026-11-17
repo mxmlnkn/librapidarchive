@@ -610,7 +610,7 @@ ibzip2CLI( int argc, char const* const* argv )
         auto sharedInputFile = ensureSharedFileReader( std::move( inputFile ) );
 
         if ( sandboxEnabled ) {
-            sandbox::installIfEnabled( { { inputFilePath }, verbose, quiet } );
+            sandbox::installIfEnabled( { {}, verbose, quiet } );
         }
         const auto offsets = findCompressedBlocks(
             *sharedInputFile, getParallelism( blockFinderParallelism ),
