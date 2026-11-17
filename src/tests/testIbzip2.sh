@@ -92,6 +92,26 @@ fi
 
 export -f echoerr commandExists computeMd5 checkMd5 checkBz2Md5
 
+# Exercise the index paths, which open all files before the decoder starts.
+tmpFolder=$( mktemp -d )
+trap 'rm -rf "$tmpFolder"' EXIT
+if ! $IBZIP2 -d -f -o "$tmpFolder/base64" --export-index "$tmpFolder/base64.index" ../src/tests/data/base64-256KiB.bz2; then
+    echoerr 'Exporting an index failed!'
+    exit 1
+fi
+if [[ "$( wc -c < "$tmpFolder/base64" )" -ne 262144 ]]; then
+    echoerr 'Decompressing with index export produced the wrong size!'
+    exit 1
+fi
+if ! cat ../src/tests/data/base64-256KiB.bz2 | $IBZIP2 -L "$tmpFolder/offsets" > /dev/null; then
+    echoerr 'Listing compressed offsets from stdin failed!'
+    exit 1
+fi
+if [[ ! -s "$tmpFolder/offsets" ]]; then
+    echoerr 'Listing compressed offsets from stdin produced an empty file!'
+    exit 1
+fi
+
 BZIP2_TESTS_DIR=../src/external/bzip2-tests
 if [[ -d "$BZIP2_TESTS_DIR" ]]; then
     find "$BZIP2_TESTS_DIR" -type f -name '*.bz2' -print0 | xargs -0 -I {} bash -c 'checkBz2Md5 "$@"' bash {}

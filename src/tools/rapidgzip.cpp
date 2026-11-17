@@ -162,6 +162,17 @@ decompressParallel( const Arguments&   args,
                     const ReadFunctor& readFunctor )
 {
     using Reader = rapidgzip::ParallelGzipReader<ChunkData>;
+
+    /* Open all files before the decoder starts so that a sandbox can deny any later path access. */
+    std::unique_ptr<StandardFileReader> importIndexFile;
+    if ( !args.indexLoadPath.empty() ) {
+        importIndexFile = std::make_unique<StandardFileReader>( args.indexLoadPath );
+    }
+    std::unique_ptr<OutputFile> indexSaveFile;
+    if ( !args.indexSavePath.empty() ) {
+        indexSaveFile = std::make_unique<OutputFile>( args.indexSavePath );
+    }
+
     auto reader = std::make_unique<Reader>( std::move( inputFile ), args.decoderParallelism, args.chunkSize );
 
     const auto gatherLineOffsets =
@@ -179,8 +190,8 @@ decompressParallel( const Arguments&   args,
         reader->setWindowCompressionType( CompressionType::ZLIB );
     }
 
-    if ( !args.indexLoadPath.empty() ) {
-        reader->importIndex( std::make_unique<StandardFileReader>( args.indexLoadPath ) );
+    if ( importIndexFile ) {
+        reader->importIndex( std::move( importIndexFile ) );
 
         if ( args.verbose && ( !args.indexSavePath.empty() || !args.indexLoadPath.empty() ) ) {
             printIndexAnalytics( reader );
@@ -206,17 +217,15 @@ decompressParallel( const Arguments&   args,
         reader->gatherLineOffsets();
     }
 
-    if ( !args.indexSavePath.empty() ) {
-        const auto file = throwingOpen( args.indexSavePath, "wb" );
+    if ( indexSaveFile ) {
         const auto checkedWrite =
-            [&file] ( const void* buffer, size_t size )
+            [&indexSaveFile] ( const void* buffer, size_t size )
             {
-                if ( std::fwrite( buffer, 1, size, file.get() ) != size ) {
-                    throw std::runtime_error( "Failed to write data to index!" );
-                }
+                indexSaveFile->write( buffer, size );
             };
 
         reader->exportIndex( checkedWrite, args.indexFormat );
+        indexSaveFile->truncateToWrittenSize();
     }
 
     if ( args.verbose && args.indexLoadPath.empty() && !args.indexSavePath.empty() ) {

@@ -51,4 +51,13 @@ analysis=$( $RAPIDGZIP --analyze "$tmpFolder/backslash-name.gz" )
 [[ "$analysis" == *'literal\\x1b'* ]] ||
     returnError "$LINENO" 'A literal backslash in the gzip file name was not escaped in the --analyze output!'
 
+# Exercise the index paths, which open all files before the decoder starts.
+tmpOutput="$tmpFolder/base64-256KiB"
+$RAPIDGZIP -d -f -o "$tmpOutput" --export-index "$tmpFolder/base64.index" ../src/tests/data/base64-256KiB.gz ||
+    returnError "$LINENO" 'Exporting an index failed!'
+[[ "$( wc -c < "$tmpOutput" )" -eq 262144 ]] ||
+    returnError "$LINENO" 'Decompressing with index export produced the wrong size!'
+$RAPIDGZIP -d -f -o /dev/null --import-index "$tmpFolder/base64.index" ../src/tests/data/base64-256KiB.gz ||
+    returnError "$LINENO" 'Importing an index failed!'
+
 echo -e '\e[32mAll tests ran successfully.\e[0m'

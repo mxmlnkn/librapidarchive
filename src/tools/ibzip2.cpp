@@ -399,24 +399,6 @@ ibzip2CLI( int argc, char const* const* argv )
         }
         const auto outputFileDescriptor = outputFile ? outputFile->fd() : -1;
 
-        std::unique_ptr<BZ2ReaderInterface> reader;
-        if ( decoderParallelism == 1 ) {
-            reader = std::make_unique<BZ2Reader>( std::move( fileReader ) );
-        } else {
-            reader = std::make_unique<ParallelBZ2Reader>( std::move( fileReader ), decoderParallelism,
-                                                          blockFinderParallelism );
-        }
-        if ( !importIndexPath.empty() ) {
-            reader->importIndex( std::make_unique<StandardFileReader>( importIndexPath ) );
-        }
-        reader->setShowProfileOnDestruction( verbose );
-
-        const auto actualBufferSize = bufferSize > 0 ? bufferSize : 1_Mi;
-        std::vector<char> buffer( actualBufferSize );
-        size_t nBytesDecodedTotal = 0;
-        size_t nBytesWrittenTotal = 0;
-        size_t newlineCount = 0;
-
         const auto writeToStdErr = outputFile && outputFile->writingToStdout();
         auto& out = writeToStdErr ? std::cerr : std::cout;
 
@@ -428,8 +410,31 @@ ibzip2CLI( int argc, char const* const* argv )
         if ( listCompressedOffsets ) {
             compressedOffsetsFile.emplace( compressedOffsetsFilePath, writeToStdErr );
         }
-
         const auto offsetOutputRequested = exportIndexFile.has_value() || compressedOffsetsFile.has_value();
+
+        std::unique_ptr<StandardFileReader> importIndexFile;
+        if ( !importIndexPath.empty() ) {
+            importIndexFile = std::make_unique<StandardFileReader>( importIndexPath );
+        }
+
+        std::unique_ptr<BZ2ReaderInterface> reader;
+        if ( decoderParallelism == 1 ) {
+            reader = std::make_unique<BZ2Reader>( std::move( fileReader ) );
+        } else {
+            reader = std::make_unique<ParallelBZ2Reader>( std::move( fileReader ), decoderParallelism,
+                                                          blockFinderParallelism );
+        }
+        if ( importIndexFile ) {
+            reader->importIndex( std::move( importIndexFile ) );
+        }
+        reader->setShowProfileOnDestruction( verbose );
+
+        const auto actualBufferSize = bufferSize > 0 ? bufferSize : 1_Mi;
+        std::vector<char> buffer( actualBufferSize );
+        size_t nBytesDecodedTotal = 0;
+        size_t nBytesWrittenTotal = 0;
+        size_t newlineCount = 0;
+
         std::optional<size_t> lastPrintedOffset;
         size_t printedOffsetCount{ 0 };
         const auto printNewOffset =
@@ -577,10 +582,11 @@ ibzip2CLI( int argc, char const* const* argv )
         }
 
         /* If effectively only the compressed offsets are requested, then we can use the blockfinder directly! */
+        /* Open the output before starting any finder threads so that a sandbox can deny later path access. */
+        OutputFile output( compressedOffsetsFilePath );
         const auto offsets = findCompressedBlocks(
             inputFilePath, getParallelism( blockFinderParallelism ),
             static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ) );
-        OutputFile output( compressedOffsetsFilePath );
         dumpOffsets( offsets, [&output] ( const void* data, const size_t size ) { output.write( data, size ); } );
         output.truncateToWrittenSize();
 
