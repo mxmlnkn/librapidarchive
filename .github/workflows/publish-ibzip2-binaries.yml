@@ -3,7 +3,7 @@ name: Build and Publish Static Binaries
 on:
   push:
     branches: [ "master" ]
-    tags: [ 'indexed-bzip2-v*' ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
           - name: rapidgzip
             with_isal: 'ON'
             with_bzip2_compression: 'OFF'
-    # Version tags only ship the indexed_bzip2 release. The nightly release builds both tools.
+    # Version tags (vX.Y.Z) only ship the indexed_bzip2 release. The nightly release builds both tools.
     runs-on: ${{ matrix.os.name }}
 
     steps:
@@ -121,11 +121,13 @@ jobs:
         TOOL: ${{ matrix.tool.name }}
       run: |
         BINARY=$( find build/src/tools -maxdepth 1 -type f -name "$TOOL*" ! -name '*.pdb' )
-        VERSION=$( "$BINARY" --version | sed -nE 's|.*version ([0-9.]*).*|\1|p' )
+        # The CLI prints "version 2.0.0." with a sentence period. Do not use [0-9.]* here,
+        # because it would capture that trailing period and the tag comparison would fail.
+        VERSION=$( "$BINARY" --version | sed -nE 's|.*version ([0-9]+(\.[0-9]+)*).*|\1|p' )
         if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG_VERSION="${GITHUB_REF_NAME#indexed-bzip2-v}"
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
             if [[ "$VERSION" != "$TAG_VERSION" ]]; then
-                echo "$TOOL reports version $VERSION but the tag is $TAG_VERSION" >&2
+                echo "$TOOL reports version '$VERSION' but the tag is '$TAG_VERSION'" >&2
                 exit 1
             fi
         fi
@@ -164,26 +166,26 @@ jobs:
 
     # GitHub creates a dummy tag with the commit message as contents, so delete it and fetch the real tag.
     - name: Fetch tags
-      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      if: startsWith(github.ref, 'refs/tags/v')
       run: |
         git tag -n99 -l
         git tag -d ${{ github.ref_name }} || true
         git fetch origin ${{ github.ref }}:${{ github.ref }}
 
     - name: Prepare Message
-      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      if: startsWith(github.ref, 'refs/tags/v')
       shell: bash
       run: |
         git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > release.md
         sed "s|__TAG__|${GITHUB_REF_NAME}|g" .github/workflows/release-template.md >> release.md
 
     - name: Strip tag prefix from release title
-      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      if: startsWith(github.ref, 'refs/tags/v')
       id: release-title
-      run: echo "version=${GITHUB_REF_NAME#indexed-bzip2-v}" >> "$GITHUB_OUTPUT"
+      run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
     - uses: ncipollo/release-action@v1
-      if: startsWith(github.ref, 'refs/tags/indexed-bzip2-v')
+      if: startsWith(github.ref, 'refs/tags/v')
       with:
         artifacts: "ibzip2*"
         tag: ${{ github.ref_name }}

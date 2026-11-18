@@ -92,6 +92,8 @@ and the rapidgzip repository only records the new submodule commit in its releas
 
    - `wheels.yml` publishes the sdist and wheels to PyPI.
    - `conda.yml` publishes the conda package.
+   - `publish-ibzip2-binaries.yml` builds the static binaries and creates a draft prerelease named
+     `indexed_bzip2 X.Y.Z`. Publish that draft after the run.
 
    `build-binaries.yml` only runs on `master` and manual dispatch and uploads workflow artifacts. It does not
    create a GitHub release.
