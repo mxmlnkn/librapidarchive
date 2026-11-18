@@ -16,6 +16,8 @@ include src/tools/ibzip2.cpp
 include src/tools/rapidgzip.cpp
 include src/external/cxxopts/LICENSE
 include src/external/cxxopts/include/cxxopts.hpp
+include src/external/libsais_prefixed.c
+include src/external/libsais_prefix.h
 include src/external/libsais/LICENSE
 include src/external/libsais/src/libsais.c
 include src/external/libsais/include/libsais.h

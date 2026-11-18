@@ -42,9 +42,10 @@ extensions = [
     Extension(
         # fmt: off
         name         = 'indexed_bzip2',
-        sources      = ['indexed_bzip2.pyx', 'src/external/libsais/src/libsais.c'] + bzip2_sources,
-        include_dirs = ['src', 'src/external/cxxopts/include', 'src/external/libsais/include',
-                        'src/external/bzip2', 'src/external/bzip2_version'],
+        sources      = ['indexed_bzip2.pyx', 'src/external/libsais_prefixed.c'] + bzip2_sources,
+        include_dirs = ['src', 'src/external', 'src/external/cxxopts/include',
+                        'src/external/libsais/include', 'src/external/bzip2',
+                        'src/external/bzip2_version'],
         language     = 'c++',
         define_macros = define_macros,
         py_limited_api = withAbi3,

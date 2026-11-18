@@ -163,15 +163,31 @@ endif()
 
 # libsais (inverse Burrows-Wheeler transform for bzip2)
 
+# Prefix the vendored libsais symbols so another libsais implementation, such as libbsc's copy, can be
+# linked into the same binary. The macro must expand to a valid C identifier prefix token.
+set(LIBRAPIDARCHIVE_LIBSAIS_PREFIX "librapidarchive_" CACHE STRING
+    "Token prefix for the vendored libsais symbols")
+
+function(librapidarchive_libsais_prefix target visibility)
+    # libsais_prefixed.c and blocksort.c include libsais_prefix.h, so only the optional override
+    # token has to be passed to the compiler.
+    if(NOT LIBRAPIDARCHIVE_LIBSAIS_PREFIX STREQUAL "")
+        target_compile_definitions(${target} ${visibility}
+            LIBRAPIDARCHIVE_LIBSAIS_PREFIX=${LIBRAPIDARCHIVE_LIBSAIS_PREFIX})
+    endif()
+endfunction()
+
 add_library(libsais STATIC)
 set(LIBSAIS_HOME "${CMAKE_CURRENT_SOURCE_DIR}/external/libsais")
 target_include_directories(libsais SYSTEM PUBLIC ${LIBSAIS_HOME}/include)
 target_sources(libsais PRIVATE
-    ${LIBSAIS_HOME}/src/libsais.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/libsais_prefixed.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/libsais_prefix.h
     ${LIBSAIS_HOME}/include/libsais.h
 )
 set_target_properties(libsais PROPERTIES C_STANDARD 11)
 set_target_properties(libsais PROPERTIES LINKER_LANGUAGE C)
+librapidarchive_libsais_prefix(libsais PUBLIC)
 
 
 # bzip2 (compression backend for the ibzip2 CLI and the compressor test)
@@ -202,8 +218,11 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
     else()
         add_library(bzip2_vendored STATIC)
         set(BZIP2_HOME "${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2")
-        target_include_directories(bzip2_vendored SYSTEM PUBLIC ${BZIP2_HOME}
-                                   ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2_version)
+        target_include_directories(bzip2_vendored SYSTEM PUBLIC
+            ${BZIP2_HOME}
+            ${CMAKE_CURRENT_SOURCE_DIR}/external/bzip2_version
+        )
+        target_include_directories(bzip2_vendored SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external)
         target_sources(bzip2_vendored PRIVATE
             ${BZIP2_HOME}/blocksort.c
             ${BZIP2_HOME}/huffman.c
@@ -219,6 +238,7 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
         librapidarchive_silence_external_warnings(bzip2_vendored)
         librapidarchive_bzip2_prefix(bzip2_vendored PRIVATE)
         librapidarchive_bzip2_prefix(bzip2_compression INTERFACE)
+        librapidarchive_libsais_prefix(bzip2_vendored PRIVATE)
         target_link_libraries(bzip2_compression INTERFACE bzip2_vendored)
     endif()
 endif()

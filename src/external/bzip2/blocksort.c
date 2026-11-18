@@ -20,6 +20,7 @@
 
 
 #include "bzlib_private.h"
+#include "libsais_prefix.h"
 #include "libsais.h"
 
 /*---------------------------------------------*/
