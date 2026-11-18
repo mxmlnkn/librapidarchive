@@ -535,6 +535,11 @@ class Build(build_ext):
                     ext.extra_compile_args += ['-mmacosx-version-min=13.0']
                     ext.extra_link_args += ['-mmacosx-version-min=13.0']
 
+                # Keep vendored bzip2, libsais, and the embedded CLI out of the extension's
+                # dynamic symbol table. PyMODINIT_FUNC keeps PyInit_<module> visible.
+                if supportsFlag(self.compiler, '-fvisibility=hidden'):
+                    ext.extra_compile_args += ['-fvisibility=hidden']
+
                 # Add some hardening. See e.g.:
                 # https://www.phoronix.com/news/GCC-fhardened-Hardening-Option
                 # https://developers.redhat.com/blog/2018/03/21/compiler-and-linker-flags-gcc
