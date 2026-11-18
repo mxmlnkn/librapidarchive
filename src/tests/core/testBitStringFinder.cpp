@@ -271,9 +271,40 @@ testBitStringFinder( uint64_t                          bitStringToFind,
 }
 
 
+void
+testCompiledKernelSupport()
+{
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
+    /* A guard with a missing or misspelled macro silently disables SIMD dispatch because the portable
+     * fallback is correct. Check the predicate against the actual runtime CPU and the kernels compiled
+     * in this translation unit. */
+    const auto sse2Supported = __builtin_cpu_supports( "sse2" ) != 0;
+    const auto avx2Supported = __builtin_cpu_supports( "avx2" ) != 0;
+    const auto avx512Supported = ( __builtin_cpu_supports( "avx512f" ) != 0 )
+                                 && ( __builtin_cpu_supports( "avx512bw" ) != 0 );
+
+    REQUIRE( simd::bitStringFinder::isSupported( simd::SimdKernel::SSE2 ) == sse2Supported );
+    REQUIRE( simd::bitStringFinder::isSupported( simd::SimdKernel::AVX2 ) == avx2Supported );
+    REQUIRE( simd::bitStringFinder::isSupported( simd::SimdKernel::AVX512 ) == avx512Supported );
+    REQUIRE( !simd::bitStringFinder::isSupported( simd::SimdKernel::SSE41 ) );
+    REQUIRE( !simd::bitStringFinder::isSupported( simd::SimdKernel::NEON ) );
+
+    const auto automatic = simd::bitStringFinder::automaticKernel();
+    if ( sse2Supported || avx2Supported || avx512Supported ) {
+        REQUIRE( automatic != simd::SimdKernel::AUTOMATIC );
+    } else {
+        REQUIRE( automatic == simd::SimdKernel::AUTOMATIC );
+    }
+    REQUIRE( simd::bitStringFinder::isSupported( automatic ) );
+#endif
+}
+
+
 int
 main()
 {
+    testCompiledKernelSupport();
+
     /* 0-size bit strings to find arguably makes no sense to test for. */
     //testBitStringFinder<0>( 0b0, {}, {} );
     //testBitStringFinder<0>( 0b0, { 0x00 }, {} );

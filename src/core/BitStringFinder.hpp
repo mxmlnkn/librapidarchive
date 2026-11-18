@@ -38,7 +38,7 @@ isSupported( const SimdKernel kernel ) noexcept
     case SimdKernel::AUTOMATIC:
     case SimdKernel::PORTABLE:
         return true;
-    #if LIBRAPIDARCHIVE_BIT_STRING_FINDER_X86_KERNELS
+    #if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
     case SimdKernel::SSE2:
         return __builtin_cpu_supports( "sse2" ) != 0;
     case SimdKernel::AVX2:
@@ -62,7 +62,7 @@ isSupported( const SimdKernel kernel ) noexcept
 [[nodiscard]] inline SimdKernel
 automaticKernel() noexcept
 {
-#if LIBRAPIDARCHIVE_BIT_STRING_FINDER_X86_KERNELS
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS
     if ( isSupported( SimdKernel::AVX512 ) ) {
         return SimdKernel::AVX512;
     }
