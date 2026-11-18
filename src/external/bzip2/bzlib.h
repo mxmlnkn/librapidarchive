@@ -22,6 +22,8 @@
 #ifndef _BZLIB_H
 #define _BZLIB_H
 
+#include "bzip2_prefix.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

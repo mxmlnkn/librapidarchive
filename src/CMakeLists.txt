@@ -176,6 +176,20 @@ set_target_properties(libsais PROPERTIES LINKER_LANGUAGE C)
 
 # bzip2 (compression backend for the ibzip2 CLI and the compressor test)
 
+# Prefix the vendored bzip2 symbols so the system libbz2 or another bzip2 implementation can be
+# linked into the same binary. The macro must expand to a valid C identifier prefix token.
+set(LIBRAPIDARCHIVE_BZIP2_PREFIX "librapidarchive_bz2_" CACHE STRING
+    "Token prefix for the vendored bzip2 symbols")
+
+function(librapidarchive_bzip2_prefix target visibility)
+    # The vendored bzlib.h includes bzip2_prefix.h, so only the optional override token has to be
+    # passed to the compiler.
+    if(NOT LIBRAPIDARCHIVE_BZIP2_PREFIX STREQUAL "")
+        target_compile_definitions(${target} ${visibility}
+            LIBRAPIDARCHIVE_BZIP2_PREFIX=${LIBRAPIDARCHIVE_BZIP2_PREFIX})
+    endif()
+endfunction()
+
 if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
     add_library(bzip2_compression INTERFACE)
     target_compile_definitions(bzip2_compression INTERFACE LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
@@ -203,6 +217,8 @@ if(LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION)
         set_target_properties(bzip2_vendored PROPERTIES C_STANDARD 11)
         set_target_properties(bzip2_vendored PROPERTIES LINKER_LANGUAGE C)
         librapidarchive_silence_external_warnings(bzip2_vendored)
+        librapidarchive_bzip2_prefix(bzip2_vendored PRIVATE)
+        librapidarchive_bzip2_prefix(bzip2_compression INTERFACE)
         target_link_libraries(bzip2_compression INTERFACE bzip2_vendored)
     endif()
 endif()
