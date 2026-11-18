@@ -61,7 +61,7 @@ isSupported( const SimdKernel kernel ) noexcept
         return true;
     case SimdKernel::SSE2:
         break;
-    #if LIBRAPIDARCHIVE_BZIP2_X86_KERNELS
+    #if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
     case SimdKernel::SSE41:
     {
         static const bool supported = __builtin_cpu_supports( "sse4.1" ) != 0;

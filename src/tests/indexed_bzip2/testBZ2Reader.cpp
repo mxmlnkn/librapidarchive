@@ -165,6 +165,27 @@ testSeekBeforeOffsetCompletion( const std::string& decodedTestFilePath,
 
 
 void
+testCompiledSymbolKernelSupport()
+{
+#if LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS
+    /* The support predicates must agree with the compiled kernels and the runtime CPU. A guard with a
+     * misspelled or missing macro silently disables SIMD dispatch because the portable fallback is correct. */
+    if ( __builtin_cpu_supports( "sse4.1" ) ) {
+        REQUIRE( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::SSE41 ) );
+    }
+    if ( __builtin_cpu_supports( "avx2" ) ) {
+        REQUIRE( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::AVX2 ) );
+    }
+    if ( ( __builtin_cpu_supports( "avx512f" ) != 0 )
+         && ( __builtin_cpu_supports( "avx512bw" ) != 0 )
+         && ( __builtin_cpu_supports( "avx512vbmi" ) != 0 ) ) {
+        REQUIRE( rapidgzip::simd::bzip2SymbolDecoder::isSupported( bzip2::SymbolKernel::AVX512 ) );
+    }
+#endif
+}
+
+
+void
 testLastToFirstMappingKernels()
 {
     /* Deterministic run records, including runs longer than the 8- and 16-entry vector stores. */
@@ -240,6 +261,7 @@ int
 main()
 {
     testNonSeekableEmptyInput<SerialReaderPolicy>( 0 );
+    testCompiledSymbolKernelSupport();
     testLastToFirstMappingKernels();
     testExactSizeReadNeedsExtraReadForStreamCRC();
 
