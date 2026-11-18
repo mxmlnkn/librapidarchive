@@ -63,6 +63,8 @@ Each plot has two panels. The left panel shows single-core bandwidth with zero-b
 The right panel shows thread scaling. The violins omit runs beyond ten median absolute deviations from the median. Those are usually process-launch stalls on a small input, where a 0.1 s run preceded by a 10s stall results in a 100x outlier.
 Solid lines are tools from this repository. Other tools are drawn with dashed lines.
 
+The most interesting lines for bzip2 decompression of this repository via various wrappers and threading architectures are in saturated green, purple, and orange. The half-transparent or dashed lines are for comparison. For Silesia and `SRR22401085_2.fastq`, the fastest values are for ISA-L(igzip)-accelerated `rapidgzip-gzip`, which decompress gzip versions of the dataset, not bzip2, and are only there to compare bzip2 vs. gzip decompression.
+
 ## Results
 
 The gallery starts with the stable desktop runs, followed by the large-scale HPC runs, and ends with the very noisy notebook runs.
@@ -102,9 +104,6 @@ The gallery starts with the stable desktop runs, followed by the large-scale HPC
 
 ### Evaluation and notes
 
- - The release notes' **2-8x** figure is the combined 2.0.0 improvement over 1.7.0 across these
-   datasets and thread counts. The **>30x** figure is relative to Python's built-in `bz2` module at
-   24 threads on Silesia-20x and CTU-13.
  - ibzip2 is one of the fastest in all single-core benchmarks. Several times faster than bzip2,
    even faster than GNU gzip, especially on high-ratio files because those are dominated by CRC32
    and other SIMD-accelerated algorithms. Other much more optimized gzip decompressors, such as
@@ -127,6 +126,13 @@ The gallery starts with the stable desktop runs, followed by the large-scale HPC
    and has come into existence only days before this benchmark and has had dozens of version releases
    since then. The benchmarked version is out of date as soon as the benchmarks, which can take hours,
    have finished. So, it might already be faster by now.
+ - Bzip2 decompression with rapidgzip for CTU-13 does not scale with parallelization because the limits
+   of `ParallelGzipReader`, which can also decode bzip2, limits itself for very high compression ratios
+   like those encountered in CTU-13 to reduce memory exhaustion and simply stops decompression on
+   parallel workers after some cut-off.
+ - The release notes' **2-8x** figure is the combined 2.0.0 improvement over 1.7.0 across these
+   datasets and thread counts. The **>30x** figure is relative to Python's built-in `bz2` module at
+   24 threads on Silesia-20x and CTU-13.
 
 ## Largest successful optimizations
 
