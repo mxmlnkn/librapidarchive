@@ -1,3 +1,21 @@
+# Version 2.0.1 built on 2026-11-19
+
+## Fixes
+
+ - Restore the x86 SIMD bzip2 symbol decoder dispatch. The support predicate used an undefined build macro,
+   so every x86 build silently ran the portable decoder. On the verification host, 64 MiB base64 decoding
+   improved from 106.8 to 135.2 MB/s median, with the best run from 110.5 to 139.5 MB/s.
+ - Restore the x86 SIMD bit string finder dispatch. The bzip2 block finder also used an undefined guard and
+   fell back to the generic `string_view` scan. Bzip2 block finding improved from 85.2 to 57.1 ms on the same
+   corpus, and the bit string finder from 1.75 to 3.37 GB/s.
+
+## Build
+
+ - Hide internal symbols in the Python extensions.
+ - Prefix the vendored bzip2 and libsais symbols so librapidarchive can be linked alongside other copies
+   in the same binary.
+
+
 # Version 2.0.0 built on 2026-11-18
 
 This major release introduces some small Python wrapper API breaks,

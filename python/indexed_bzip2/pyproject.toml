@@ -23,7 +23,7 @@ requires = [
 
 [project]
 name = "indexed_bzip2"
-version = "2.0.0"
+version = "2.0.1"
 description = "Fast random access to bzip2 files"
 authors = [{name = "Maximilian Knespel", email = "mxmlnknp@gmail.com"}]
 license = {text = "MIT"}
