@@ -63,6 +63,16 @@ public:
             return errorCode;
         }
 
+        /* This decoder is deflate-specific and interprets symbols above END_OF_BLOCK_SYMBOL as length symbols.
+         * Symbols 286 and 287 are reserved and never occur in a dynamic header (HLIT <= 29), but the fixed tree
+         * encoding array contains them. Reject such alphabets explicitly instead of throwing during cache
+         * insertion, which is not representable as an Error. */
+        for ( size_t symbol = MAX_LITERAL_OR_LENGTH_SYMBOLS; symbol < codeLengths.size(); ++symbol ) {
+            if ( codeLengths[symbol] != 0 ) {
+                return Error::INVALID_CODE_LENGTHS;
+            }
+        }
+
         m_lutBitsCount = std::min( LUT_BITS_COUNT, this->m_maxCodeLength );
         m_bitsToReadAtOnce = std::max( LUT_BITS_COUNT, this->m_minCodeLength );
 

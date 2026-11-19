@@ -281,6 +281,47 @@ testAnalyzeTruncatedGzip()
 
 
 void
+testInvalidFixedHuffmanLengthSymbols()
+{
+    /* Fixed Huffman codes 286 and 287 are deflate-invalid length symbols, but they have valid 8-bit codes in the
+     * fixed tree. A malformed stream must be rejected with INVALID_HUFFMAN_CODE instead of being decoded as a
+     * back-reference length. The bytes are BFINAL=1, BTYPE=fixed followed by the reversed 8-bit code of 286 or 287. */
+    for ( const auto& data : { std::vector<uint8_t>{ 0x1B, 0x03 }, /* 286 */
+                               std::vector<uint8_t>{ 0x1B, 0x07 } /* 287 */ } )
+    {
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( data ) );
+        deflate::Block<false> block;
+        REQUIRE( block.readHeader( bitReader ) == Error::NONE );
+        const auto [view, error] = block.read( bitReader, 1024 );
+        REQUIRE( error == Error::INVALID_HUFFMAN_CODE );
+        REQUIRE_EQUAL( view.size(), 0U );
+    }
+}
+
+
+void
+testInvalidDynamicHuffmanCodeCount()
+{
+    /* codeLengthCount is HLIT + 257. HLIT=29 means 286 literal/length symbols, the maximum that deflate defines.
+     * The truncated header then ends while reading the rest of the dynamic header, which is not an exceeded range. */
+    {
+        const std::vector<uint8_t> data{ 0xED };
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( data ) );
+        deflate::Block<false> block;
+        REQUIRE( block.readHeader( bitReader ) == Error::END_OF_FILE );
+    }
+
+    /* HLIT=30 means 287 literal/length symbols and must be rejected before any code lengths are read. */
+    {
+        const std::vector<uint8_t> data{ 0xF5 };
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( data ) );
+        deflate::Block<false> block;
+        REQUIRE( block.readHeader( bitReader ) == Error::EXCEEDED_LITERAL_RANGE );
+    }
+}
+
+
+void
 testInvalidDeflateErrors()
 {
     /* BFINAL=1, BTYPE=3 (reserved). readHeader sets the compression type and returns
@@ -316,6 +357,8 @@ main()
     testFixedHuffmanCoding();
     testTruncatedStoredBlock();
     testAnalyzeTruncatedGzip();
+    testInvalidFixedHuffmanLengthSymbols();
+    testInvalidDynamicHuffmanCodeCount();
     testInvalidDeflateErrors();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";

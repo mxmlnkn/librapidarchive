@@ -182,6 +182,27 @@ testEmptyAlphabetMultiCached()
 
 
 void
+testMultiCachedLiteralSymbolRange()
+{
+    using HuffmanCoding = rapidgzip::deflate::HuffmanCodingShortBitsMultiCached<12>;
+
+    /* 226 8-bit and 60 9-bit codes form a complete tree with 286 symbols, the largest alphabet that a dynamic
+     * deflate header (HLIT <= 29) can define. */
+    std::vector<uint8_t> codeLengths( 286, 8 );
+    std::fill( codeLengths.begin() + 226, codeLengths.end(), 9 );
+    HuffmanCoding coding;
+    REQUIRE_EQUAL( coding.initializeFromLengths( codeLengths ), rapidgzip::Error::NONE );
+
+    /* The synthetic fixed-Huffman alphabet also assigns codes to the reserved symbols 286 and 287. This decoder
+     * cannot represent them and must reject the alphabet instead of throwing during cache insertion. */
+    std::vector<uint8_t> fixedLengths( 288, 8 );
+    std::fill( fixedLengths.begin() + 144, fixedLengths.begin() + 256, 9 );
+    std::fill( fixedLengths.begin() + 256, fixedLengths.begin() + 280, 7 );
+    REQUIRE_EQUAL( coding.initializeFromLengths( fixedLengths ), rapidgzip::Error::INVALID_CODE_LENGTHS );
+}
+
+
+void
 testEmptyAlphabetDeflateSpecific()
 {
     /* This decoder has a fixed-size LUT peek, so an empty alphabet does not peek zero bits. But with fewer bits
@@ -278,6 +299,7 @@ main()
     testEmptyAlphabet<HuffmanCodingReversedBitsCachedSeparateLengths<uint16_t, MAX_CODE_LENGTH,
                                                                      uint16_t, MAX_SYMBOL_COUNT> >();
     testEmptyAlphabetMultiCached();
+    testMultiCachedLiteralSymbolRange();
     testEmptyAlphabetDeflateSpecific();
     testInvalidCodeAtEndOfInputDeflateSpecific();
 
