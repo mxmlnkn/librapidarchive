@@ -24,8 +24,10 @@ except ImportError:
     cythonize = None
 
 # Valid options for dependencies:
+#   RAPIDGZIP_BUILD_BZIP2
 #   RAPIDGZIP_BUILD_CXXOPT
 #   RAPIDGZIP_BUILD_ISAL
+#   RAPIDGZIP_BUILD_LIBSAIS
 #   RAPIDGZIP_BUILD_RPMALLOC
 #   RAPIDGZIP_BUILD_ZLIB
 # Valid values for dependencies:
@@ -60,8 +62,10 @@ def getDependencyOption(key, default='enable'):
     return option if option == 'system' or option == 'enable' else 'disable'
 
 
+withBzip2 = getDependencyOption('BZIP2')
 withCxxopts = getDependencyOption('CXXOPTS')
 withIsal = getDependencyOption('ISAL')
+withLibsais = getDependencyOption('LIBSAIS')
 withRpmalloc = getDependencyOption('RPMALLOC')
 withRpmallocStatistics = getDependencyOption('RPMALLOC_STATISTICS', default='disable')
 withZlibng = getDependencyOption('ZLIB')
@@ -71,9 +75,17 @@ if withRpmalloc != 'disable' and sys.maxsize <= 2**32:
     print("[Warning] rpmalloc does not support 32-bit builds. Will disable it.")
     withRpmalloc = 'disable'
 
+if withBzip2 == 'disable':
+    print("[Warning] Bzip2 compression cannot be disabled! Will enable it.")
+    withBzip2 = 'enable'
+
 if withCxxopts == 'disable':
     print("[Warning] Cxxopts cannot be disabled! Will enable it.")
     withCxxopts = 'enable'
+
+if withLibsais == 'disable':
+    print("[Warning] Libsais is required for bzip2 compression! Will enable it.")
+    withLibsais = 'enable'
 
 # ISA-l does not compile on 32-bit because it contains statements such as [bits 64].
 # It simply is not supported and I also don't see a reason. 32-bit should be long dead exactly
@@ -96,7 +108,9 @@ if not canBuildIsal:
     withIsal = 'disable'
 
 print("Final rapidgzip build configuration:")
+print(f"  bzip2: {withBzip2}")
 print(f"  isal: {withIsal}")
+print(f"  libsais: {withLibsais}")
 print(f"  zlib-ng: {withZlibng}")
 print(f"  rpmalloc: {withRpmalloc}")
 print(f"  rpmalloc statistics: {withRpmallocStatistics}")
@@ -246,12 +260,14 @@ isal_sources = ['src/external/isa-l/' + source for source in set(isal_sources)] 
 include_dirs = ['src']
 libraries = []
 
-# The rapidgzip extension always compiles indexed_bzip2, which needs libsais for the bzip2 block decoding.
-libsais_sources = ['src/external/libsais_prefixed.c']
-include_dirs += ['src/external', 'src/external/libsais/include']
+# The rapidgzip extension always compiles indexed_bzip2, which needs libsais for bzip2 compression.
+libsais_sources = ['src/external/libsais_prefixed.c'] if withLibsais == 'enable' else []
+include_dirs += ['src/external']
+if withLibsais == 'enable':
+    include_dirs += ['src/external/libsais/include']
 
 # Vendor libbz2 so that the ibzip2 CLI has compression support without a system dependency.
-bzip2_sources = [
+bzip2_sources = [] if withBzip2 == 'system' else [
     'src/external/bzip2/blocksort.c',
     'src/external/bzip2/huffman.c',
     'src/external/bzip2/crctable.c',
@@ -259,7 +275,8 @@ bzip2_sources = [
     'src/external/bzip2/compress.c',
     'src/external/bzip2/bzlib.c',
 ]
-include_dirs += ['src/external/bzip2', 'src/external/bzip2_version']
+if withBzip2 == 'enable':
+    include_dirs += ['src/external/bzip2', 'src/external/bzip2_version']
 
 isal_includes = [
     'src/external/isa-l/include',
@@ -287,6 +304,13 @@ if withCxxopts == 'enable':
 
 rpmalloc_sources = ['src/external/rpmalloc/rpmalloc/rpmalloc.c'] if withRpmalloc == 'enable' else []
 
+define_macros = [('LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION', None)]
+if withLibsais == 'system':
+    # Make libsais_prefix.h a no-op and link the shared system library.
+    define_macros += [('LIBRAPIDARCHIVE_LIBSAIS_PREFIX', ''), ('LIBSAIS_SHARED', None)]
+if withBzip2 == 'system':
+    define_macros += [('LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2', None)]
+
 print("Rapidgzip options:")
 print(f"  include_dirs: {include_dirs}")
 print(f"  libraries: {libraries}")
@@ -300,7 +324,7 @@ extensions = [
         include_dirs = include_dirs,
         libraries    = libraries,
         language     = 'c++',
-        define_macros = [('LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION', None)],
+        define_macros = define_macros,
         py_limited_api = withAbi3,
         # fmt: on
     ),
@@ -550,6 +574,15 @@ class Build(build_ext):
                 # AppleClang seems to not like this flag:
                 if supportsFlag(self.compiler, '-fcf-protection=full'):
                     ext.extra_compile_args += ['-fcf-protection=full']
+
+            if withLibsais == 'system':
+                ext.libraries = list(ext.libraries or []) + [
+                    'libsais' if self.compiler.compiler_type == 'msvc' else 'sais'
+                ]
+            if withBzip2 == 'system':
+                ext.libraries = list(ext.libraries or []) + [
+                    'libbz2' if self.compiler.compiler_type == 'msvc' else 'bz2'
+                ]
 
             if hasInclude(self.compiler, 'unistd.h'):
                 ext.extra_compile_args += ['-DHAVE_UNISTD_H']

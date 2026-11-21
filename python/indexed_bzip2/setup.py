@@ -25,7 +25,40 @@ withAbi3 = os.environ.get('INDEXED_BZIP2_ABI3', 'disable').lower() not in ('', '
 abi3Version = '0x030E0000'
 abi3WheelTag = 'cp314'
 
-bzip2_sources = [
+# Valid options for dependencies:
+#   INDEXED_BZIP2_BUILD_BZIP2
+#   INDEXED_BZIP2_BUILD_LIBSAIS
+# Valid values for dependencies:
+#   enable
+#   system
+# Not specifying an option implies 'enable', which uses the packaged source code. 'system' links
+# the library from the build environment.
+optionsPrefix = 'INDEXED_BZIP2_BUILD_'
+buildConfig = {key: value for key, value in os.environ.items() if key.startswith(optionsPrefix)}
+print("\nIndexed_bzip2 build options:")
+for key, value in buildConfig.items():
+    print(f"  {key}={value}")
+
+
+def getDependencyOption(key, default='enable'):
+    key = optionsPrefix + key
+    option = buildConfig.get(key, default)
+    validValues = ['enable', 'system']
+    if option not in validValues:
+        print(f"Unrecognized option for indexed_bzip2 dependency: {key}={option}. Valid values are: {validValues}")
+    return option if option in validValues else default
+
+
+withLibsais = getDependencyOption('LIBSAIS')
+withBzip2 = getDependencyOption('BZIP2')
+
+print("Final indexed_bzip2 build configuration:")
+print(f"  libsais: {withLibsais}")
+print(f"  bzip2: {withBzip2}")
+print(f"  abi3: {withAbi3}")
+
+libsais_sources = ['src/external/libsais_prefixed.c'] if withLibsais == 'enable' else []
+bzip2_sources = [] if withBzip2 == 'system' else [
     'src/external/bzip2/blocksort.c',
     'src/external/bzip2/huffman.c',
     'src/external/bzip2/crctable.c',
@@ -34,7 +67,18 @@ bzip2_sources = [
     'src/external/bzip2/bzlib.c',
 ]
 
+include_dirs = ['src', 'src/external', 'src/external/cxxopts/include']
+if withLibsais == 'enable':
+    include_dirs += ['src/external/libsais/include']
+if withBzip2 == 'enable':
+    include_dirs += ['src/external/bzip2', 'src/external/bzip2_version']
+
 define_macros = [('LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION', None)]
+if withLibsais == 'system':
+    # Make libsais_prefix.h a no-op and link the shared system library.
+    define_macros += [('LIBRAPIDARCHIVE_LIBSAIS_PREFIX', ''), ('LIBSAIS_SHARED', None)]
+if withBzip2 == 'system':
+    define_macros += [('LIBRAPIDARCHIVE_USE_SYSTEM_BZIP2', None)]
 if withAbi3:
     define_macros.append(('Py_LIMITED_API', abi3Version))
 
@@ -42,10 +86,8 @@ extensions = [
     Extension(
         # fmt: off
         name         = 'indexed_bzip2',
-        sources      = ['indexed_bzip2.pyx', 'src/external/libsais_prefixed.c'] + bzip2_sources,
-        include_dirs = ['src', 'src/external', 'src/external/cxxopts/include',
-                        'src/external/libsais/include', 'src/external/bzip2',
-                        'src/external/bzip2_version'],
+        sources      = ['indexed_bzip2.pyx'] + libsais_sources + bzip2_sources,
+        include_dirs = include_dirs,
         language     = 'c++',
         define_macros = define_macros,
         py_limited_api = withAbi3,
@@ -114,6 +156,14 @@ class Build(build_ext):
                 '-DWITH_PYTHON_SUPPORT',
                 '-D_GLIBCXX_ASSERTIONS',
             ]
+            if withLibsais == 'system':
+                ext.libraries = list(ext.libraries or []) + [
+                    'libsais' if self.compiler.compiler_type == 'msvc' else 'sais'
+                ]
+            if withBzip2 == 'system':
+                ext.libraries = list(ext.libraries or []) + [
+                    'libbz2' if self.compiler.compiler_type == 'msvc' else 'bz2'
+                ]
 
             if supportsFlag(self.compiler, '-flto=auto'):
                 ext.extra_compile_args += ['-flto=auto']
