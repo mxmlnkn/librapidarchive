@@ -3,6 +3,8 @@
 #include <string>
 #include <string_view>
 
+#include <libsais.h>
+
 
 namespace thirdparty
 {
@@ -10,6 +12,7 @@ namespace cxxopts
 {
 static constexpr std::string_view name{ "cxxopts" };
 static constexpr std::string_view url{ "https://github.com/jarro2783/cxxopts/" };
+static constexpr std::string_view licenseId{ "MIT" };
 static constexpr std::string_view license{
     R"(Copyright (c) 2014 Jarryd Beck
 
@@ -38,6 +41,7 @@ namespace isal
 {
 static constexpr std::string_view name{ "ISA-L" };
 static constexpr std::string_view url{ "https://github.com/intel/isa-l" };
+static constexpr std::string_view licenseId{ "BSD-3-Clause" };
 static constexpr std::string_view license{
     R"(Copyright(c) 2011-2017 Intel Corporation All rights reserved.
 
@@ -73,6 +77,7 @@ namespace rpmalloc
 {
 static constexpr std::string_view name{ "rpmalloc" };
 static constexpr std::string_view url{ "https://github.com/mjansson/rpmalloc" };
+static constexpr std::string_view licenseId{ "Unlicense OR MIT" };
 static constexpr std::string_view unlicense{
     R"(This is free and unencumbered software released into the public domain.
 
@@ -139,6 +144,7 @@ namespace zlib
 {
 static constexpr std::string_view name{ "zlib" };
 static constexpr std::string_view url{ "https://github.com/madler/zlib/" };
+static constexpr std::string_view licenseId{ "Zlib" };
 static constexpr std::string_view license{
     R"(Copyright notice:
 
@@ -170,6 +176,7 @@ namespace zlib_ng
 {
 static constexpr std::string_view name{ "zlib-ng" };
 static constexpr std::string_view url{ "https://github.com/zlib-ng/zlib-ng" };
+static constexpr std::string_view licenseId{ "Zlib" };
 static constexpr std::string_view license{
     R"((C) 1995-2024 Jean-loup Gailly and Mark Adler
 
@@ -198,6 +205,8 @@ namespace bzip2
 {
 static constexpr std::string_view name{ "bzip2" };
 static constexpr std::string_view url{ "https://gitlab.com/bzip2/bzip2" };
+static constexpr std::string_view version{ "1.0.8" };
+static constexpr std::string_view licenseId{ "bzip2-1.0.6" };
 static constexpr std::string_view license{
     R"(--------------------------------------------------------------------------
 
@@ -248,6 +257,15 @@ namespace libsais
 {
 static constexpr std::string_view name{ "libsais" };
 static constexpr std::string_view url{ "https://github.com/IlyaGrebnov/libsais" };
+static constexpr std::string_view licenseId{ "Apache-2.0 WITH LLVM-exception" };
+
+[[nodiscard]] inline std::string
+version()
+{
+    return std::to_string( LIBSAIS_VERSION_MAJOR ) + "." + std::to_string( LIBSAIS_VERSION_MINOR ) + "."
+           + std::to_string( LIBSAIS_VERSION_PATCH );
+}
+
 static constexpr std::string_view license{
     R"(
                                  Apache License
@@ -470,6 +488,29 @@ the License, but only in their entirety and only with respect to the Combined
 Software.
 )" };
 }  // namespace libsais
+
+
+namespace toybox
+{
+static constexpr std::string_view name{ "toybox" };
+static constexpr std::string_view url{ "https://github.com/landley/toybox" };
+static constexpr std::string_view version{ "7bf68329eb3b" };
+static constexpr std::string_view licenseId{ "0BSD" };
+static constexpr std::string_view license{
+    R"(Copyright 2003, 2007 Rob Landley <rob@landley.net>
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+)" };
+}  // namespace toybox
 }  // namespace thirdparty
 
 

@@ -64,6 +64,21 @@ callIbzip2CLICapturingException( const std::vector<std::string>& arguments )
 
 
 void
+testOssAttributions()
+{
+    const auto yaml = callCLI( "./ibzip2", ibzip2CLI, { "--oss-attributions-yaml" } );
+    REQUIRE_EQUAL( yaml.exitCode, 0 );
+    REQUIRE( yaml.out.find( "root_name: indexed_bzip2" ) != std::string::npos );
+    REQUIRE( yaml.out.find( "package_name: cxxopts" ) != std::string::npos );
+    REQUIRE( yaml.out.find( "license: MIT" ) != std::string::npos );
+    REQUIRE( yaml.out.find( "package_name: libsais" ) != std::string::npos );
+    REQUIRE( yaml.out.find( "license: Apache-2.0 WITH LLVM-exception" ) != std::string::npos );
+    REQUIRE( yaml.out.find( "package_name: toybox" ) != std::string::npos );
+    REQUIRE( yaml.out.find( "license: 0BSD" ) != std::string::npos );
+}
+
+
+void
 testCount( const std::filesystem::path& dataFolder )
 {
     const auto compressedPath = ( dataFolder / "base64-256KiB.bz2" ).string();
@@ -373,6 +388,7 @@ main( int    argc,
             findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bz2" )
         ) / "src" / "tests" / "data";
 
+    testOssAttributions();
     testCount( dataFolder );
 #if !defined( _WIN32 )
     testWriteFailure( dataFolder );
