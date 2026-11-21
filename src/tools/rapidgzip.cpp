@@ -412,12 +412,15 @@ rapidgzipCLI( int                  argc,
             << thirdparty::rpmalloc::url << "\n\n"
             << thirdparty::rpmalloc::fullLicense << "\n\n"
     #endif
-            << "# " << thirdparty::zlib::name << "\n\n"
-            << thirdparty::zlib::url << "\n\n"
-            << thirdparty::zlib::license << "\n\n"
+    #ifdef ZLIB_COMPAT
             << "# " << thirdparty::zlib_ng::name << "\n\n"
             << thirdparty::zlib_ng::url << "\n\n"
             << thirdparty::zlib_ng::license << "\n\n"
+    #else
+            << "# " << thirdparty::zlib::name << "\n\n"
+            << thirdparty::zlib::url << "\n\n"
+            << thirdparty::zlib::license << "\n\n"
+    #endif
     #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
             << "# " << thirdparty::bzip2::name << "\n\n"
             << thirdparty::bzip2::url << "\n\n"
@@ -463,12 +466,22 @@ rapidgzipCLI( int                  argc,
             << "      - license: MIT\n"
             << "        text: " << toYamlString( thirdparty::rpmalloc::mit ) << "\n"
     #endif
+    #ifdef ZLIB_COMPAT
+            << "  - package_name: " << thirdparty::zlib_ng::name << "\n"
+            << "    package_version: " << ZLIBNG_VER_MAJOR << "." << ZLIBNG_VER_MINOR << "."
+            << ZLIBNG_VER_REVISION << "\n"
+            << "    license: " << thirdparty::zlib_ng::licenseId << "\n"
+            << "    licenses:\n"
+            << "      - license: " << thirdparty::zlib_ng::licenseId << "\n"
+            << "        text: " << toYamlString( thirdparty::zlib_ng::license ) << "\n"
+    #else
             << "  - package_name: " << thirdparty::zlib::name << "\n"
             << "    package_version: " << ZLIB_VER_MAJOR << "." << ZLIB_VER_MINOR << "." << ZLIB_VER_REVISION << "\n"
             << "    license: " << thirdparty::zlib::licenseId << "\n"
             << "    licenses:\n"
             << "      - license: " << thirdparty::zlib::licenseId << "\n"
             << "        text: " << toYamlString( thirdparty::zlib::license ) << "\n"
+    #endif
     #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
             << "  - package_name: " << thirdparty::bzip2::name << "\n"
             << "    package_version: " << thirdparty::bzip2::version << "\n"

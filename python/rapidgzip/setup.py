@@ -454,7 +454,7 @@ class Build(build_ext):
             "WITH_PYTHON_SUPPORT": "0",
             "ZLIB_SYMBOL_PREFIX": "LIBRAPIDARCHIVE_",
         }
-        if withZlibng:
+        if withZlibng == 'enable':
             defines["ZLIB_COMPAT"] = None
         if withAbi3:
             defines["Py_LIMITED_API"] = abi3Version

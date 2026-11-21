@@ -298,6 +298,16 @@ testCLI()
     testWithoutFile( { "--oss-attributions" } );
     testWithoutFile( { "--help" } );
 
+    const auto ossAttributionsYaml = callCLI( "./rapidgzip", rapidgzipCLI, { "--oss-attributions-yaml" } );
+    REQUIRE_EQUAL( ossAttributionsYaml.exitCode, 0 );
+    REQUIRE( ossAttributionsYaml.out.find( "root_name: rapidgzip" ) != std::string::npos );
+    REQUIRE( ossAttributionsYaml.out.find( "package_name: toybox" ) != std::string::npos );
+#ifdef ZLIB_COMPAT
+    REQUIRE( ossAttributionsYaml.out.find( "  - package_name: zlib-ng\n" ) != std::string::npos );
+#else
+    REQUIRE( ossAttributionsYaml.out.find( "  - package_name: zlib\n" ) != std::string::npos );
+#endif
+
     /* Special subcommand that will ignore most of the other output options. */
     testFile( { "--analyze" } );
 
