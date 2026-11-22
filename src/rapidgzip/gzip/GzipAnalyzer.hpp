@@ -25,6 +25,7 @@
     #include <filereader/Python.hpp>
 #endif
 
+#include "AnalyzeFeatures.hpp"
 #include "crc32.hpp"
 #include "definitions.hpp"
 #include "deflate.hpp"
@@ -234,8 +235,9 @@ analyzeExtraString( std::string_view extra,
 
 
 [[nodiscard]] inline rapidgzip::Error
-analyze( UniqueFileReader inputFile,
-         const bool       verbose = false )
+analyze( UniqueFileReader        inputFile,
+         const bool              verbose = false,
+         const AnalyzeFeatureSet features = AnalyzeFeatureSet::all() )
 {
     using namespace rapidgzip;
     using Block = rapidgzip::deflate::Block</* Statistics */ true>;
@@ -288,7 +290,9 @@ analyze( UniqueFileReader inputFile,
 
     while ( true ) {
         if ( bitReader.eof() ) {
-            std::cout << "Bit reader EOF reached at " << formatBits( bitReader.tell() ) << "\n";
+            if ( features.contains( AnalyzeFeature::STREAM_INFO ) ) {
+                std::cout << "Bit reader EOF reached at " << formatBits( bitReader.tell() ) << "\n";
+            }
             break;
         }
 
@@ -325,35 +329,37 @@ analyze( UniqueFileReader inputFile,
                 streamBlockCount = 0;
                 streamBytesRead = 0;
 
-                std::cout << "Gzip header:\n";
-                std::cout << "    Gzip Stream Count   : " << streamCount << "\n";
-                std::cout << "    Compressed Offset   : " << formatBits( headerOffset ) << "\n";
-                std::cout << "    Uncompressed Offset : " << totalBytesRead << " B\n";
-                if ( header.fileName ) {
-                    std::cout << "    File Name           : " << escapeNonPrintable( *header.fileName ) << "\n";
+                if ( features.contains( AnalyzeFeature::STREAM_INFO ) ) {
+                    std::cout << "Gzip header:\n";
+                    std::cout << "    Gzip Stream Count   : " << streamCount << "\n";
+                    std::cout << "    Compressed Offset   : " << formatBits( headerOffset ) << "\n";
+                    std::cout << "    Uncompressed Offset : " << totalBytesRead << " B\n";
+                    if ( header.fileName ) {
+                        std::cout << "    File Name           : " << escapeNonPrintable( *header.fileName ) << "\n";
+                    }
+                    std::cout << "    Modification Time   : " << header.modificationTime << "\n";
+                    std::cout << "    OS                  : " << gzip::getOperatingSystemName( header.operatingSystem )
+                              << "\n";
+                    std::cout << "    Flags               : " << gzip::getExtraFlagsDescription( header.extraFlags )
+                              << "\n";
+                    if ( header.comment ) {
+                        std::cout << "    Comment             : " << escapeNonPrintable( *header.comment ) << "\n";
+                    }
+                    if ( header.extra ) {
+                        std::cout << "    Extra               : " << header.extra->size() << " B: "
+                                  << escapeNonPrintable( { reinterpret_cast<const char*>( header.extra->data() ),
+                                                           header.extra->size() } ) << "\n";
+                        analyzeExtraString( { reinterpret_cast<const char*>( header.extra->data() ),
+                                              header.extra->size() },
+                                            "        " );
+                    }
+                    if ( header.crc16 ) {
+                        std::stringstream crc16String;
+                        crc16String << std::hex << std::setw( 16 ) << std::setfill( '0' ) << *header.crc16;
+                        std::cout << "    CRC16               : 0x" << crc16String.str() << "\n";
+                    }
+                    std::cout << "\n";
                 }
-                std::cout << "    Modification Time   : " << header.modificationTime << "\n";
-                std::cout << "    OS                  : " << gzip::getOperatingSystemName( header.operatingSystem )
-                          << "\n";
-                std::cout << "    Flags               : " << gzip::getExtraFlagsDescription( header.extraFlags )
-                          << "\n";
-                if ( header.comment ) {
-                    std::cout << "    Comment             : " << escapeNonPrintable( *header.comment ) << "\n";
-                }
-                if ( header.extra ) {
-                    std::cout << "    Extra               : " << header.extra->size() << " B: "
-                              << escapeNonPrintable( { reinterpret_cast<const char*>( header.extra->data() ),
-                                                       header.extra->size() } ) << "\n";
-                    analyzeExtraString( { reinterpret_cast<const char*>( header.extra->data() ),
-                                          header.extra->size() },
-                                        "        " );
-                }
-                if ( header.crc16 ) {
-                    std::stringstream crc16String;
-                    crc16String << std::hex << std::setw( 16 ) << std::setfill( '0' ) << *header.crc16;
-                    std::cout << "    CRC16               : 0x" << crc16String.str() << "\n";
-                }
-                std::cout << "\n";
             }
             break;
 
@@ -376,14 +382,16 @@ analyze( UniqueFileReader inputFile,
                 streamBlockCount = 0;
                 streamBytesRead = 0;
 
-                std::cout << "Zlib header:\n";
-                std::cout << "    Gzip Stream Count   : " << streamCount << "\n";
-                std::cout << "    Compressed Offset   : " << formatBits( headerOffset ) << "\n";
-                std::cout << "    Uncompressed Offset : " << totalBytesRead << " B\n";
-                std::cout << "    Window Size         : " << header.windowSize << "\n";
-                std::cout << "    Compression Level   : " << toString( header.compressionLevel ) << "\n";
-                std::cout << "    Dictionary ID       : " << header.dictionaryID << "\n";
-                std::cout << "\n";
+                if ( features.contains( AnalyzeFeature::STREAM_INFO ) ) {
+                    std::cout << "Zlib header:\n";
+                    std::cout << "    Gzip Stream Count   : " << streamCount << "\n";
+                    std::cout << "    Compressed Offset   : " << formatBits( headerOffset ) << "\n";
+                    std::cout << "    Uncompressed Offset : " << totalBytesRead << " B\n";
+                    std::cout << "    Window Size         : " << header.windowSize << "\n";
+                    std::cout << "    Compression Level   : " << toString( header.compressionLevel ) << "\n";
+                    std::cout << "    Dictionary ID       : " << header.dictionaryID << "\n";
+                    std::cout << "\n";
+                }
             }
             break;
 
@@ -501,23 +509,27 @@ analyze( UniqueFileReader inputFile,
                 return std::move( result ).str();
             };
 
-        std::cout
-            << "Deflate block:\n"
-            << "    Final Block                : " << ( block.isLastBlock() ? "True" : "False" ) << "\n"
-            << "    Compression Type           : " << toString( block.compressionType() ) << "\n"
-            << "    File Statistics:\n"
-            << "        Total Block Count      : " << totalBlockCount << "\n"
-            << "        Compressed Offset      : " << formatBits( blockOffset ) << "\n"
-            << "        Uncompressed Offset    : " << uncompressedBlockOffset << " B\n"
-            << "        Compressed Data Offset : " << formatBits( blockDataOffset ) << "\n"
-            << "    Gzip Stream Statistics:\n"
-            << "        Block Count            : " << streamBlockCount << "\n"
-            << "        Compressed Offset      : " << formatBits( blockOffset - headerOffset ) << "\n"
-            << "        Uncompressed Offset    : " << uncompressedBlockOffsetInStream << " B\n"
-            << "    Farthest Backreference     : " << formatBytes( farthestBackreference ) << "\n"
-            << "    Compressed Size            : " << formatBits( compressedSizeInBits ) << "\n"
-            << "    Uncompressed Size          : " << uncompressedBlockSize << " B\n"
-            << "    Compression Ratio          : " << compressionRatio << "\n";
+        bool printedBlockInformation{ false };
+        if ( features.contains( AnalyzeFeature::BLOCK_INFO ) ) {
+            printedBlockInformation = true;
+            std::cout
+                << "Deflate block:\n"
+                << "    Final Block                : " << ( block.isLastBlock() ? "True" : "False" ) << "\n"
+                << "    Compression Type           : " << toString( block.compressionType() ) << "\n"
+                << "    File Statistics:\n"
+                << "        Total Block Count      : " << totalBlockCount << "\n"
+                << "        Compressed Offset      : " << formatBits( blockOffset ) << "\n"
+                << "        Uncompressed Offset    : " << uncompressedBlockOffset << " B\n"
+                << "        Compressed Data Offset : " << formatBits( blockDataOffset ) << "\n"
+                << "    Gzip Stream Statistics:\n"
+                << "        Block Count            : " << streamBlockCount << "\n"
+                << "        Compressed Offset      : " << formatBits( blockOffset - headerOffset ) << "\n"
+                << "        Uncompressed Offset    : " << uncompressedBlockOffsetInStream << " B\n"
+                << "    Farthest Backreference     : " << formatBytes( farthestBackreference ) << "\n"
+                << "    Compressed Size            : " << formatBits( compressedSizeInBits ) << "\n"
+                << "    Uncompressed Size          : " << uncompressedBlockSize << " B\n"
+                << "    Compression Ratio          : " << compressionRatio << "\n";
+        }
         if ( block.compressionType() == deflate::CompressionType::DYNAMIC_HUFFMAN ) {
             const VectorView<uint8_t> precodeCL{ block.precodeCL().data(), block.precodeCL().size() };
             const VectorView<uint8_t> distanceCL{ block.distanceAndLiteralCL().data() + block.codeCounts.literal,
@@ -532,13 +544,24 @@ analyze( UniqueFileReader inputFile,
             distanceCodeLengths.emplace_back( block.codeCounts.distance );
             literalCodeLengths.emplace_back( block.codeCounts.literal );
 
-            std::cout
-                << "    Huffman Alphabets:\n"
-                << "        Precode  : " << printCodeLengthStatistics( precodeCL, block.codeCounts.precode ) << "\n"
-                << "        Distance : " << printCodeLengthStatistics( distanceCL, block.codeCounts.distance ) << "\n"
-                << "        Literals : " << printCodeLengthStatistics( literalCL, block.codeCounts.literal ) << "\n";
+            if ( features.contains( AnalyzeFeature::HUFFMAN_INFO ) ) {
+                printedBlockInformation = true;
+                if ( !features.contains( AnalyzeFeature::BLOCK_INFO ) ) {
+                    std::cout << "Deflate block at " << formatBits( blockOffset ) << ":\n";
+                }
+                std::cout
+                    << "    Huffman Alphabets:\n"
+                    << "        Precode  : "
+                    << printCodeLengthStatistics( precodeCL, block.codeCounts.precode ) << "\n"
+                    << "        Distance : "
+                    << printCodeLengthStatistics( distanceCL, block.codeCounts.distance ) << "\n"
+                    << "        Literals : "
+                    << printCodeLengthStatistics( literalCL, block.codeCounts.literal ) << "\n";
+            }
         }
-        if ( ( uncompressedBlockSize > 0 ) && block.compressionType() != deflate::CompressionType::UNCOMPRESSED ) {
+        if ( features.contains( AnalyzeFeature::BLOCK_INFO )
+             && ( uncompressedBlockSize > 0 )
+             && ( block.compressionType() != deflate::CompressionType::UNCOMPRESSED ) ) {
             std::cout
                 << "    Symbol Types:\n"
                 << "        Literal         : " << formatSymbolType( block.symbolTypes.literal ) << "\n"
@@ -569,21 +592,23 @@ analyze( UniqueFileReader inputFile,
         }
         mergedBackreferences.resize( std::min( backreferences.size(), currentRef + 1 ) );
 
-        if ( verbose && ( uncompressedBlockSize > 0 ) ) {
-            std::cout << "    Back-references to the preceding window:";
-            for ( const auto& [distance, length] : backreferences ) {
-                std::cout << " " << length << "@" << distance;
-            }
-            std::cout << "\n";
+        if ( features.contains( AnalyzeFeature::BLOCK_INFO ) ) {
+            if ( verbose && ( uncompressedBlockSize > 0 ) ) {
+                std::cout << "    Back-references to the preceding window:";
+                for ( const auto& [distance, length] : backreferences ) {
+                    std::cout << " " << length << "@" << distance;
+                }
+                std::cout << "\n";
 
-            std::cout << "    Merged back-references to preceding window:";
-            for ( const auto& [distance, length] : mergedBackreferences ) {
-                std::cout << " " << length << "@" << distance;
+                std::cout << "    Merged back-references to preceding window:";
+                for ( const auto& [distance, length] : mergedBackreferences ) {
+                    std::cout << " " << length << "@" << distance;
+                }
+                std::cout << "\n";
             }
-            std::cout << "\n";
+            std::cout << "    Number of back-references        : " << backreferences.size() << "\n";
+            std::cout << "    Number of merged back-references : " << mergedBackreferences.size() << "\n";
         }
-        std::cout << "    Number of back-references        : " << backreferences.size() << "\n";
-        std::cout << "    Number of merged back-references : " << mergedBackreferences.size() << "\n";
 
         for ( const auto& [distance, length] : backreferences ) {
             globalBackReferenceLengthHistogram.merge( length );
@@ -600,8 +625,11 @@ analyze( UniqueFileReader inputFile,
                 }
             }
             const auto usedWindowSymbolCount = std::count( usedWindowSymbols.begin(), usedWindowSymbols.end(), true );
-            std::cout << "    Used window symbols              : " << usedWindowSymbolCount << " ("
-                      << static_cast<double>( usedWindowSymbolCount ) / static_cast<double>( 32_Ki ) * 100.0 << " %)\n";
+            if ( features.contains( AnalyzeFeature::BLOCK_INFO ) ) {
+                std::cout << "    Used window symbols              : " << usedWindowSymbolCount << " ("
+                          << static_cast<double>( usedWindowSymbolCount ) / static_cast<double>( 32_Ki ) * 100.0
+                          << " %)\n";
+            }
 
             for ( size_t i = 0; i < usedWindowSymbols.size(); ++i ) {
                 if ( usedWindowSymbols[i] ) {
@@ -610,7 +638,9 @@ analyze( UniqueFileReader inputFile,
                 }
             }
         }
-        std::cout << "\n";
+        if ( printedBlockInformation ) {
+            std::cout << "\n";
+        }
 
         farthestBackreferences.emplace_back( farthestBackreference );
 
@@ -633,9 +663,11 @@ analyze( UniqueFileReader inputFile,
 
             std::stringstream crcAsString;
             crcAsString << "0x" << std::hex << std::setw( 8 ) << std::setfill( '0' ) << footer.crc32;
-            std::cout << "Gzip footer:\n";
-            std::cout << "    Decompressed Size % 2^32  : " << footer.uncompressedSize << "\n";
-            std::cout << "    CRC32                     : " << std::move( crcAsString ).str() << "\n";
+            if ( features.contains( AnalyzeFeature::STREAM_INFO ) ) {
+                std::cout << "Gzip footer:\n";
+                std::cout << "    Decompressed Size % 2^32  : " << footer.uncompressedSize << "\n";
+                std::cout << "    CRC32                     : " << std::move( crcAsString ).str() << "\n";
+            }
 
             if ( static_cast<uint32_t>( streamBytesRead ) != footer.uncompressedSize ) {
                 std::stringstream message;
@@ -667,8 +699,10 @@ analyze( UniqueFileReader inputFile,
 
             std::stringstream checksumAsString;
             checksumAsString << "0x" << std::hex << std::setw( 8 ) << std::setfill( '0' ) << footer.adler32;
-            std::cout << "Zlib footer:\n";
-            std::cout << "    Adler32 : " << std::move( checksumAsString ).str() << "\n";
+            if ( features.contains( AnalyzeFeature::STREAM_INFO ) ) {
+                std::cout << "Zlib footer:\n";
+                std::cout << "    Adler32 : " << std::move( checksumAsString ).str() << "\n";
+            }
 
             zlibHeader = {};
 
@@ -720,110 +754,116 @@ analyze( UniqueFileReader inputFile,
             return std::move( result ).str();
         };
 
-    std::cout
-        << "\n\n== Benchmark Profile (Cumulative Times) ==\n"
-        << "\n"
-        << "readDynamicHuffmanCoding : " << printCategorizedDuration( block.durations.readDynamicHeader ) << "\n"
-        << "readData                 : " << printCategorizedDuration( block.durations.readData ) << "\n"
-        << "Dynamic Huffman Initialization in Detail:\n"
-        << "    Read precode       : " << printHeaderDuration( block.durations.readPrecode ) << "\n"
-        << "    Create precode HC  : " << printHeaderDuration( block.durations.createPrecodeHC ) << "\n"
-        << "    Apply precode HC   : " << printHeaderDuration( block.durations.applyPrecodeHC ) << "\n"
-        << "    Create distance HC : " << printHeaderDuration( block.durations.createDistanceHC ) << "\n"
-        << "    Create literal HC  : " << printHeaderDuration( block.durations.createLiteralHC ) << "\n"
-        << "\n"
-        << "\n";
-
-    if ( ( precodeCodings.size() > 1 ) || ( distanceCodings.size() > 1 ) || ( literalCodings.size() > 1 ) ) {
+    if ( features.contains( AnalyzeFeature::PROFILE ) ) {
         std::cout
-            << "== Alphabet Statistics ==\n"
+            << "\n\n== Benchmark Profile (Cumulative Times) ==\n"
             << "\n"
-            << "Precode  : " << printAlphabetStatistics( precodeCodings ) << "\n"
-            << "Distance : " << printAlphabetStatistics( distanceCodings ) << "\n"
-            << "Literals : " << printAlphabetStatistics( literalCodings ) << "\n"
-            << "\n";
-    }
-
-    if ( precodeCodeLengths.size() > 1 ) {
-        std::cout
-            << "== Precode Code Length Count Distribution ==\n"
-            << "\n"
-            << Histogram<size_t>{ precodeCodeLengths, /* bin count */ 8 }.plot()
-            << "\n";
-    }
-
-    if ( distanceCodeLengths.size() > 1 ) {
-        std::cout
-            << "== Distance Code Length Count Distribution ==\n"
-            << "\n"
-            << Histogram<size_t>{ distanceCodeLengths, /* bin count */ 8 }.plot()
-            << "\n";
-    }
-
-    if ( literalCodeLengths.size() > 1 ) {
-        std::cout
-            << "== Literal Code Length Count Distribution ==\n"
-            << "\n"
-            << Histogram<size_t>{ literalCodeLengths, /* bin count */ 8 }.plot()
+            << "readDynamicHuffmanCoding : " << printCategorizedDuration( block.durations.readDynamicHeader ) << "\n"
+            << "readData                 : " << printCategorizedDuration( block.durations.readData ) << "\n"
+            << "Dynamic Huffman Initialization in Detail:\n"
+            << "    Read precode       : " << printHeaderDuration( block.durations.readPrecode ) << "\n"
+            << "    Create precode HC  : " << printHeaderDuration( block.durations.createPrecodeHC ) << "\n"
+            << "    Apply precode HC   : " << printHeaderDuration( block.durations.applyPrecodeHC ) << "\n"
+            << "    Create distance HC : " << printHeaderDuration( block.durations.createDistanceHC ) << "\n"
+            << "    Create literal HC  : " << printHeaderDuration( block.durations.createLiteralHC ) << "\n"
             << "\n"
             << "\n";
     }
 
-    if ( farthestBackreferences.size() > 1 ) {
-        std::cout
-            << "\n== Farthest Backreferences Distribution ==\n"
-            << "\n"
-            << Histogram<size_t>{ farthestBackreferences, 8, "Bytes" }.plot()
-            << "\n";
+    if ( features.contains( AnalyzeFeature::HUFFMAN_STATS ) ) {
+        if ( ( precodeCodings.size() > 1 ) || ( distanceCodings.size() > 1 ) || ( literalCodings.size() > 1 ) ) {
+            std::cout
+                << "== Alphabet Statistics ==\n"
+                << "\n"
+                << "Precode  : " << printAlphabetStatistics( precodeCodings ) << "\n"
+                << "Distance : " << printAlphabetStatistics( distanceCodings ) << "\n"
+                << "Literals : " << printAlphabetStatistics( literalCodings ) << "\n"
+                << "\n";
+        }
+
+        if ( precodeCodeLengths.size() > 1 ) {
+            std::cout
+                << "== Precode Code Length Count Distribution ==\n"
+                << "\n"
+                << Histogram<size_t>{ precodeCodeLengths, /* bin count */ 8 }.plot()
+                << "\n";
+        }
+
+        if ( distanceCodeLengths.size() > 1 ) {
+            std::cout
+                << "== Distance Code Length Count Distribution ==\n"
+                << "\n"
+                << Histogram<size_t>{ distanceCodeLengths, /* bin count */ 8 }.plot()
+                << "\n";
+        }
+
+        if ( literalCodeLengths.size() > 1 ) {
+            std::cout
+                << "== Literal Code Length Count Distribution ==\n"
+                << "\n"
+                << Histogram<size_t>{ literalCodeLengths, /* bin count */ 8 }.plot()
+                << "\n"
+                << "\n";
+        }
     }
 
-    if ( globalBackReferenceLengthHistogram.statistics().count > 3 /* 2 are always inserted for min, max! */ ) {
-        std::cout
-            << "\n== Histogram of Backreference Lengths ==\n"
-            << "\n"
-            << globalBackReferenceLengthHistogram.plot()
-            << "\n";
+    if ( features.contains( AnalyzeFeature::BLOCK_STATS ) ) {
+        if ( farthestBackreferences.size() > 1 ) {
+            std::cout
+                << "\n== Farthest Backreferences Distribution ==\n"
+                << "\n"
+                << Histogram<size_t>{ farthestBackreferences, 8, "Bytes" }.plot()
+                << "\n";
+        }
+
+        if ( globalBackReferenceLengthHistogram.statistics().count > 3 /* 2 are always inserted for min, max! */ ) {
+            std::cout
+                << "\n== Histogram of Backreference Lengths ==\n"
+                << "\n"
+                << globalBackReferenceLengthHistogram.plot()
+                << "\n";
+        }
+
+        std::cout << "Counts for each length in the range [3,258]:\n";
+        for ( const auto count : globalbackReferenceLengths ) {
+            std::cout << " " << count;
+        }
+        std::cout << "\n";
+
+        if ( globalUsedWindowSymbolsHistogram.statistics().count > 3 /* 2 are always inserted for min, max! */ ) {
+            std::cout
+                << "\n== Histogram for Window Symbol Usage ==\n"
+                << "\n"
+                << globalUsedWindowSymbolsHistogram.plot()
+                << "\n";
+        }
+
+        /*    << "Counts for used symbols for each window offset in the range [0,32*1024]:\n";
+        for ( const auto count : globalUsedWindowSymbols ) {
+            std::cout << " " << count;
+        }*/
+
+        if ( totalBlockCount > 1 ) {
+            std::cout
+                << "\n"
+                << "\n"
+                << "== Encoded Block Size Distribution ==\n"
+                << "\n"
+                << Histogram<size_t>{ encodedBlockSizes, 8, "bits" }.plot()
+                << "\n"
+                << "\n"
+                << "== Decoded Block Size Distribution ==\n"
+                << "\n"
+                << Histogram<size_t>{ decodedBlockSizes, 8, "Bytes" }.plot()
+                << "\n"
+                << "\n== Compression Ratio Distribution ==\n"
+                << "\n"
+                << Histogram<double>{ compressionRatios, 8, "Bytes" }.plot()
+                << "\n";
+        }
     }
 
-    std::cout << "Counts for each length in the range [3,258]:\n";
-    for ( const auto count : globalbackReferenceLengths ) {
-        std::cout << " " << count;
-    }
-    std::cout << "\n";
-
-    if ( globalUsedWindowSymbolsHistogram.statistics().count > 3 /* 2 are always inserted for min, max! */ ) {
-        std::cout
-            << "\n== Histogram for Window Symbol Usage ==\n"
-            << "\n"
-            << globalUsedWindowSymbolsHistogram.plot()
-            << "\n";
-    }
-
-    /*    << "Counts for used symbols for each window offset in the range [0,32*1024]:\n";
-    for ( const auto count : globalUsedWindowSymbols ) {
-        std::cout << " " << count;
-    }*/
-
-    if ( totalBlockCount > 1 ) {
-        std::cout
-            << "\n"
-            << "\n"
-            << "== Encoded Block Size Distribution ==\n"
-            << "\n"
-            << Histogram<size_t>{ encodedBlockSizes, 8, "bits" }.plot()
-            << "\n"
-            << "\n"
-            << "== Decoded Block Size Distribution ==\n"
-            << "\n"
-            << Histogram<size_t>{ decodedBlockSizes, 8, "Bytes" }.plot()
-            << "\n"
-            << "\n== Compression Ratio Distribution ==\n"
-            << "\n"
-            << Histogram<double>{ compressionRatios, 8, "Bytes" }.plot()
-            << "\n";
-    }
-
-    if ( streamCount > 1 ) {
+    if ( features.contains( AnalyzeFeature::STREAM_INFO ) && ( streamCount > 1 ) ) {
         std::cout
         << "\n== Compressed Stream Sizes for " << encodedStreamSizes.size() << " streams ==\n"
         << "\n"
@@ -835,9 +875,11 @@ analyze( UniqueFileReader inputFile,
         << "\n";
     }
 
-    std::cout << "== Deflate Block Compression Types ==\n\n";
-    for ( const auto& [compressionType, count] : compressionTypes ) {
-        std::cout << std::setw( 10 ) << toString( compressionType ) << " : " << count << "\n";
+    if ( features.contains( AnalyzeFeature::BLOCK_STATS ) ) {
+        std::cout << "== Deflate Block Compression Types ==\n\n";
+        for ( const auto& [compressionType, count] : compressionTypes ) {
+            std::cout << std::setw( 10 ) << toString( compressionType ) << " : " << count << "\n";
+        }
     }
 
     std::cout << std::endl;

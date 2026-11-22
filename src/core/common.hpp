@@ -227,6 +227,21 @@ split( const std::string_view toSplit,
 }
 
 
+[[nodiscard]] inline std::string_view
+trimWhitespace( std::string_view value )
+{
+    const auto isWhitespace =
+        [] ( const char character ) { return std::isspace( static_cast<unsigned char>( character ) ); };
+    while ( !value.empty() && isWhitespace( value.front() ) ) {
+        value.remove_prefix( 1 );
+    }
+    while ( !value.empty() && isWhitespace( value.back() ) ) {
+        value.remove_suffix( 1 );
+    }
+    return value;
+}
+
+
 [[nodiscard]] inline std::string
 formatBits( const uint64_t value )
 {

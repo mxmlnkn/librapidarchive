@@ -22,6 +22,7 @@ endfunction()
 
 addRapidgzipTest(testCompressedVector)
 addRapidgzipTest(testCRC32)
+addRapidgzipTest(testAnalyzeFeatures)
 addRapidgzipTest(testDeflate)
 addRapidgzipTest(testGzipChunk)
 addRapidgzipTest(testGzipIndexFormat)

@@ -518,6 +518,67 @@ testLineRanges( const std::filesystem::path& rootFolder,
 }
 
 
+[[nodiscard]] std::string
+removeBenchmarkProfile( std::string output )
+{
+    const auto profileHeader = output.find( "== Benchmark Profile" );
+    if ( profileHeader == std::string::npos ) {
+        return output;
+    }
+
+    const auto sectionStart = output.rfind( '\n', profileHeader );
+    const auto nextSection = output.find( "\n== ", profileHeader );
+    const auto eraseStart = sectionStart == std::string::npos ? 0 : sectionStart;
+    const auto eraseEnd = nextSection == std::string::npos ? output.size() : nextSection + 1;
+    output.erase( eraseStart, eraseEnd - eraseStart );
+    return output;
+}
+
+
+void
+testAnalyzeFeatureSelection( const std::filesystem::path& dataFolder )
+{
+    const auto compressedFilePath = ( dataFolder / "base64-256KiB.bgz" ).string();
+    const auto npos = std::string::npos;
+
+    const auto statsOnly =
+        callCLI( "./rapidgzip", rapidgzipCLI,
+                 { "--analyze", "--analyze-features", "block-stats,huffman-stats", compressedFilePath } );
+    REQUIRE( statsOnly.out.find( "== Encoded Block Size Distribution ==" ) != npos );
+    REQUIRE( statsOnly.out.find( "Deflate block:" ) == npos );
+    REQUIRE( statsOnly.out.find( "Huffman Alphabets:" ) == npos );
+    REQUIRE( statsOnly.out.find( "Gzip header:" ) == npos );
+    REQUIRE( statsOnly.out.find( "== Benchmark Profile" ) == npos );
+
+    const auto blockOnly =
+        callCLI( "./rapidgzip", rapidgzipCLI, { "--analyze", "--analyze-features", "block-info", compressedFilePath } );
+    REQUIRE( blockOnly.out.find( "Deflate block:" ) != npos );
+    REQUIRE( blockOnly.out.find( "Huffman Alphabets:" ) == npos );
+    REQUIRE( blockOnly.out.find( "== Encoded Block Size Distribution ==" ) == npos );
+    REQUIRE( blockOnly.out.find( "Gzip header:" ) == npos );
+
+    const auto relative =
+        callCLI( "./rapidgzip", rapidgzipCLI,
+                 { "--analyze", "--analyze-features", "+huffman-stats,-block-info", compressedFilePath } );
+    REQUIRE( relative.out.find( "== Encoded Block Size Distribution ==" ) != npos );
+    REQUIRE( relative.out.find( "Deflate block:" ) == npos );
+    REQUIRE( relative.out.find( "Gzip header:" ) != npos );
+
+    const auto impliedAnalyze =
+        callCLI( "./rapidgzip", rapidgzipCLI, { "--analyze-features", "block-stats", compressedFilePath } );
+    REQUIRE( impliedAnalyze.out.find( "== Encoded Block Size Distribution ==" ) != npos );
+
+    const auto defaultFeatures = callCLI( "./rapidgzip", rapidgzipCLI, { "--analyze", compressedFilePath } );
+    const auto allFeatures =
+        callCLI( "./rapidgzip", rapidgzipCLI,
+                 { "--analyze", "--analyze-features",
+                   "block-info,huffman-info,block-stats,huffman-stats,stream-info,profile", compressedFilePath } );
+    REQUIRE( defaultFeatures.out.find( "== Benchmark Profile" ) != npos );
+    REQUIRE( allFeatures.out.find( "== Benchmark Profile" ) != npos );
+    REQUIRE( removeBenchmarkProfile( defaultFeatures.out ) == removeBenchmarkProfile( allFeatures.out ) );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -543,6 +604,7 @@ main( int    argc,
 
     testLineRanges( rootFolder, /* with imported index */ true );
     testLineRanges( rootFolder, /* with imported index */ false );
+    testAnalyzeFeatureSelection( rootFolder );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 

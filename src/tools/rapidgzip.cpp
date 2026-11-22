@@ -24,6 +24,7 @@
 #include <core/FileUtils.hpp>
 #include <core/Statistics.hpp>
 #include <filereader/Standard.hpp>
+#include <rapidgzip/gzip/AnalyzeFeatures.hpp>
 #include <rapidgzip/gzip/GzipAnalyzer.hpp>
 #include <rapidgzip/rapidgzip.hpp>
 
@@ -66,6 +67,7 @@ struct Arguments
     bool gatherLineOffsets{ false };
     IndexFormat indexFormat{ IndexFormat::INDEXED_GZIP };
     std::optional<std::vector<FileRange> > fileRanges{};
+    deflate::AnalyzeFeatureSet analyzeFeatures{ deflate::AnalyzeFeatureSet::all() };
 };
 
 
@@ -87,6 +89,9 @@ printRapidgzipHelp( const cxxopts::Options& options )
     << "\n"
     << "List information about all gzip streams and deflate blocks:\n"
     << "  rapidgzip --analyze file.gz\n"
+    << "\n"
+    << "List only block and Huffman statistics:\n"
+    << "  rapidgzip --analyze --analyze-features block-stats,huffman-stats file.gz\n"
     << std::endl;
 }
 
@@ -355,13 +360,22 @@ rapidgzipCLI( int                  argc,
     ( "oss-attributions-yaml", "Display open-source software licenses in YAML format for use with Conda." );
 
     /* These options are offered because just piping to other tools can already bottleneck everything! */
+    const auto analyzeFeaturesHelp =
+        std::string( "Comma-separated list of features to print with --analyze (implies --analyze). Default: all. "
+                     "Use '+'/'-' prefixes to add or remove from the default set. Features: " )
+        + deflate::analyzeFeatureNameList()
+        + " (block-details is an alias for block-info). "
+          "Example: +huffman-stats,-block-info. A plain list such as block-stats,huffman-stats "
+          "prints only statistics.";
     options.add_options( "Actions" )
     ( "d,decompress", "Force decompression. Only for compatibility. No compression supported anyways." )
     ( "import-index", "Uses an existing gzip index.", cxxopts::value<std::string>() )
     ( "export-index", "Write out a gzip index file.", cxxopts::value<std::string>() )
     ( "count", "Prints the decompressed size." )
     ( "l,count-lines", "Prints the number of newline characters in the decompressed data." )
-    ( "analyze", "Print output about the internal file format structure like the block types." )
+    ( "analyze", "Print output about the internal file format structure like the block types. "
+                 "Select sections with --analyze-features." )
+    ( "analyze-features", analyzeFeaturesHelp, cxxopts::value<std::string>() )
     ( "t,test", "Verify decompression and checksums, if not disabled with --no-verify. "
                 "Note that this does not have any additional effect when combined with --decompress "
                 "or --ranges because it is equivalent to --decompress -o /dev/null." );
@@ -434,6 +448,11 @@ rapidgzipCLI( int                  argc,
         ( parsedArgs.count( "stdout" ) > 0 )
         || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
     const auto decompress = ( parsedArgs.count( "decompress" ) > 0 ) || ( parsedArgs.count( "ranges" ) > 0 ) || doTest;
+
+    const auto analyze = ( parsedArgs.count( "analyze" ) > 0 ) || ( parsedArgs.count( "analyze-features" ) > 0 );
+    if ( parsedArgs.count( "analyze-features" ) > 0 ) {
+        args.analyzeFeatures = deflate::parseAnalyzeFeatures( parsedArgs["analyze-features"].as<std::string>() );
+    }
 
     /* Parse ranges. */
     if ( parsedArgs.count( "ranges" ) > 0 ) {
@@ -527,8 +546,9 @@ rapidgzipCLI( int                  argc,
 
     /* Check if analysis is requested. */
 
-    if ( parsedArgs.count( "analyze" ) > 0 ) {
-        return rapidgzip::deflate::analyze( std::move( inputFile ), args.verbose ) == rapidgzip::Error::NONE ? 0 : 1;
+    if ( analyze ) {
+        return rapidgzip::deflate::analyze( std::move( inputFile ), args.verbose, args.analyzeFeatures )
+               == rapidgzip::Error::NONE ? 0 : 1;
     }
 
     /* Check that there is at least one actionable request. */
