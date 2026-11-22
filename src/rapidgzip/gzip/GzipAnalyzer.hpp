@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
@@ -231,6 +232,104 @@ analyzeExtraString( std::string_view extra,
     {
         std::cout << prefix << "Dictzip Metadata\n";
     }
+}
+
+
+[[nodiscard]] inline std::string
+formatValueStatistics( const std::vector<std::pair<double, uint64_t> >& valueCounts,
+                       const std::string_view                           unit )
+{
+    const auto total =
+        std::accumulate( valueCounts.begin(), valueCounts.end(), uint64_t( 0 ),
+                         [] ( const uint64_t sum, const auto& valueCount ) { return sum + valueCount.second; } );
+    if ( total == 0 ) {
+        return "Count: 0";
+    }
+
+    const auto valueAt =
+        [&valueCounts] ( const uint64_t index )
+        {
+            uint64_t cumulative{ 0 };
+            for ( const auto& [value, count] : valueCounts ) {
+                cumulative += count;
+                if ( index < cumulative ) {
+                    return value;
+                }
+            }
+            return valueCounts.back().first;
+        };
+
+    const auto percentile =
+        [&valueAt, total] ( const double quantile )
+        {
+            if ( total <= 1 ) {
+                return valueAt( 0 );
+            }
+
+            const auto position = quantile * static_cast<double>( total - 1 );
+            const auto lower = static_cast<uint64_t>( std::floor( position ) );
+            const auto upper = static_cast<uint64_t>( std::ceil( position ) );
+            const auto fraction = position - static_cast<double>( lower );
+            return valueAt( lower ) * ( 1.0 - fraction ) + valueAt( upper ) * fraction;
+        };
+
+    std::stringstream result;
+    result << "Count: " << total
+           << ", min: " << formatStatisticValue( valueCounts.front().first )
+           << ", p25: " << formatStatisticValue( percentile( 0.25 ) )
+           << ", median: " << formatStatisticValue( percentile( 0.5 ) )
+           << ", p75: " << formatStatisticValue( percentile( 0.75 ) )
+           << ", p90: " << formatStatisticValue( percentile( 0.90 ) )
+           << ", p99: " << formatStatisticValue( percentile( 0.99 ) )
+           << ", max: " << formatStatisticValue( valueCounts.back().first );
+    if ( !unit.empty() ) {
+        result << " " << unit;
+    }
+    return std::move( result ).str();
+}
+
+
+template<typename T>
+[[nodiscard]] std::string
+formatValueStatistics( const std::vector<T>&  values,
+                       const std::string_view unit )
+{
+    if ( values.empty() ) {
+        return "Count: 0";
+    }
+
+    auto sorted = values;
+    std::sort( sorted.begin(), sorted.end() );
+
+    std::vector<std::pair<double, uint64_t> > valueCounts;
+    valueCounts.reserve( sorted.size() );
+    for ( const auto value : sorted ) {
+        const auto doubleValue = static_cast<double>( value );
+        if ( valueCounts.empty() || ( valueCounts.back().first != doubleValue ) ) {
+            valueCounts.emplace_back( doubleValue, 1 );
+        } else {
+            valueCounts.back().second += 1;
+        }
+    }
+
+    return formatValueStatistics( valueCounts, unit );
+}
+
+
+template<size_t N>
+[[nodiscard]] std::string
+formatValueStatistics( const std::array<uint64_t, N>&  counts,
+                       const size_t                    minValue,
+                       const std::string_view          unit )
+{
+    std::vector<std::pair<double, uint64_t> > valueCounts;
+    for ( size_t i = 0; i < counts.size(); ++i ) {
+        if ( counts[i] > 0 ) {
+            valueCounts.emplace_back( static_cast<double>( minValue ) + static_cast<double>( i ),
+                                      counts[i] );
+        }
+    }
+    return formatValueStatistics( valueCounts, unit );
 }
 
 
@@ -785,6 +884,7 @@ analyze( UniqueFileReader        inputFile,
             std::cout
                 << "== Precode Code Length Count Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( precodeCodeLengths, "code lengths" ) << "\n"
                 << Histogram<size_t>{ precodeCodeLengths, /* bin count */ 8 }.plot()
                 << "\n";
         }
@@ -793,6 +893,7 @@ analyze( UniqueFileReader        inputFile,
             std::cout
                 << "== Distance Code Length Count Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( distanceCodeLengths, "code lengths" ) << "\n"
                 << Histogram<size_t>{ distanceCodeLengths, /* bin count */ 8 }.plot()
                 << "\n";
         }
@@ -801,6 +902,7 @@ analyze( UniqueFileReader        inputFile,
             std::cout
                 << "== Literal Code Length Count Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( literalCodeLengths, "code lengths" ) << "\n"
                 << Histogram<size_t>{ literalCodeLengths, /* bin count */ 8 }.plot()
                 << "\n"
                 << "\n";
@@ -812,6 +914,7 @@ analyze( UniqueFileReader        inputFile,
             std::cout
                 << "\n== Farthest Backreferences Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( farthestBackreferences, "Bytes" ) << "\n"
                 << Histogram<size_t>{ farthestBackreferences, 8, "Bytes" }.plot()
                 << "\n";
         }
@@ -820,6 +923,7 @@ analyze( UniqueFileReader        inputFile,
             std::cout
                 << "\n== Histogram of Backreference Lengths ==\n"
                 << "\n"
+                << formatValueStatistics( globalbackReferenceLengths, 0, "Bytes" ) << "\n"
                 << globalBackReferenceLengthHistogram.plot()
                 << "\n";
         }
@@ -834,6 +938,7 @@ analyze( UniqueFileReader        inputFile,
             std::cout
                 << "\n== Histogram for Window Symbol Usage ==\n"
                 << "\n"
+                << formatValueStatistics( globalUsedWindowSymbols, 0, "Bytes" ) << "\n"
                 << globalUsedWindowSymbolsHistogram.plot()
                 << "\n";
         }
@@ -849,15 +954,18 @@ analyze( UniqueFileReader        inputFile,
                 << "\n"
                 << "== Encoded Block Size Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( encodedBlockSizes, "bits" ) << "\n"
                 << Histogram<size_t>{ encodedBlockSizes, 8, "bits" }.plot()
                 << "\n"
                 << "\n"
                 << "== Decoded Block Size Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( decodedBlockSizes, "Bytes" ) << "\n"
                 << Histogram<size_t>{ decodedBlockSizes, 8, "Bytes" }.plot()
                 << "\n"
                 << "\n== Compression Ratio Distribution ==\n"
                 << "\n"
+                << formatValueStatistics( compressionRatios, "" ) << "\n"
                 << Histogram<double>{ compressionRatios, 8, "Bytes" }.plot()
                 << "\n";
         }
@@ -867,10 +975,12 @@ analyze( UniqueFileReader        inputFile,
         std::cout
         << "\n== Compressed Stream Sizes for " << encodedStreamSizes.size() << " streams ==\n"
         << "\n"
+        << formatValueStatistics( encodedStreamSizes, "Bytes" ) << "\n"
         << Histogram<size_t>{ encodedStreamSizes, 8, "Bytes" }.plot()
         << "\n"
         << "\n== Decompressed Stream Sizes for " << decodedStreamSizes.size() << " streams ==\n"
         << "\n"
+        << formatValueStatistics( decodedStreamSizes, "Bytes" ) << "\n"
         << Histogram<size_t>{ decodedStreamSizes, 8, "Bytes" }.plot()
         << "\n";
     }

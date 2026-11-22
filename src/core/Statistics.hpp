@@ -143,6 +143,29 @@ public:
 };
 
 
+[[nodiscard]] inline std::string
+formatStatisticValue( const double value,
+                      const bool   compact = true )
+{
+    std::stringstream result;
+    if ( compact ) {
+        if ( std::round( value ) == value ) {
+            result << std::llround( value );
+        } else if ( std::abs( value ) >= 1000 ) {
+            result << std::fixed << std::setprecision( 0 ) << value;
+        } else {
+            result << std::setprecision( 4 ) << value;
+        }
+    } else {
+        if ( std::round( value ) != value ) {
+            result << std::scientific;
+        }
+        result << value;
+    }
+    return std::move( result ).str();
+}
+
+
 template<typename T>
 class Histogram
 {
@@ -311,17 +334,11 @@ private:
     [[nodiscard]] std::string
     formatLabel( double value ) const
     {
-        std::stringstream result;
-        if ( std::round( value ) != value ) {
-            result << std::scientific;
-        }
-        result << value;
-
+        auto result = formatStatisticValue( value, /* compact */ false );
         if ( !m_unit.empty() ) {
-            result << " " << m_unit;
+            result += " " + m_unit;
         }
-
-        return result.str();
+        return result;
     }
 
 private:

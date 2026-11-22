@@ -545,6 +545,7 @@ testAnalyzeFeatureSelection( const std::filesystem::path& dataFolder )
         callCLI( "./rapidgzip", rapidgzipCLI,
                  { "--analyze", "--analyze-features", "block-stats,huffman-stats", compressedFilePath } );
     REQUIRE( statsOnly.out.find( "== Encoded Block Size Distribution ==" ) != npos );
+    REQUIRE( statsOnly.out.find( "Count: " ) != npos );
     REQUIRE( statsOnly.out.find( "Deflate block:" ) == npos );
     REQUIRE( statsOnly.out.find( "Huffman Alphabets:" ) == npos );
     REQUIRE( statsOnly.out.find( "Gzip header:" ) == npos );
