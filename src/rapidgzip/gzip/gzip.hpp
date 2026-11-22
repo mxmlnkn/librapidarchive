@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -85,9 +86,7 @@ constexpr auto MAGIC_COMPRESSION = 0x08U;
 /* Note that the byte order is reversed because of the LSB BitReader. */
 constexpr auto MAGIC_BYTES_GZIP = 0x08'8B'1FU;
 
-/* This is not a gzip-specific constant. It's such so that the decoder will not try to
- * read the whole file to memory for invalid data. */
-constexpr auto MAX_ALLOWED_FIELD_SIZE = 1024 * 1024;
+constexpr auto DEFAULT_MAX_CAPTURED_FIELD_SIZE = 4 * 1024 * 1024;
 
 
 [[nodiscard]] inline std::string
@@ -130,6 +129,24 @@ getExtraFlagsDescription( uint8_t code ) noexcept
 }
 
 
+template<typename Container>
+struct HeaderField
+{
+    Container data;
+    uint64_t size{ 0 };
+
+    [[nodiscard]] uint64_t
+    skippedBytes() const noexcept
+    {
+        return size - data.size();
+    }
+};
+
+
+using HeaderExtra = HeaderField<std::vector<uint8_t>>;
+using HeaderString = HeaderField<std::string>;
+
+
 struct Header
 {
     uint32_t modificationTime{ 0 };
@@ -141,9 +158,9 @@ struct Header
     uint8_t extraFlags{ 0 };
 
     bool isLikelyASCII{ false };
-    std::optional<std::vector<uint8_t> > extra;
-    std::optional<std::string> fileName;
-    std::optional<std::string> comment;
+    std::optional<HeaderExtra> extra;
+    std::optional<HeaderString> fileName;
+    std::optional<HeaderString> comment;
     std::optional<uint16_t> crc16;
 };
 
@@ -156,7 +173,8 @@ struct Footer
 
 
 inline std::pair<Header, Error>
-readHeader( gzip::BitReader& bitReader )
+readHeader( gzip::BitReader&  bitReader,
+            const size_t      maxCapturedFieldSize = DEFAULT_MAX_CAPTURED_FIELD_SIZE )
 {
     Header header;
 
@@ -180,9 +198,9 @@ readHeader( gzip::BitReader& bitReader )
         header.isLikelyASCII = ( flags & 1U ) != 0U;
 
         const auto readZeroTerminatedString =
-            [&bitReader] () -> std::pair<std::string, Error>
+            [&bitReader, maxCapturedFieldSize] () -> std::pair<HeaderString, Error>
             {
-                std::string result;
+                HeaderString result;
                 while ( true ) {
                     if ( bitReader.eof() ) {
                         return { std::move( result ), Error::EOF_ZERO_STRING };
@@ -192,33 +210,40 @@ readHeader( gzip::BitReader& bitReader )
                     if ( character == 0 ) {
                         return { std::move( result ), Error::NONE };
                     }
-                    if ( result.size() < MAX_ALLOWED_FIELD_SIZE ) {
-                        result.push_back( character );
+
+                    ++result.size;
+                    if ( result.data.size() < maxCapturedFieldSize ) {
+                        result.data.push_back( character );
                     }
                 }
-                return { std::move( result ), Error::INVALID_GZIP_HEADER };
             };
 
         if ( ( flags & ( 1U << 2U ) ) != 0 ) {
-            const auto length = bitReader.read<16>();
-            std::vector<uint8_t> extraData( static_cast<size_t>( length ) );
-            for ( auto& extraByte : extraData ) {
-                extraByte = static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() );
+            const auto length = static_cast<size_t>( bitReader.read<16>() );
+            HeaderExtra extra;
+            extra.size = length;
+            const auto capturedSize = std::min( length, maxCapturedFieldSize );
+            extra.data.resize( capturedSize );
+            for ( size_t i = 0; i < length; ++i ) {
+                const auto extraByte = static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() );
+                if ( i < capturedSize ) {
+                    extra.data[i] = extraByte;
+                }
             }
-            header.extra = std::move( extraData );
+            header.extra = std::move( extra );
         }
 
-        Error error = Error::NONE;
-
         if ( ( flags & ( 1U << 3U ) ) != 0 ) {
-            std::tie( header.fileName, error ) = readZeroTerminatedString();
+            auto [fileName, error] = readZeroTerminatedString();
+            header.fileName = std::move( fileName );
             if ( error != Error::NONE ) {
                 return { header, error };
             }
         }
 
         if ( ( flags & ( 1U << 4U ) ) != 0 ) {
-            std::tie( header.comment, error ) = readZeroTerminatedString();
+            auto [comment, error] = readZeroTerminatedString();
+            header.comment = std::move( comment );
             if ( error != Error::NONE ) {
                 return { header, error };
             }
