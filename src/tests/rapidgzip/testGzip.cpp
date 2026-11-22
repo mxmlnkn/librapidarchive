@@ -18,6 +18,7 @@
 #include <filereader/Buffered.hpp>
 #include <filereader/BufferView.hpp>
 #include <filereader/Standard.hpp>
+#include <indexed_bzip2/BZ2Reader.hpp>
 #include <rapidgzip/gzip/GzipReader.hpp>
 #include <rapidgzip/gzip/format.hpp>
 #include <rapidgzip/gzip/zlib.hpp>
@@ -581,25 +582,19 @@ testSerialDecoderRawDeflateSevenPaddingBits()
 
 
 void
-testGzipHeaderFieldCapture()
+checkLongHeaderField( const std::vector<uint8_t>& header,
+                      const size_t                longFieldSize )
 {
-    constexpr size_t LONG_FIELD_SIZE = gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE + 1024 * 1024;
-
-    /* FLG.FCOMMENT with a field longer than the default capture limit. */
-    std::vector<uint8_t> header = { 0x1F, 0x8B, 0x08, 0x10, 0, 0, 0, 0, 0, 3 };
-    header.insert( header.end(), LONG_FIELD_SIZE, 'A' );
-    header.push_back( 0 );
-
     {
         gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( header ) );
         const auto [parsedHeader, error] = gzip::readHeader( bitReader );
         REQUIRE( error == Error::NONE );
         REQUIRE( parsedHeader.comment.has_value() );
-        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE ) );
+        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( longFieldSize ) );
         REQUIRE_EQUAL( parsedHeader.comment->data.size(),
                        size_t( gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
         REQUIRE_EQUAL( parsedHeader.comment->skippedBytes(),
-                       uint64_t( LONG_FIELD_SIZE - gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
+                       uint64_t( longFieldSize - gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
     }
 
     /* Skipping the field must not reject it and must not copy it. */
@@ -614,7 +609,7 @@ testGzipHeaderFieldCapture()
         const auto [parsedHeader, error] = gzip::readHeader( bitReader, /* maxCapturedFieldSize */ 0 );
         REQUIRE( error == Error::NONE );
         REQUIRE( parsedHeader.comment.has_value() );
-        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE ) );
+        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( longFieldSize ) );
         REQUIRE( parsedHeader.comment->data.empty() );
     }
 
@@ -651,7 +646,7 @@ testGzipHeaderFieldCapture()
         const auto [parsedHeader, error] = gzip::readHeader( bitReader );
         REQUIRE( error == Error::EOF_ZERO_STRING );
         REQUIRE( parsedHeader.comment.has_value() );
-        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE + 1 ) );
+        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( longFieldSize + 1 ) );
         REQUIRE_EQUAL( parsedHeader.comment->data.size(),
                        size_t( gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
     }
@@ -667,6 +662,47 @@ testGzipHeaderFieldCapture()
     }
 }
 
+
+void
+testGzipHeaderFieldCapture()
+{
+    constexpr size_t LONG_FIELD_SIZE = gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE + 1024 * 1024;
+
+    /* FLG.FCOMMENT with a field longer than the default capture limit. */
+    std::vector<uint8_t> header = { 0x1F, 0x8B, 0x08, 0x10, 0, 0, 0, 0, 0, 3 };
+    header.insert( header.end(), LONG_FIELD_SIZE, 'A' );
+    header.push_back( 0 );
+
+    checkLongHeaderField( header, LONG_FIELD_SIZE );
+}
+
+
+[[nodiscard]] std::vector<uint8_t>
+decompressBzip2( const std::filesystem::path& path )
+{
+    const auto compressed = readFile<std::vector<uint8_t> >( path );
+    indexed_bzip2::BZ2Reader reader( std::make_unique<BufferViewFileReader>( compressed ) );
+
+    std::vector<uint8_t> result;
+    std::array<char, 4_Ki> buffer{};
+    size_t nBytesRead{ 0 };
+    do {
+        nBytesRead = reader.read( -1, buffer.data(), buffer.size() );
+        result.insert( result.end(), buffer.data(), buffer.data() + nBytesRead );
+    } while ( nBytesRead > 0 );
+    return result;
+}
+
+
+void
+testGzipHeaderFieldCaptureFromFile( const std::filesystem::path& rootFolder )
+{
+    /* The compressed fixture is header-only, like the in-memory header above, so that the final zero byte can
+     * still be replaced to test an unterminated field. */
+    constexpr size_t LONG_FIELD_SIZE = gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE + 1024 * 1024;
+    const auto header = decompressBzip2( rootFolder / "long-gzip-header-field.gz.bz2" );
+    checkLongHeaderField( header, LONG_FIELD_SIZE );
+}
 
 
 void
@@ -795,6 +831,7 @@ main( int    argc,
         ) / "src" / "tests" / "data";
 
     testGzipHeaderFieldCapture();
+    testGzipHeaderFieldCaptureFromFile( testsFolder );
     testSerialDecoderRawDeflateSevenPaddingBits();
     testZlibHeaderWindowSize();
     testSerialDecoderZlibAdler32( testsFolder );
