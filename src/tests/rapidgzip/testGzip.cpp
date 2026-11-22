@@ -581,30 +581,80 @@ testSerialDecoderRawDeflateSevenPaddingBits()
 
 
 void
-testGzipHeaderFieldLengthLimit()
+testGzipHeaderFieldCapture()
 {
-    std::vector<uint8_t> header = { 0x1F, 0x8B, 0x08, 0x08, 0, 0, 0, 0, 0, 3 };
-    header.insert( header.end(), gzip::MAX_ALLOWED_FIELD_SIZE, 'A' );
+    constexpr size_t LONG_FIELD_SIZE = gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE + 1024 * 1024;
+
+    /* FLG.FCOMMENT with a field longer than the default capture limit. */
+    std::vector<uint8_t> header = { 0x1F, 0x8B, 0x08, 0x10, 0, 0, 0, 0, 0, 3 };
+    header.insert( header.end(), LONG_FIELD_SIZE, 'A' );
     header.push_back( 0 );
 
     {
         gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( header ) );
         const auto [parsedHeader, error] = gzip::readHeader( bitReader );
         REQUIRE( error == Error::NONE );
-        REQUIRE_EQUAL( parsedHeader.fileName.value().size(), size_t( gzip::MAX_ALLOWED_FIELD_SIZE ) );
+        REQUIRE( parsedHeader.comment.has_value() );
+        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE ) );
+        REQUIRE_EQUAL( parsedHeader.comment->data.size(),
+                       size_t( gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
+        REQUIRE_EQUAL( parsedHeader.comment->skippedBytes(),
+                       uint64_t( LONG_FIELD_SIZE - gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
     }
 
-    /* A filename without a terminating zero must be rejected instead of parsing the following bytes as the
-     * deflate stream. */
+    /* Skipping the field must not reject it and must not copy it. */
+    {
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( header ) );
+        REQUIRE_EQUAL( gzip::checkHeader( bitReader ), Error::NONE );
+    }
+
+    /* The parallel reader passes zero so that the comment is skipped without being copied. */
+    {
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( header ) );
+        const auto [parsedHeader, error] = gzip::readHeader( bitReader, /* maxCapturedFieldSize */ 0 );
+        REQUIRE( error == Error::NONE );
+        REQUIRE( parsedHeader.comment.has_value() );
+        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE ) );
+        REQUIRE( parsedHeader.comment->data.empty() );
+    }
+
+    /* Detection must recognize the file instead of falling through to "unknown format". */
+    {
+        const UniqueFileReader reader = std::make_unique<BufferViewFileReader>( header );
+        const auto detectedFormat = determineFileTypeAndOffset( reader );
+        REQUIRE( detectedFormat.has_value() );
+        REQUIRE( detectedFormat->first == FileType::GZIP );
+    }
+
+    /* FEXTRA uses the same capture limit and size accounting. */
+    {
+        const std::vector<uint8_t> extraHeader = {
+            0x1F, 0x8B, 0x08, 0x04, 0, 0, 0, 0, 0, 3,
+            4, 0, 1, 2, 3, 4,
+        };
+
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( extraHeader ) );
+        const auto [parsedHeader, error] = gzip::readHeader( bitReader, /* maxCapturedFieldSize */ 0 );
+        REQUIRE( error == Error::NONE );
+        REQUIRE( parsedHeader.extra.has_value() );
+        REQUIRE_EQUAL( parsedHeader.extra->size, uint64_t( 4 ) );
+        REQUIRE( parsedHeader.extra->data.empty() );
+    }
+
+    /* An unterminated field is reported as such, not as an invalid gzip magic. */
     {
         auto unterminated = header;
         unterminated.back() = 'B';
         gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( unterminated ) );
         const auto [parsedHeader, error] = gzip::readHeader( bitReader );
-        REQUIRE( error == Error::INVALID_GZIP_HEADER );
-        REQUIRE_EQUAL( parsedHeader.fileName.value().size(), size_t( gzip::MAX_ALLOWED_FIELD_SIZE ) );
+        REQUIRE( error == Error::EOF_ZERO_STRING );
+        REQUIRE( parsedHeader.comment.has_value() );
+        REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE + 1 ) );
+        REQUIRE_EQUAL( parsedHeader.comment->data.size(),
+                       size_t( gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
     }
 }
+
 
 
 void
@@ -732,7 +782,7 @@ main( int    argc,
             findParentFolderContaining( binaryFolder, "src/tests/data/base64-256KiB.bgz" )
         ) / "src" / "tests" / "data";
 
-    testGzipHeaderFieldLengthLimit();
+    testGzipHeaderFieldCapture();
     testSerialDecoderRawDeflateSevenPaddingBits();
     testZlibHeaderWindowSize();
     testSerialDecoderZlibAdler32( testsFolder );

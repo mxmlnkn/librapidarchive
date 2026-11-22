@@ -57,6 +57,30 @@ escapeNonPrintable( std::string_view value )
 }
 
 
+template<typename Container>
+[[nodiscard]] inline std::string
+formatHeaderField( const gzip::HeaderField<Container>& field,
+                   const size_t                        maxDisplayBytes = 256 )
+{
+    if ( field.data.empty() ) {
+        return field.size == 0 ? std::string{} : "<not captured, " + std::to_string( field.size ) + " B>";
+    }
+
+    const auto data = std::string_view{
+        reinterpret_cast<const char*>( field.data.data() ), field.data.size() };
+    const auto displayedBytes = std::min( data.size(), maxDisplayBytes );
+    auto result = escapeNonPrintable( data.substr( 0, displayedBytes ) );
+    if ( field.skippedBytes() > 0 ) {
+        result += " ... (" + std::to_string( field.size ) + " B total, "
+                  + std::to_string( field.skippedBytes() ) + " B not captured)";
+    } else if ( data.size() > displayedBytes ) {
+        result += " ... (" + std::to_string( field.size ) + " B total, "
+                  + std::to_string( field.size - displayedBytes ) + " B not shown)";
+    }
+    return result;
+}
+
+
 inline void
 analyzeExtraString( std::string_view extra,
                     std::string_view prefix = "" )
@@ -235,7 +259,8 @@ analyzeExtraString( std::string_view extra,
 
 [[nodiscard]] inline rapidgzip::Error
 analyze( UniqueFileReader inputFile,
-         const bool       verbose = false )
+         const bool       verbose = false,
+         const size_t     maxCapturedHeaderFieldSize = gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE )
 {
     using namespace rapidgzip;
     using Block = rapidgzip::deflate::Block</* Statistics */ true>;
@@ -309,7 +334,7 @@ analyze( UniqueFileReader inputFile,
             if ( !gzipHeader ) {
                 headerOffset = bitReader.tell();
 
-                const auto [header, error] = gzip::readHeader( bitReader );
+                const auto [header, error] = gzip::readHeader( bitReader, maxCapturedHeaderFieldSize );
                 if ( error != Error::NONE ) {
                     std::cerr << "Encountered error: " << toString( error ) << " while trying to read gzip header!\n";
                     return error;
@@ -330,7 +355,7 @@ analyze( UniqueFileReader inputFile,
                 std::cout << "    Compressed Offset   : " << formatBits( headerOffset ) << "\n";
                 std::cout << "    Uncompressed Offset : " << totalBytesRead << " B\n";
                 if ( header.fileName ) {
-                    std::cout << "    File Name           : " << escapeNonPrintable( *header.fileName ) << "\n";
+                    std::cout << "    File Name           : " << formatHeaderField( *header.fileName ) << "\n";
                 }
                 std::cout << "    Modification Time   : " << header.modificationTime << "\n";
                 std::cout << "    OS                  : " << gzip::getOperatingSystemName( header.operatingSystem )
@@ -338,15 +363,19 @@ analyze( UniqueFileReader inputFile,
                 std::cout << "    Flags               : " << gzip::getExtraFlagsDescription( header.extraFlags )
                           << "\n";
                 if ( header.comment ) {
-                    std::cout << "    Comment             : " << escapeNonPrintable( *header.comment ) << "\n";
+                    std::cout << "    Comment             : " << formatHeaderField( *header.comment ) << "\n";
                 }
                 if ( header.extra ) {
-                    std::cout << "    Extra               : " << header.extra->size() << " B: "
-                              << escapeNonPrintable( { reinterpret_cast<const char*>( header.extra->data() ),
-                                                       header.extra->size() } ) << "\n";
-                    analyzeExtraString( { reinterpret_cast<const char*>( header.extra->data() ),
-                                          header.extra->size() },
-                                        "        " );
+                    std::cout << "    Extra               : " << header.extra->size << " B: "
+                              << formatHeaderField( *header.extra ) << "\n";
+                    if ( header.extra->data.size() == header.extra->size ) {
+                        const auto extraView =
+                            header.extra->data.empty()
+                            ? std::string_view{}
+                            : std::string_view( reinterpret_cast<const char*>( header.extra->data.data() ),
+                                                header.extra->data.size() );
+                        analyzeExtraString( extraView, "        " );
+                    }
                 }
                 if ( header.crc16 ) {
                     std::stringstream crc16String;

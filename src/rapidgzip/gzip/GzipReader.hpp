@@ -480,7 +480,7 @@ private:
         case FileType::BGZF:
         case FileType::GZIP:
         {
-            auto [header, error] = gzip::readHeader( m_bitReader );
+            auto [header, error] = gzip::readHeader( m_bitReader, /* maxCapturedFieldSize */ 0 );
             if ( error != Error::NONE ) {
                 if ( hasPreviousMember && remainingInputIsZero( headerStart ) ) {
                     m_atEndOfFile = true;
