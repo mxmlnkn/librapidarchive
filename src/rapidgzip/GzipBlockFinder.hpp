@@ -55,9 +55,10 @@ public:
             throw std::invalid_argument( "A spacing smaller than the window size makes no sense!" );
         }
 
-        const auto detectedFormat = determineFileTypeAndOffset( m_file );
+        Error gzipHeaderError = Error::NONE;
+        const auto detectedFormat = determineFileTypeAndOffset( m_file, &gzipHeaderError );
         if ( !detectedFormat ) {
-            throw std::invalid_argument( "Failed to detect a valid file format." );
+            throw std::invalid_argument( formatFileTypeDetectionError( gzipHeaderError ) );
         }
 
         m_fileType = detectedFormat->first;

@@ -14,8 +14,21 @@
 
 namespace rapidgzip
 {
+[[nodiscard]] inline std::string
+formatFileTypeDetectionError( const Error gzipHeaderError )
+{
+    std::string message = "Failed to detect a valid file format.";
+    if ( gzipHeaderError != Error::NONE ) {
+        message += " Gzip header error: ";
+        message += toString( gzipHeaderError );
+    }
+    return message;
+}
+
+
 [[nodiscard]] inline std::optional<std::pair<FileType, /* offset */ size_t> >
-determineFileTypeAndOffset( const UniqueFileReader& fileReader )
+determineFileTypeAndOffset( const UniqueFileReader& fileReader,
+                            Error* const            gzipHeaderError = nullptr )
 {
     if ( !fileReader ) {
         return std::nullopt;
@@ -25,6 +38,9 @@ determineFileTypeAndOffset( const UniqueFileReader& fileReader )
      * The correctness and existence of this first block is a required initial condition for the algorithm. */
     gzip::BitReader bitReader{ fileReader->clone() };
     const auto gzipError = gzip::readHeader( bitReader, /* maxCapturedFieldSize */ 0 ).second;
+    if ( gzipHeaderError != nullptr ) {
+        *gzipHeaderError = gzipError;
+    }
     if ( gzipError == Error::NONE ) {
         return std::make_pair( blockfinder::Bgzf::isBgzfFile( fileReader ) ? FileType::BGZF : FileType::GZIP,
                                bitReader.tell() );
