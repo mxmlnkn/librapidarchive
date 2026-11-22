@@ -1,20 +1,77 @@
 #pragma once
 
+#include <cstddef>
+#include <ostream>
 #include <string>
 #include <string_view>
 
+#include <cxxopts.hpp>
 #include <libsais.h>
+
+#ifdef LIBRAPIDARCHIVE_WITH_ZLIB
+    #include <zlib.h>
+#endif
 
 
 namespace thirdparty
 {
-namespace cxxopts
+struct License
 {
-static constexpr std::string_view name{ "cxxopts" };
-static constexpr std::string_view url{ "https://github.com/jarro2783/cxxopts/" };
-static constexpr std::string_view licenseId{ "MIT" };
-static constexpr std::string_view license{
-    R"(Copyright (c) 2014 Jarryd Beck
+    std::string_view id;
+    std::string_view text;
+};
+
+struct Library
+{
+    std::string_view name;
+    std::string_view url;
+    std::string_view version;
+    std::string_view licenseId;
+    License license;
+    License additionalLicense{};
+    std::string_view licenseSeparator{};
+};
+
+
+[[nodiscard]] inline std::string
+toYamlString( const std::string_view text )
+{
+    std::string result;
+    result += '"';
+    for ( const auto c : text ) {
+        switch ( c )
+        {
+        case '"':
+            result += R"(\")";
+            break;
+        case '\\':
+            result += R"(\\)";
+            break;
+        case '\n':
+            result += R"(\n)";
+            break;
+        default:
+            result += c;
+            break;
+        }
+    }
+    result += '"';
+    return result;
+}
+
+
+#define THIRDPARTY_STRINGIFY_IMPL( value ) #value
+#define THIRDPARTY_STRINGIFY( value ) THIRDPARTY_STRINGIFY_IMPL( value )
+
+static constexpr Library CXXOPTS{
+    "cxxopts",
+    "https://github.com/jarro2783/cxxopts/",
+    THIRDPARTY_STRINGIFY( CXXOPTS__VERSION_MAJOR ) "."
+    THIRDPARTY_STRINGIFY( CXXOPTS__VERSION_MINOR ) "."
+    THIRDPARTY_STRINGIFY( CXXOPTS__VERSION_PATCH ),
+    "MIT",
+    { "MIT",
+      R"(Copyright (c) 2014 Jarryd Beck
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -33,17 +90,20 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-)" };
-}  // namespace cxxopts
+)" },
+};
+
+#undef THIRDPARTY_STRINGIFY
+#undef THIRDPARTY_STRINGIFY_IMPL
 
 
-namespace isal
-{
-static constexpr std::string_view name{ "ISA-L" };
-static constexpr std::string_view url{ "https://github.com/intel/isa-l" };
-static constexpr std::string_view licenseId{ "BSD-3-Clause" };
-static constexpr std::string_view license{
-    R"(Copyright(c) 2011-2017 Intel Corporation All rights reserved.
+static constexpr Library ISAL{
+    "ISA-L",
+    "https://github.com/intel/isa-l",
+    "2.30.0",
+    "BSD-3-Clause",
+    { "BSD-3-Clause",
+      R"(Copyright(c) 2011-2017 Intel Corporation All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions
@@ -69,17 +129,17 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-)" };
-}  // namespace isal
+)" },
+};
 
 
-namespace rpmalloc
-{
-static constexpr std::string_view name{ "rpmalloc" };
-static constexpr std::string_view url{ "https://github.com/mjansson/rpmalloc" };
-static constexpr std::string_view licenseId{ "Unlicense OR MIT" };
-static constexpr std::string_view unlicense{
-    R"(This is free and unencumbered software released into the public domain.
+static constexpr Library RPMALLOC{
+    "rpmalloc",
+    "https://github.com/mjansson/rpmalloc",
+    "1.4.4",
+    "Unlicense OR MIT",
+    { "Unlicense",
+      R"(This is free and unencumbered software released into the public domain.
 
 Anyone is free to copy, modify, publish, use, compile, sell, or
 distribute this software, either in source code form or as a compiled
@@ -103,10 +163,9 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 
 For more information, please refer to <http://unlicense.org>
-)" };
-
-static constexpr std::string_view mit{
-    R"(The MIT License (MIT)
+)" },
+    { "MIT",
+      R"(The MIT License (MIT)
 
 Copyright (c) 2017 Mattias Jansson
 
@@ -128,87 +187,21 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-)" };
-
-static const std::string fullLicense{
-    std::string( unlicense )
-    + R"(
+)" },
+    R"(
 You can also use this software under the MIT license if public domain
 is not recognized in your country
-)" + std::string( mit )
+)",
 };
-}  // namespace rpmalloc
 
 
-namespace zlib
-{
-static constexpr std::string_view name{ "zlib" };
-static constexpr std::string_view url{ "https://github.com/madler/zlib/" };
-static constexpr std::string_view licenseId{ "Zlib" };
-static constexpr std::string_view license{
-    R"(Copyright notice:
-
- (C) 1995-2022 Jean-loup Gailly and Mark Adler
-
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
-  arising from the use of this software.
-
-  Permission is granted to anyone to use this software for any purpose,
-  including commercial applications, and to alter it and redistribute it
-  freely, subject to the following restrictions:
-
-  1. The origin of this software must not be misrepresented; you must not
-     claim that you wrote the original software. If you use this software
-     in a product, an acknowledgment in the product documentation would be
-     appreciated but is not required.
-  2. Altered source versions must be plainly marked as such, and must not be
-     misrepresented as being the original software.
-  3. This notice may not be removed or altered from any source distribution.
-
-  Jean-loup Gailly        Mark Adler
-  jloup@gzip.org          madler@alumni.caltech.edu
-)" };
-}  // namespace zlib
-
-
-namespace zlib_ng
-{
-static constexpr std::string_view name{ "zlib-ng" };
-static constexpr std::string_view url{ "https://github.com/zlib-ng/zlib-ng" };
-static constexpr std::string_view licenseId{ "Zlib" };
-static constexpr std::string_view license{
-    R"((C) 1995-2024 Jean-loup Gailly and Mark Adler
-
-This software is provided 'as-is', without any express or implied
-warranty. In no event will the authors be held liable for any damages
-arising from the use of this software.
-
-Permission is granted to anyone to use this software for any purpose,
-including commercial applications, and to alter it and redistribute it
-freely, subject to the following restrictions:
-
-1. The origin of this software must not be misrepresented; you must not
-   claim that you wrote the original software. If you use this software
-   in a product, an acknowledgment in the product documentation would be
-   appreciated but is not required.
-
-2. Altered source versions must be plainly marked as such, and must not be
-   misrepresented as being the original software.
-
-3. This notice may not be removed or altered from any source distribution.
-)" };
-}  // namespace zlib_ng
-
-
-namespace bzip2
-{
-static constexpr std::string_view name{ "bzip2" };
-static constexpr std::string_view url{ "https://gitlab.com/bzip2/bzip2" };
-static constexpr std::string_view version{ "1.0.8" };
-static constexpr std::string_view licenseId{ "bzip2-1.0.6" };
-static constexpr std::string_view license{
-    R"(--------------------------------------------------------------------------
+static constexpr Library BZIP2{
+    "bzip2",
+    "https://gitlab.com/bzip2/bzip2",
+    "1.0.8",
+    "bzip2-1.0.6",
+    { "bzip2-1.0.6",
+      R"(--------------------------------------------------------------------------
 
 This program, "bzip2", the associated library "libbzip2", and all
 documentation, are copyright (C) 1996-2010 Julian R Seward.  All
@@ -249,25 +242,17 @@ Julian Seward, jseward@acm.org
 bzip2/libbzip2 version 1.1.0 of 6 September 2010
 
 --------------------------------------------------------------------------
-)" };
-}  // namespace bzip2
+)" },
+};
 
 
-namespace libsais
-{
-static constexpr std::string_view name{ "libsais" };
-static constexpr std::string_view url{ "https://github.com/IlyaGrebnov/libsais" };
-static constexpr std::string_view licenseId{ "Apache-2.0 WITH LLVM-exception" };
-
-[[nodiscard]] inline std::string
-version()
-{
-    return std::to_string( LIBSAIS_VERSION_MAJOR ) + "." + std::to_string( LIBSAIS_VERSION_MINOR ) + "."
-           + std::to_string( LIBSAIS_VERSION_PATCH );
-}
-
-static constexpr std::string_view license{
-    R"(
+static constexpr Library LIBSAIS{
+    "libsais",
+    "https://github.com/IlyaGrebnov/libsais",
+    LIBSAIS_VERSION_STRING,
+    "Apache-2.0 WITH LLVM-exception",
+    { "Apache-2.0 WITH LLVM-exception",
+      R"(
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
@@ -486,18 +471,17 @@ conflicts with the conditions of the GPLv2, you may retroactively and
 prospectively choose to deem waived or otherwise exclude such Section(s) of
 the License, but only in their entirety and only with respect to the Combined
 Software.
-)" };
-}  // namespace libsais
+)" },
+};
 
 
-namespace toybox
-{
-static constexpr std::string_view name{ "toybox" };
-static constexpr std::string_view url{ "https://github.com/landley/toybox" };
-static constexpr std::string_view version{ "7bf68329eb3b" };
-static constexpr std::string_view licenseId{ "0BSD" };
-static constexpr std::string_view license{
-    R"(Copyright 2003, 2007 Rob Landley <rob@landley.net>
+static constexpr Library TOYBOX{
+    "toybox",
+    "https://github.com/landley/toybox",
+    "7bf68329eb3b",
+    "0BSD",
+    { "0BSD",
+      R"(Copyright 2003, 2007 Rob Landley <rob@landley.net>
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted.
@@ -509,33 +493,114 @@ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
 ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-)" };
-}  // namespace toybox
-}  // namespace thirdparty
+)" },
+};
 
 
-[[nodiscard]] inline std::string
-toYamlString( const std::string_view text )
+#ifdef LIBRAPIDARCHIVE_WITH_ZLIB
+#ifdef ZLIB_COMPAT
+static constexpr Library ZLIB{
+    "zlib-ng",
+    "https://github.com/zlib-ng/zlib-ng",
+    ZLIBNG_VERSION,
+    "Zlib",
+    { "Zlib",
+      R"((C) 1995-2024 Jean-loup Gailly and Mark Adler
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+
+3. This notice may not be removed or altered from any source distribution.
+)" },
+};
+#else
+static constexpr Library ZLIB{
+    "zlib",
+    "https://github.com/madler/zlib/",
+    ZLIB_VERSION,
+    "Zlib",
+    { "Zlib",
+      R"(Copyright notice:
+
+ (C) 1995-2022 Jean-loup Gailly and Mark Adler
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+
+  Jean-loup Gailly        Mark Adler
+  jloup@gzip.org          madler@alumni.caltech.edu
+)" },
+};
+#endif
+#endif
+
+
+template<typename Libraries>
+void
+printOssAttributions( std::ostream& out, const Libraries& libraries )
 {
-    std::string result;
-    result += '"';
-    for ( const auto c : text ) {
-        switch ( c )
-        {
-        case '"':
-            result += R"(\")";
-            break;
-        case '\\':
-            result += R"(\\)";
-            break;
-        case '\n':
-            result += R"(\n)";
-            break;
-        default:
-            result += c;
-            break;
+    for ( size_t i = 0; i < libraries.size(); ++i ) {
+        const auto& library = libraries[i];
+        out << "# " << library.name << "\n\n"
+            << library.url << "\n\n"
+            << library.license.text;
+        if ( !library.additionalLicense.text.empty() ) {
+            out << library.licenseSeparator << library.additionalLicense.text;
+        }
+        if ( i + 1 < libraries.size() ) {
+            out << "\n\n";
         }
     }
-    result += '"';
-    return result;
 }
+
+
+template<typename Libraries>
+void
+printOssAttributionsYaml( std::ostream&          out,
+                          const std::string_view rootName,
+                          const Libraries&       libraries )
+{
+    out << "root_name: " << rootName << "\n"
+        << "third_party_libraries:\n";
+    for ( const auto& library : libraries ) {
+        out << "  - package_name: " << library.name << "\n";
+        if ( !library.version.empty() ) {
+            out << "    package_version: " << library.version << "\n";
+        }
+        out << "    license: " << library.licenseId << "\n"
+            << "    licenses:\n"
+            << "      - license: " << library.license.id << "\n"
+            << "        text: " << toYamlString( library.license.text ) << "\n";
+        if ( !library.additionalLicense.text.empty() ) {
+            out << "      - license: " << library.additionalLicense.id << "\n"
+                << "        text: " << toYamlString( library.additionalLicense.text ) << "\n";
+        }
+    }
+}
+}  // namespace thirdparty

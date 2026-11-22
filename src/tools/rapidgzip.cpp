@@ -1,3 +1,4 @@
+#include <array>
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -35,6 +36,23 @@ using namespace rapidgzip;
 
 namespace
 {
+constexpr auto RAPIDGZIP_THIRD_PARTY_LIBRARIES = std::array{
+    thirdparty::CXXOPTS,
+#ifdef LIBRAPIDARCHIVE_WITH_ISAL
+    thirdparty::ISAL,
+#endif
+#ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
+    thirdparty::RPMALLOC,
+#endif
+    thirdparty::ZLIB,
+#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+    thirdparty::BZIP2,
+#endif
+    thirdparty::LIBSAIS,
+    thirdparty::TOYBOX,
+};
+
+
 struct Arguments
 {
     unsigned int decoderParallelism{ 0 };
@@ -398,110 +416,12 @@ rapidgzipCLI( int                  argc,
     }
 
     if ( parsedArgs.count( "oss-attributions" ) > 0 ) {
-        std::cout
-            << "# " << thirdparty::cxxopts::name << "\n\n"
-            << thirdparty::cxxopts::url << "\n\n"
-            << thirdparty::cxxopts::license << "\n\n"
-    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
-            << "# " << thirdparty::isal::name << "\n\n"
-            << thirdparty::isal::url << "\n\n"
-            << thirdparty::isal::license << "\n\n"
-    #endif
-    #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
-            << "# " << thirdparty::rpmalloc::name << "\n\n"
-            << thirdparty::rpmalloc::url << "\n\n"
-            << thirdparty::rpmalloc::fullLicense << "\n\n"
-    #endif
-    #ifdef ZLIB_COMPAT
-            << "# " << thirdparty::zlib_ng::name << "\n\n"
-            << thirdparty::zlib_ng::url << "\n\n"
-            << thirdparty::zlib_ng::license << "\n\n"
-    #else
-            << "# " << thirdparty::zlib::name << "\n\n"
-            << thirdparty::zlib::url << "\n\n"
-            << thirdparty::zlib::license << "\n\n"
-    #endif
-    #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-            << "# " << thirdparty::bzip2::name << "\n\n"
-            << thirdparty::bzip2::url << "\n\n"
-            << thirdparty::bzip2::license << "\n\n"
-    #endif
-            << "# " << thirdparty::libsais::name << "\n\n"
-            << thirdparty::libsais::url << "\n\n"
-            << thirdparty::libsais::license << "\n\n"
-            << "# " << thirdparty::toybox::name << "\n\n"
-            << thirdparty::toybox::url << "\n\n"
-            << thirdparty::toybox::license;
+        thirdparty::printOssAttributions( std::cout, RAPIDGZIP_THIRD_PARTY_LIBRARIES );
         return 0;
     }
 
     if ( parsedArgs.count( "oss-attributions-yaml" ) > 0 ) {
-        std::cout
-            << "root_name: rapidgzip\n"
-            << "third_party_libraries:\n"
-            << "  - package_name: " << thirdparty::cxxopts::name << "\n"
-            << "    package_version: "
-            << static_cast<uint32_t>( cxxopts::version.major ) << "."
-            << static_cast<uint32_t>( cxxopts::version.minor ) << "."
-            << static_cast<uint32_t>( cxxopts::version.patch ) << "\n"
-            << "    license: " << thirdparty::cxxopts::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::cxxopts::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::cxxopts::license ) << "\n"
-    #ifdef LIBRAPIDARCHIVE_WITH_ISAL
-            << "  - package_name: " << thirdparty::isal::name << "\n"
-            << "    package_version: 2.30.0\n"
-            << "    license: " << thirdparty::isal::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::isal::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::isal::license ) << "\n"
-    #endif
-    #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
-            << "  - package_name: " << thirdparty::rpmalloc::name << "\n"
-            << "    package_version: 1.4.4\n"
-            << "    license: " << thirdparty::rpmalloc::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: Unlicense\n"
-            << "        text: " << toYamlString( thirdparty::rpmalloc::unlicense ) << "\n"
-            << "      - license: MIT\n"
-            << "        text: " << toYamlString( thirdparty::rpmalloc::mit ) << "\n"
-    #endif
-    #ifdef ZLIB_COMPAT
-            << "  - package_name: " << thirdparty::zlib_ng::name << "\n"
-            << "    package_version: " << ZLIBNG_VER_MAJOR << "." << ZLIBNG_VER_MINOR << "."
-            << ZLIBNG_VER_REVISION << "\n"
-            << "    license: " << thirdparty::zlib_ng::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::zlib_ng::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::zlib_ng::license ) << "\n"
-    #else
-            << "  - package_name: " << thirdparty::zlib::name << "\n"
-            << "    package_version: " << ZLIB_VER_MAJOR << "." << ZLIB_VER_MINOR << "." << ZLIB_VER_REVISION << "\n"
-            << "    license: " << thirdparty::zlib::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::zlib::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::zlib::license ) << "\n"
-    #endif
-    #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-            << "  - package_name: " << thirdparty::bzip2::name << "\n"
-            << "    package_version: " << thirdparty::bzip2::version << "\n"
-            << "    license: " << thirdparty::bzip2::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::bzip2::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::bzip2::license ) << "\n"
-    #endif
-            << "  - package_name: " << thirdparty::libsais::name << "\n"
-            << "    package_version: " << thirdparty::libsais::version() << "\n"
-            << "    license: " << thirdparty::libsais::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::libsais::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::libsais::license ) << "\n"
-            << "  - package_name: " << thirdparty::toybox::name << "\n"
-            << "    package_version: " << thirdparty::toybox::version << "\n"
-            << "    license: " << thirdparty::toybox::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::toybox::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::toybox::license ) << "\n";
+        thirdparty::printOssAttributionsYaml( std::cout, "rapidgzip", RAPIDGZIP_THIRD_PARTY_LIBRARIES );
         return 0;
     }
 

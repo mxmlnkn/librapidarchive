@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <climits>
 #include <cstdint>
@@ -42,6 +43,16 @@ using namespace indexed_bzip2;
 
 namespace
 {
+constexpr auto IBZIP2_THIRD_PARTY_LIBRARIES = std::array{
+    thirdparty::CXXOPTS,
+#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+    thirdparty::BZIP2,
+#endif
+    thirdparty::LIBSAIS,
+    thirdparty::TOYBOX,
+};
+
+
 /* Check whether the found offsets actually point to BZ2 magic bytes. */
 void
 checkOffsets( const std::string&           filePath,
@@ -288,57 +299,12 @@ ibzip2CLI( int argc, char const* const* argv )
     }
 
     if ( parsedArgs.count( "oss-attributions" ) > 0 ) {
-        std::cout
-            << "# " << thirdparty::cxxopts::name << "\n\n"
-            << thirdparty::cxxopts::url << "\n\n"
-            << thirdparty::cxxopts::license << "\n\n"
-    #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-            << "# " << thirdparty::bzip2::name << "\n\n"
-            << thirdparty::bzip2::url << "\n\n"
-            << thirdparty::bzip2::license << "\n\n"
-    #endif
-            << "# " << thirdparty::libsais::name << "\n\n"
-            << thirdparty::libsais::url << "\n\n"
-            << thirdparty::libsais::license << "\n\n"
-            << "# " << thirdparty::toybox::name << "\n\n"
-            << thirdparty::toybox::url << "\n\n"
-            << thirdparty::toybox::license << "\n";
+        thirdparty::printOssAttributions( std::cout, IBZIP2_THIRD_PARTY_LIBRARIES );
         return 0;
     }
 
     if ( parsedArgs.count( "oss-attributions-yaml" ) > 0 ) {
-        std::cout
-            << "root_name: indexed_bzip2\n"
-            << "third_party_libraries:\n"
-            << "  - package_name: " << thirdparty::cxxopts::name << "\n"
-            << "    package_version: "
-            << static_cast<uint32_t>( cxxopts::version.major ) << "."
-            << static_cast<uint32_t>( cxxopts::version.minor ) << "."
-            << static_cast<uint32_t>( cxxopts::version.patch ) << "\n"
-            << "    license: " << thirdparty::cxxopts::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::cxxopts::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::cxxopts::license ) << "\n"
-    #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-            << "  - package_name: " << thirdparty::bzip2::name << "\n"
-            << "    package_version: " << thirdparty::bzip2::version << "\n"
-            << "    license: " << thirdparty::bzip2::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::bzip2::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::bzip2::license ) << "\n"
-    #endif
-            << "  - package_name: " << thirdparty::libsais::name << "\n"
-            << "    package_version: " << thirdparty::libsais::version() << "\n"
-            << "    license: " << thirdparty::libsais::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::libsais::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::libsais::license ) << "\n"
-            << "  - package_name: " << thirdparty::toybox::name << "\n"
-            << "    package_version: " << thirdparty::toybox::version << "\n"
-            << "    license: " << thirdparty::toybox::licenseId << "\n"
-            << "    licenses:\n"
-            << "      - license: " << thirdparty::toybox::licenseId << "\n"
-            << "        text: " << toYamlString( thirdparty::toybox::license ) << "\n";
+        thirdparty::printOssAttributionsYaml( std::cout, "indexed_bzip2", IBZIP2_THIRD_PARTY_LIBRARIES );
         return 0;
     }
 

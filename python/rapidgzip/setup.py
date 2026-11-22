@@ -453,6 +453,7 @@ class Build(build_ext):
             "ENABLE_OVERRIDE": "0",
             "WITH_PYTHON_SUPPORT": "0",
             "ZLIB_SYMBOL_PREFIX": "LIBRAPIDARCHIVE_",
+            "LIBRAPIDARCHIVE_WITH_ZLIB": None,
         }
         if withZlibng == 'enable':
             defines["ZLIB_COMPAT"] = None
