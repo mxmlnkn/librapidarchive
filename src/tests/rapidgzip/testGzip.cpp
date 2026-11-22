@@ -621,9 +621,11 @@ testGzipHeaderFieldCapture()
     /* Detection must recognize the file instead of falling through to "unknown format". */
     {
         const UniqueFileReader reader = std::make_unique<BufferViewFileReader>( header );
-        const auto detectedFormat = determineFileTypeAndOffset( reader );
+        Error gzipHeaderError = Error::NONE;
+        const auto detectedFormat = determineFileTypeAndOffset( reader, &gzipHeaderError );
         REQUIRE( detectedFormat.has_value() );
         REQUIRE( detectedFormat->first == FileType::GZIP );
+        REQUIRE_EQUAL( gzipHeaderError, Error::NONE );
     }
 
     /* FEXTRA uses the same capture limit and size accounting. */
@@ -652,6 +654,16 @@ testGzipHeaderFieldCapture()
         REQUIRE_EQUAL( parsedHeader.comment->size, uint64_t( LONG_FIELD_SIZE + 1 ) );
         REQUIRE_EQUAL( parsedHeader.comment->data.size(),
                        size_t( gzip::DEFAULT_MAX_CAPTURED_FIELD_SIZE ) );
+    }
+
+    /* Detection must preserve the specific gzip header error for the caller. */
+    {
+        auto unterminated = header;
+        unterminated.back() = 'B';
+        const UniqueFileReader reader = std::make_unique<BufferViewFileReader>( unterminated );
+        Error gzipHeaderError = Error::NONE;
+        REQUIRE( !determineFileTypeAndOffset( reader, &gzipHeaderError ).has_value() );
+        REQUIRE( gzipHeaderError == Error::EOF_ZERO_STRING );
     }
 }
 

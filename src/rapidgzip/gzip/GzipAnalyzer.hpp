@@ -265,9 +265,10 @@ analyze( UniqueFileReader inputFile,
     using namespace rapidgzip;
     using Block = rapidgzip::deflate::Block</* Statistics */ true>;
 
-    const auto detectedFormat = determineFileTypeAndOffset( inputFile );
+    Error gzipHeaderError = Error::NONE;
+    const auto detectedFormat = determineFileTypeAndOffset( inputFile, &gzipHeaderError );
     if ( !detectedFormat ) {
-        throw std::invalid_argument( "Failed to detect a valid file format." );
+        throw std::invalid_argument( formatFileTypeDetectionError( gzipHeaderError ) );
     }
 
     const auto fileType = detectedFormat->first;
