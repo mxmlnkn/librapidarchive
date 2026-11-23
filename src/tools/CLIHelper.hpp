@@ -98,6 +98,77 @@ checkOutputFileWritable( const std::string& outputFilePath,
 }
 
 
+inline void
+addCommonFileOptions( cxxopts::Options&      options,
+                      const std::string_view inputSuffix,
+                      const std::string_view countLinesShort )
+{
+    options.add_options( "Decompression" )
+    ( "c,stdout", "Output to standard output. This is the default, when reading from standard input." )
+    ( "f,force", "Force overwriting existing output files. "
+                 "Also forces decompression even when piped to /dev/null." )
+    ( "i,input", "Input file. If none is given, data is read from standard input.",
+      cxxopts::value<std::string>() )
+    ( "o,output",
+      "Output file. If none is given, use the input file name with '" + std::string( inputSuffix )
+      + "' stripped or '<input file>.out'. If no input is read from standard input and not output file "
+        "is given, then will write to standard output.",
+      cxxopts::value<std::string>() )
+    ( "k,keep", "Keep (do not delete) input file. Only for compatibility. "
+                "This tool will not delete anything automatically!" );
+
+    options.add_options( "Output" )
+    ( "h,help", "Print this help message." )
+    ( "q,quiet", "Suppress non-critical error messages." )
+    ( "v,verbose", "Print debug output and profiling statistics." )
+    ( "V,version", "Display software version." )
+    ( "oss-attributions", "Display open-source software licenses." )
+    ( "oss-attributions-yaml", "Display open-source software licenses in YAML format for use with Conda." );
+
+    const auto countLinesOption = countLinesShort.empty()
+                                  ? std::string{ "count-lines" }
+                                  : std::string{ countLinesShort } + ",count-lines";
+    options.add_options( "Actions" )
+    ( "d,decompress", "Force decompression." )
+    ( "count", "Print the decompressed size." )
+    ( countLinesOption, "Print the number of newline characters in the decompressed data." )
+    ( "import-index", "Use an existing block offset index in the format written by --export-index.",
+      cxxopts::value<std::string>() )
+    ( "t,test", "Verify decompression and checksums, if not disabled with --no-verify. "
+                "Note that this does not have any additional effect when combined with --decompress "
+                "or --ranges because it is equivalent to --decompress -o /dev/null." );
+
+    options.add_options( "Decompression" )
+    ( "P,decoder-parallelism",
+      "Use the parallel decoder or compressor. "
+      "If an optional integer >= 1 is given, then that is the number of worker threads to use. "
+      "Note that there might be further threads being started with light-weight work such as block finding. "
+      "If 0 is given, then the parallelism will be determined automatically.",
+      cxxopts::value<unsigned int>()->default_value( "0" ) )
+    ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,5L@20L,inf@40L to decompress "
+                "the first 10 bytes, 1024 bytes at offset 15 KiB, as well as the 5 lines after skipping the first "
+                "20 lines, and lastly, everything after skipping the first 40.",
+      cxxopts::value<std::string>() );
+}
+
+
+/**
+ * Registers --export-index in the "Actions" group. ibzip2 also exposes it as -L with a legacy
+ * --list-offsets alias.
+ */
+inline void
+addExportIndexOption( cxxopts::Options&      options,
+                      const std::string_view exportIndexShort,
+                      const std::string_view description )
+{
+    const auto optionNames = exportIndexShort.empty()
+                             ? std::string{ "export-index" }
+                             : std::string{ exportIndexShort } + ",export-index";
+    options.add_options( "Actions" )
+    ( optionNames, std::string{ description }, cxxopts::value<std::string>() );
+}
+
+
 [[nodiscard]] inline std::string
 getFilePath( cxxopts::ParseResult const& parsedArgs,
              std::string          const& argument )
@@ -126,11 +197,11 @@ getFilePath( cxxopts::ParseResult const& parsedArgs,
  */
 template<typename HelpPrinter, typename Libraries>
 [[nodiscard]] std::optional<int>
-handleInformationalAction( const cxxopts::ParseResult&             parsedArgs,
-                           const std::string_view                  ossRootName,
-                           const std::string_view                  versionText,
-                           const Libraries&                        libraries,
-                           HelpPrinter&&                           printHelp )
+handleInformationalAction( const cxxopts::ParseResult& parsedArgs,
+                           const std::string_view      ossRootName,
+                           const std::string_view      versionText,
+                           const Libraries&            libraries,
+                           HelpPrinter&&               printHelp )
 {
     if ( parsedArgs.count( "help" ) > 0 ) {
         printHelp();
@@ -164,7 +235,7 @@ handleInformationalAction( const cxxopts::ParseResult&             parsedArgs,
  */
 template<typename CLIFunction>
 int
-runCLI( CLIFunction&&           cli )
+runCLI( CLIFunction&& cli )
 {
     try {
         return cli();

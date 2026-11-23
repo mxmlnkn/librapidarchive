@@ -135,66 +135,33 @@ ibzip2CLI( int argc, char const* const* argv )
      */
     cxxopts::Options options( "ibzip2",
                               "A parallel bzip2 decompressor and compressor based on the indexed_bzip2 backend from ratarmount" );
-    options.add_options( "Decompression" )
-    ( "c,stdout", "Output to standard output. This is the default, when reading from standard input." )
-    ( "d,decompress", "Force decompression." )
-    ( "f,force", "Force overwriting existing output files. "
-                 "Also forces decompression even when piped to /dev/null." )
-    ( "i,input", "Input file. If none is given, data is read from standard input.",
-      cxxopts::value<std::string>() )
-    ( "o,output",
-      "Output file. If none is given, use the input file name with '.bz2' stripped or '<input file>.out'. "
-      "If no input is read from standard input and not output file is given, then will write to standard output.",
-      cxxopts::value<std::string>() )
-    ( "k,keep", "Keep (do not delete) input file. Only for compatibility. "
-                "This tool will not delete anything automatically!" )
-    ( "t,test", "Test compressed file integrity. Without -c or -o, no decompressed data is written." )
 
+    addCommonFileOptions( options, ".bz2", /* countLinesShort */ "" );
+
+    options.add_options( "Output" )
+    ( "l,list-compressed-offsets",
+      "List only the bzip2 block offsets given in bits one per line to the specified output file. "
+      "If no file is given, it will print to stdout or to stderr if the decoded data is already written to stdout. "
+      "Specifying '-' as file path, will write to stdout.",
+      cxxopts::value<std::string>() );
+    addExportIndexOption( options, "L,list-offsets",
+                          "Write a block offset index with one '<encoded bits>,<decoded bytes>' pair "
+                          "per line. Entries are written incrementally while decoding or compressing. "
+                          "Specifying '-' writes to stdout, or to stderr when the output data itself is written "
+                          "to stdout. The former --list-offsets spelling is accepted as an alias." );
+
+    options.add_options( "Decompression" )
     ( "p,block-finder-parallelism",
       "This only has an effect if the parallel decoder is used with the -P option. "
       "If an optional integer >= 1 is given, then that is the number of threads to use for finding bzip2 blocks. "
       "If 0 is given, the finder parallelism is chosen automatically from the decoder parallelism (1 to 8).",
-      cxxopts::value<unsigned int>()->default_value( "1" ) )
-
-    ( "P,decoder-parallelism",
-      "Use the parallel decoder or compressor. "
-      "If an optional integer >= 1 is given, then that is the number of worker threads to use. "
-      "Note that there might be further threads being started with non-worker work. "
-      "If 0 is given, then the number of physical cores available to this process is used.",
-      cxxopts::value<unsigned int>()->default_value( "0" ) );
-
-    options.add_options( "Actions" )
-    ( "count", "Print the decompressed size." )
-    ( "count-lines", "Print the number of newline characters in the decompressed data." )
-    ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,inf@40.",
-      cxxopts::value<std::string>() )
-    ( "import-index", "Use an existing bzip2 block offset index in the format written by --export-index.",
-      cxxopts::value<std::string>() );
+      cxxopts::value<unsigned int>()->default_value( "1" ) );
 
     options.add_options( "Compression" )
     ( "z,compress", "Compress to bzip2. Each worker writes an independent bzip2 stream. "
                     "The complete streams are concatenated in input order, which bzip2 tools accept." )
     ( "level", "bzip2 block size / compression level in the range 1..9 (default 9).",
       cxxopts::value<int>()->default_value( "9" ) );
-
-    options.add_options( "Output" )
-    ( "h,help", "Print this help message." )
-    ( "q,quiet", "Suppress noncritical error messages." )
-    ( "v,verbose", "Be verbose. A second -v (or shorthand -vv) gives even more verbosity." )
-    ( "V,version", "Display software version." )
-    ( "oss-attributions", "Display open-source software licenses." )
-    ( "oss-attributions-yaml", "Display open-source software licenses in YAML format for use with Conda." )
-    ( "l,list-compressed-offsets",
-      "List only the bzip2 block offsets given in bits one per line to the specified output file. "
-      "If no file is given, it will print to stdout or to stderr if the decoded data is already written to stdout. "
-      "Specifying '-' as file path, will write to stdout.",
-      cxxopts::value<std::string>() )
-    ( "L,list-offsets,export-index",
-      "Write a bzip2 block offset index with one '<encoded bits>,<decoded bytes>' pair per line. "
-      "Entries are written incrementally while decoding or compressing. Specifying '-' writes to stdout, "
-      "or to stderr when the output data itself is written to stdout. The former --list-offsets spelling "
-      "is accepted as an alias.",
-      cxxopts::value<std::string>() );
 
     options.add_options( "Advanced" )
     ( "buffer-size",

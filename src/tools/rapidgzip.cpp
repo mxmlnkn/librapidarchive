@@ -263,28 +263,7 @@ rapidgzipCLI( int                  argc,
      */
     cxxopts::Options options( "rapidgzip",
                               "A gzip decompressor tool based on the rapidgzip backend from ratarmount" );
-    options.add_options( "Decompression" )
-    ( "c,stdout", "Output to standard output. This is the default, when reading from standard input." )
-    ( "f,force", "Force overwriting existing output files. "
-                 "Also forces decompression even when piped to /dev/null." )
-    ( "i,input", "Input file. If none is given, data is read from standard input.",
-      cxxopts::value<std::string>() )
-    ( "o,output",
-      "Output file. If none is given, use the input file name with '.gz' stripped or '<input file>.out'. "
-      "If no input is read from standard input and not output file is given, then will write to standard output.",
-      cxxopts::value<std::string>() )
-    ( "k,keep", "Keep (do not delete) input file. Only for compatibility. "
-                "This tool will not delete anything automatically!" )
-    ( "P,decoder-parallelism",
-      "Use the parallel decoder. "
-      "If an optional integer >= 1 is given, then that is the number of decoder threads to use. "
-      "Note that there might be further threads being started with non-decoding work. "
-      "If 0 is given, then the parallelism will be determined automatically.",
-      cxxopts::value<unsigned int>()->default_value( "0" ) )
-    ( "ranges", "Decompress only the specified byte ranges. Example: 10@0,1KiB@15KiB,5L@20L,inf@40L to decompress "
-                "the first 10 bytes, 1024 bytes at offset 15 KiB, as well as the 5 lines after skipping the first "
-                "20 lines, and lastly, everything after skipping the first 40.",
-      cxxopts::value<std::string>() );
+    addCommonFileOptions( options, ".gz", /* countLinesShort */ "l" );
 
     options.add_options( "Advanced" )
     ( "chunk-size", "The chunk size decoded by the parallel workers in KiB.",
@@ -314,14 +293,6 @@ rapidgzipCLI( int                  argc,
                            "index modification that is fully compatible with the original tools.",
       cxxopts::value( args.windowSparsity )->implicit_value( "false" ) );
 
-    options.add_options( "Output" )
-    ( "h,help", "Print this help message." )
-    ( "q,quiet", "Suppress non-critical error messages." )
-    ( "v,verbose", "Print debug output and profiling statistics." )
-    ( "V,version", "Display software version." )
-    ( "oss-attributions", "Display open-source software licenses." )
-    ( "oss-attributions-yaml", "Display open-source software licenses in YAML format for use with Conda." );
-
     /* These options are offered because just piping to other tools can already bottleneck everything! */
     const auto analyzeFeaturesHelp =
         std::string( "Comma-separated list of features to print with --analyze (implies --analyze). Default: all. "
@@ -330,18 +301,12 @@ rapidgzipCLI( int                  argc,
         + " (block-details is an alias for block-info). "
           "Example: +huffman-stats,-block-info. A plain list such as block-stats,huffman-stats "
           "prints only statistics.";
+    addExportIndexOption( options, /* exportIndexShort */ "",
+                          "Write out a block offset index file in the format selected with --index-format." );
     options.add_options( "Actions" )
-    ( "d,decompress", "Force decompression. Only for compatibility. No compression supported anyways." )
-    ( "import-index", "Uses an existing gzip index.", cxxopts::value<std::string>() )
-    ( "export-index", "Write out a gzip index file.", cxxopts::value<std::string>() )
-    ( "count", "Prints the decompressed size." )
-    ( "l,count-lines", "Prints the number of newline characters in the decompressed data." )
     ( "analyze", "Print output about the internal file format structure like the block types. "
                  "Select sections with --analyze-features." )
-    ( "analyze-features", analyzeFeaturesHelp, cxxopts::value<std::string>() )
-    ( "t,test", "Verify decompression and checksums, if not disabled with --no-verify. "
-                "Note that this does not have any additional effect when combined with --decompress "
-                "or --ranges because it is equivalent to --decompress -o /dev/null." );
+    ( "analyze-features", analyzeFeaturesHelp, cxxopts::value<std::string>() );
 
     options.parse_positional( { "input" } );
 

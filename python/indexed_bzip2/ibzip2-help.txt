@@ -5,7 +5,6 @@ Usage:
  Decompression options:
   -c, --stdout                  Output to standard output. This is the
                                 default, when reading from standard input.
-  -d, --decompress              Force decompression.
   -f, --force                   Force overwriting existing output files.
                                 Also forces decompression even when piped
                                 to /dev/null.
@@ -17,8 +16,22 @@ Usage:
   -k, --keep                    Keep (do not delete) input file. Only for
                                 compatibility. This tool will not delete
                                 anything automatically!
-  -t, --test                    Test compressed file integrity. Without -c
-                                or -o, no decompressed data is written.
+  -P, --decoder-parallelism arg
+                                Use the parallel decoder or compressor. If
+                                an optional integer >= 1 is given, then
+                                that is the number of worker threads to
+                                use. Note that there might be further
+                                threads being started with light-weight
+                                work such as block finding. If 0 is given,
+                                then the parallelism will be determined
+                                automatically. (default: 0)
+      --ranges arg              Decompress only the specified byte ranges.
+                                Example: 10@0,1KiB@15KiB,5L@20L,inf@40L to
+                                decompress the first 10 bytes, 1024 bytes
+                                at offset 15 KiB, as well as the 5 lines
+                                after skipping the first 20 lines, and
+                                lastly, everything after skipping the first
+                                40.
   -p, --block-finder-parallelism arg
                                 This only has an effect if the parallel
                                 decoder is used with the -P option. If an
@@ -28,37 +41,12 @@ Usage:
                                 parallelism is chosen automatically from
                                 the decoder parallelism (1 to 8). (default:
                                 1)
-  -P, --decoder-parallelism arg
-                                Use the parallel decoder or compressor. If
-                                an optional integer >= 1 is given, then
-                                that is the number of worker threads to
-                                use. Note that there might be further
-                                threads being started with non-worker work.
-                                If 0 is given, then the number of physical
-                                cores available to this process is used.
-                                (default: 0)
-
- Actions options:
-      --count             Print the decompressed size.
-      --count-lines       Print the number of newline characters in the
-                          decompressed data.
-      --ranges arg        Decompress only the specified byte ranges.
-                          Example: 10@0,1KiB@15KiB,inf@40.
-      --import-index arg  Use an existing bzip2 block offset index in the
-                          format written by --export-index.
-
- Compression options:
-  -z, --compress   Compress to bzip2. Each worker writes an independent
-                   bzip2 stream. The complete streams are concatenated in
-                   input order, which bzip2 tools accept.
-      --level arg  bzip2 block size / compression level in the range 1..9
-                   (default 9). (default: 9)
 
  Output options:
   -h, --help                    Print this help message.
-  -q, --quiet                   Suppress noncritical error messages.
-  -v, --verbose                 Be verbose. A second -v (or shorthand -vv)
-                                gives even more verbosity.
+  -q, --quiet                   Suppress non-critical error messages.
+  -v, --verbose                 Print debug output and profiling
+                                statistics.
   -V, --version                 Display software version.
       --oss-attributions        Display open-source software licenses.
       --oss-attributions-yaml   Display open-source software licenses in
@@ -70,14 +58,33 @@ Usage:
                                 stdout or to stderr if the decoded data is
                                 already written to stdout. Specifying '-'
                                 as file path, will write to stdout.
-  -L, --export-index arg        Write a bzip2 block offset index with one
-                                '<encoded bits>,<decoded bytes>' pair per
-                                line. Entries are written incrementally
-                                while decoding or compressing. Specifying
-                                '-' writes to stdout, or to stderr when the
-                                output data itself is written to stdout.
-                                The former --list-offsets spelling is
-                                accepted as an alias.
+
+ Actions options:
+  -d, --decompress        Force decompression.
+      --count             Print the decompressed size.
+      --count-lines       Print the number of newline characters in the
+                          decompressed data.
+      --import-index arg  Use an existing block offset index in the format
+                          written by --export-index.
+  -t, --test              Verify decompression and checksums, if not
+                          disabled with --no-verify. Note that this does
+                          not have any additional effect when combined with
+                          --decompress or --ranges because it is equivalent
+                          to --decompress -o /dev/null.
+  -L, --export-index arg  Write a block offset index with one '<encoded
+                          bits>,<decoded bytes>' pair per line. Entries are
+                          written incrementally while decoding or
+                          compressing. Specifying '-' writes to stdout, or
+                          to stderr when the output data itself is written
+                          to stdout. The former --list-offsets spelling is
+                          accepted as an alias.
+
+ Compression options:
+  -z, --compress   Compress to bzip2. Each worker writes an independent
+                   bzip2 stream. The complete streams are concatenated in
+                   input order, which bzip2 tools accept.
+      --level arg  bzip2 block size / compression level in the range 1..9
+                   (default 9). (default: 9)
 
  Advanced options:
       --buffer-size arg  Specifies the output buffer size between calls to
