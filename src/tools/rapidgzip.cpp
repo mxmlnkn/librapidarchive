@@ -458,7 +458,9 @@ rapidgzipCLI( int                  argc,
     auto outputFilePath = getFilePath( parsedArgs, "output" );
     /* Automatically determine output file path if none has been given and not writing to stdout. */
     if ( outputFilePath.empty() && !inputFilePath.empty() && !doTest && !writeToStdOut ) {
-        outputFilePath = deduceOutputPath( inputFilePath, ".gz", /* warnOnFallback */ !quiet && decompress );
+        outputFilePath = deduceOutputPath( inputFilePath,
+                                           { ".bgzf", ".bgz", ".gzip", ".gz", ".zlib", ".deflate", ".bzip2", ".bz2" },
+                                           /* warnOnFallback */ !quiet && decompress );
     }
 
     if ( decompress && !checkOutputFileWritable( outputFilePath, force ) ) {

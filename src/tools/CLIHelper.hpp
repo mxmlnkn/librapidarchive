@@ -58,20 +58,22 @@ parseInputPath( const cxxopts::ParseResult& parsedArgs )
 
 
 /**
- * Strips the given suffix or falls back to appending ".out".
+ * Strips one of the known compressed-file suffixes to deduce the decompression output path.
+ * Compression must append its target suffix instead and must not call this function.
  *
- * @param warnOnFallback Print a warning when the suffix does not match. The tools warn under different
+ * @param warnOnFallback Print a warning when no suffix matches. The tools warn under different
  *        conditions and with different prefixes, so both are parameters.
  */
 [[nodiscard]] inline std::string
-deduceOutputPath( const std::string&     inputFilePath,
-                  const std::string_view suffix,
-                  const bool             warnOnFallback )
+deduceOutputPath( const std::string&                            inputFilePath,
+                  const std::initializer_list<std::string_view> suffixes,
+                  const bool                                    warnOnFallback )
 {
-    if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
-        return std::string( inputFilePath.begin(),
-                            inputFilePath.end()
-                            - static_cast<std::string::difference_type>( suffix.size() ) );
+    for ( const auto suffix : suffixes ) {
+        if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
+            return std::string( inputFilePath.begin(),
+                                inputFilePath.end() - static_cast<std::string::difference_type>( suffix.size() ) );
+        }
     }
 
     const auto outputFilePath = inputFilePath + ".out";

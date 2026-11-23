@@ -580,6 +580,29 @@ testAnalyzeFeatureSelection( const std::filesystem::path& dataFolder )
 }
 
 
+void
+testOutputPathDeduction( const std::filesystem::path& dataFolder )
+{
+    const auto tmpFolder = createTemporaryDirectory( std::filesystem::is_directory( "/dev/shm" )
+                                                     ? "/dev/shm/rapidgzip.testCLI"
+                                                     : "rapidgzip.testCLI" );
+    const auto expected = readFile<std::vector<char> >( dataFolder / "base64-256KiB" );
+
+    for ( const auto suffix : { "gz", "bgz", "zlib", "deflate", "bz2" } ) {
+        const auto inputPath = tmpFolder.path() / ( std::string( "input." ) + suffix );
+        std::filesystem::copy_file( dataFolder / ( std::string( "base64-256KiB." ) + suffix ), inputPath,
+                                    std::filesystem::copy_options::overwrite_existing );
+
+        const auto outputPath = tmpFolder.path() / "input";
+        std::filesystem::remove( outputPath );
+        callCLI( "./rapidgzip", rapidgzipCLI, { "-d", "-f", inputPath.string() } );
+        REQUIRE( std::filesystem::is_regular_file( outputPath ) );
+        REQUIRE( readFile<std::vector<char> >( outputPath ) == expected );
+        std::filesystem::remove( outputPath );
+    }
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -606,6 +629,7 @@ main( int    argc,
     testLineRanges( rootFolder, /* with imported index */ true );
     testLineRanges( rootFolder, /* with imported index */ false );
     testAnalyzeFeatureSelection( rootFolder );
+    testOutputPathDeduction( rootFolder );
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 

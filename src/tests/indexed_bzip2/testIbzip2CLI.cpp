@@ -369,6 +369,26 @@ testTestOption( const std::filesystem::path& dataFolder )
 }  // namespace
 
 
+void
+testCompressionOutputPath()
+{
+    const auto tmpFolder = createTemporaryDirectory( std::filesystem::is_directory( "/dev/shm" )
+                                                     ? "/dev/shm/ibzip2.testIbzip2CLI"
+                                                     : "ibzip2.testIbzip2CLI" );
+    const auto inputPath = tmpFolder.path() / "input.bz2";
+    {
+        std::ofstream file( inputPath );
+        file << "Compression must append .bz2 instead of stripping the input suffix.\n";
+    }
+
+    const auto outputPath = inputPath.string() + ".bz2";
+    callCLI( "./ibzip2", ibzip2CLI, { "-z", "-f", inputPath.string() } );
+    REQUIRE( std::filesystem::is_regular_file( outputPath ) );
+    REQUIRE( !std::filesystem::exists( tmpFolder.path() / "input" ) );
+    REQUIRE( !std::filesystem::exists( tmpFolder.path() / "input.out" ) );
+}
+
+
 int
 main( int    argc,
       char** argv )
@@ -397,6 +417,7 @@ main( int    argc,
     testIndex( dataFolder );
     testStreamingOffsets( dataFolder );
     testCompressionIndex( dataFolder );
+    testCompressionOutputPath();
     testTestOption( dataFolder );
     testDirectoryInput( dataFolder );
 

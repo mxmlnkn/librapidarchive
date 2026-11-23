@@ -299,11 +299,12 @@ ibzip2CLI( int argc, char const* const* argv )
                              && ( !doTest || writeToStdOut || !outputFilePath.empty() );
 
     if ( compress ) {
+        /* Compression appends the target suffix. It must not strip an existing input suffix. */
         if ( !writeToStdOut && outputFilePath.empty() && !inputFilePath.empty() ) {
             outputFilePath = inputFilePath + ".bz2";
         }
     } else if ( writeOutput && !writeToStdOut && outputFilePath.empty() && !inputFilePath.empty() ) {
-        outputFilePath = deduceOutputPath( inputFilePath, ".bz2", /* warnOnFallback */ !quiet );
+        outputFilePath = deduceOutputPath( inputFilePath, { ".bz2", ".bzip2" }, /* warnOnFallback */ !quiet );
     }
 
     if ( compress
