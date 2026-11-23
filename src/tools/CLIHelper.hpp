@@ -1,6 +1,7 @@
 #pragma once
 
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -9,9 +10,90 @@
 
 #include <cxxopts.hpp>
 
+#include <core/common.hpp>
+#include <core/FileUtils.hpp>
 #include <filereader/FileReader.hpp>
 
 #include "thirdparty.hpp"
+
+
+namespace rapidgzip
+{
+/**
+ * Parses and validates the positional input path.
+ *
+ * @return The input path, where an empty string means stdin, or std::nullopt on error.
+ */
+[[nodiscard]] inline std::optional<std::string>
+parseInputPath( const cxxopts::ParseResult& parsedArgs )
+{
+    if ( parsedArgs.count( "input" ) > 1 ) {
+        std::cerr << "Only at most one input file is accepted!\n";
+        return std::nullopt;
+    }
+
+    std::string inputFilePath;  /* Can be empty. Then, read from STDIN. */
+    if ( parsedArgs.count( "input" ) == 1 ) {
+        inputFilePath = parsedArgs["input"].as<std::string>();
+        if ( inputFilePath == "-" ) {
+            inputFilePath.clear();
+        }
+        if ( !inputFilePath.empty() && std::filesystem::is_directory( inputFilePath ) ) {
+            std::cerr << "Input path must not be a directory: " << inputFilePath << "\n";
+            return std::nullopt;
+        }
+        if ( !inputFilePath.empty() && !fileExists( inputFilePath ) ) {
+            std::cerr << "Input file could not be found! Specified path: " << inputFilePath << "\n";
+            return std::nullopt;
+        }
+    }
+
+    if ( inputFilePath.empty() && !stdinHasInput() ) {
+        std::cerr << "Either stdin must have input, e.g., by piping to it, or an input file must be specified!\n";
+        return std::nullopt;
+    }
+
+    return inputFilePath;
+}
+
+
+/**
+ * Strips the given suffix or falls back to appending ".out".
+ *
+ * @param warnOnFallback Print a warning when the suffix does not match. The tools warn under different
+ *        conditions and with different prefixes, so both are parameters.
+ */
+[[nodiscard]] inline std::string
+deduceOutputPath( const std::string&     inputFilePath,
+                  const std::string_view suffix,
+                  const bool             warnOnFallback )
+{
+    if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
+        return std::string( inputFilePath.begin(),
+                            inputFilePath.end()
+                            - static_cast<std::string::difference_type>( suffix.size() ) );
+    }
+
+    const auto outputFilePath = inputFilePath + ".out";
+    if ( warnOnFallback ) {
+        std::cerr << "[Warning] Could not deduce output file name. Will write to '" << outputFilePath << "'\n";
+    }
+    return outputFilePath;
+}
+
+
+/* Returns whether the output path may be written, printing the shared error message otherwise. */
+[[nodiscard]] inline bool
+checkOutputFileWritable( const std::string& outputFilePath,
+                         const bool         force )
+{
+    if ( ( outputFilePath == "/dev/null" ) || !fileExists( outputFilePath ) || force ) {
+        return true;
+    }
+
+    std::cerr << "Output file '" << outputFilePath << "' already exists! Use --force to overwrite.\n";
+    return false;
+}
 
 
 [[nodiscard]] inline std::string
@@ -84,7 +166,7 @@ runCLI( CLIFunction&&           cli )
 {
     try {
         return cli();
-    } catch ( const rapidgzip::EndOfFileReached& ) {
+    } catch ( const EndOfFileReached& ) {
         std::cerr << "Unexpected end of file. Truncated or invalid compressed stream?\n";
         return 1;
     } catch ( const std::exception& exception ) {
@@ -97,3 +179,4 @@ runCLI( CLIFunction&&           cli )
         return 1;
     }
 }
+}  // namespace rapidgzip

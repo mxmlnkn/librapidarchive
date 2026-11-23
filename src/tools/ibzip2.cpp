@@ -252,27 +252,11 @@ ibzip2CLI( int argc, char const* const* argv )
 
     /* Parse input and output file specifications. */
 
-    if ( parsedArgs.count( "input" ) > 1 ) {
-        std::cerr << "One or none bzip2 filename to decompress must be specified!\n";
+    const auto inputFilePathOptional = parseInputPath( parsedArgs );
+    if ( !inputFilePathOptional ) {
         return 1;
     }
-
-    std::string inputFilePath;  /* Can be empty. Then, read from STDIN. */
-    if ( parsedArgs.count( "input" ) == 1 ) {
-        inputFilePath = parsedArgs["input"].as<std::string>();
-        if ( inputFilePath == "-" ) {
-            inputFilePath.clear();
-        }
-        if ( !inputFilePath.empty() && std::filesystem::is_directory( inputFilePath ) ) {
-            std::cerr << "Input path is a directory: " << inputFilePath << "\n";
-            return 1;
-        }
-    }
-
-    if ( !stdinHasInput() && inputFilePath.empty() ) {
-        std::cerr << "Either stdin must have input, e.g., by piping to it, or an input file must be specified!\n";
-        return 1;
-    }
+    const auto inputFilePath = *inputFilePathOptional;
 
     const auto compress = parsedArgs.count( "compress" ) > 0;
     const auto writeToStdOut =
@@ -319,17 +303,7 @@ ibzip2CLI( int argc, char const* const* argv )
             outputFilePath = inputFilePath + ".bz2";
         }
     } else if ( writeOutput && !writeToStdOut && outputFilePath.empty() && !inputFilePath.empty() ) {
-        const std::string& suffix = ".bz2";
-        if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
-            outputFilePath = std::string( inputFilePath.begin(),
-                                          inputFilePath.end()
-                                          - static_cast<std::string::difference_type>( suffix.size() ) );
-        } else {
-            outputFilePath = inputFilePath + ".out";
-            if ( !quiet ) {
-                std::cerr << "Could not deduce output file name. Will write to '" << outputFilePath << "'\n";
-            }
-        }
+        outputFilePath = deduceOutputPath( inputFilePath, ".bz2", /* warnOnFallback */ !quiet );
     }
 
     if ( compress
@@ -347,9 +321,7 @@ ibzip2CLI( int argc, char const* const* argv )
     }
 #endif
 
-    if ( ( writeOutput || compress ) && ( outputFilePath != "/dev/null" )
-         && fileExists( outputFilePath ) && !force ) {
-        std::cerr << "Output file '" << outputFilePath << "' already exists! Use --force to overwrite.\n";
+    if ( ( writeOutput || compress ) && !checkOutputFileWritable( outputFilePath, force ) ) {
         return 1;
     }
 

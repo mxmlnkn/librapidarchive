@@ -230,31 +230,11 @@ decompressParallel( const Arguments&   args,
 [[nodiscard]] std::pair<std::string, UniqueFileReader>
 parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
 {
-    if ( parsedArgs.count( "input" ) > 1 ) {
-        std::cerr << "One or none gzip filename to decompress must be specified!\n";
+    const auto inputFilePathOptional = parseInputPath( parsedArgs );
+    if ( !inputFilePathOptional ) {
         return {};
     }
-
-    std::string inputFilePath;  /* Can be empty. Then, read from STDIN. */
-    if ( parsedArgs.count( "input" ) == 1 ) {
-        inputFilePath = parsedArgs["input"].as<std::string>();
-        if ( inputFilePath == "-" ) {
-            inputFilePath.clear();
-        }
-        if ( !inputFilePath.empty() && !fileExists( inputFilePath ) ) {
-            std::cerr << "Input file could not be found! Specified path: " << inputFilePath << "\n";
-            return {};
-        }
-        if ( !inputFilePath.empty() && std::filesystem::is_directory( inputFilePath ) ) {
-            std::cerr << "Input path is a directory: " << inputFilePath << "\n";
-            return {};
-        }
-    }
-
-    if ( inputFilePath.empty() && !stdinHasInput() ) {
-        std::cerr << "Either stdin must have input, e.g., by piping to it, or an input file must be specified!\n";
-        return {};
-    }
+    const auto inputFilePath = *inputFilePathOptional;
 
     auto inputFile = openFileOrStdin( inputFilePath );
     const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
@@ -478,21 +458,10 @@ rapidgzipCLI( int                  argc,
     auto outputFilePath = getFilePath( parsedArgs, "output" );
     /* Automatically determine output file path if none has been given and not writing to stdout. */
     if ( outputFilePath.empty() && !inputFilePath.empty() && !doTest && !writeToStdOut ) {
-        const std::string& suffix = ".gz";
-        if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
-            outputFilePath = std::string( inputFilePath.begin(),
-                                          inputFilePath.end()
-                                          - static_cast<std::string::difference_type>( suffix.size() ) );
-        } else {
-            outputFilePath = inputFilePath + ".out";
-            if ( !quiet && decompress ) {
-                std::cerr << "[Warning] Could not deduce output file name. Will write to '" << outputFilePath << "'\n";
-            }
-        }
+        outputFilePath = deduceOutputPath( inputFilePath, ".gz", /* warnOnFallback */ !quiet && decompress );
     }
 
-    if ( decompress && ( outputFilePath != "/dev/null" ) && fileExists( outputFilePath ) && !force ) {
-        std::cerr << "Output file '" << outputFilePath << "' already exists! Use --force to overwrite.\n";
+    if ( decompress && !checkOutputFileWritable( outputFilePath, force ) ) {
         return 1;
     }
 
