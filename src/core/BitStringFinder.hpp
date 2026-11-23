@@ -631,7 +631,7 @@ protected:
     std::vector<size_t> m_offsetsInBuffer;
     /**
      * How many bits from m_buffer bits are already read. The first bit string comparison will be done
-     * after m_nTotalBytesRead * CHAR_BIT + m_bufferBitsRead >= bitStringSize
+     * after m_bufferStartByte * CHAR_BIT + m_bufferBitsRead >= bitStringSize
      */
     size_t m_bufferBitsRead = 0;
 
@@ -640,10 +640,10 @@ protected:
     /** This is not the current size of @ref m_buffer but the number of bytes to read from @ref m_file if it is empty */
     const size_t m_fileChunksInBytes;
     /**
-     * This value is incremented whenever the buffer is refilled. It basically acts like an overflow counter
-     * for @ref m_bufferBitsRead and is required to return the absolute bit pos.
+     * Absolute byte offset of m_buffer[0] in the file. Bytes read from the file are appended and do not move
+     * the buffer start; only the bytes dropped from the front advance this offset.
      */
-    uint64_t m_nTotalBytesRead = 0;
+    uint64_t m_bufferStartByte = 0;
 };
 
 
@@ -754,7 +754,7 @@ BitStringFinder<bitStringSize>::find()
     }
 
     if ( !m_offsetsInBuffer.empty() ) {
-        const auto offset = m_nTotalBytesRead * CHAR_BIT + m_offsetsInBuffer.back();
+        const auto offset = m_bufferStartByte * CHAR_BIT + m_offsetsInBuffer.back();
         m_offsetsInBuffer.pop_back();
         return offset;
     }
@@ -782,7 +782,7 @@ BitStringFinder<bitStringSize>::find()
 
         m_bufferBitsRead = m_buffer.size() * CHAR_BIT;
         if ( !m_offsetsInBuffer.empty() ) {
-            const auto offset = m_nTotalBytesRead * CHAR_BIT + m_offsetsInBuffer.back();
+            const auto offset = m_bufferStartByte * CHAR_BIT + m_offsetsInBuffer.back();
             m_offsetsInBuffer.pop_back();
             return offset;
         }
@@ -797,7 +797,7 @@ size_t
 BitStringFinder<bitStringSize>::refillBuffer()
 {
     if ( !m_fileReader || m_fileReader->eof() ) {
-        m_nTotalBytesRead += m_buffer.size();
+        m_bufferStartByte += m_buffer.size();
         m_buffer.clear();
         return 0;
     }
@@ -807,7 +807,7 @@ BitStringFinder<bitStringSize>::refillBuffer()
      * must not shrink the requested read size. */
     size_t nBytesRead = 0;
     if ( m_buffer.empty() ) {
-        assert( m_nTotalBytesRead == 0 );
+        assert( m_bufferStartByte == 0 );
         assert( m_bufferBitsRead == 0 );
 
         m_buffer.resize( m_fileChunksInBytes );
@@ -815,8 +815,10 @@ BitStringFinder<bitStringSize>::refillBuffer()
         m_buffer.resize( nBytesRead );
     } else {
         const auto nBytesToKeep = std::min<size_t>( m_movingBytesToKeep, m_buffer.size() );
-        m_nTotalBytesRead += m_buffer.size() - nBytesToKeep;
-        m_bufferBitsRead = ( nBytesToKeep * CHAR_BIT > m_movingBitsToKeep )
+        /* Bytes read from the file are appended after the kept bytes and do not move the buffer start.
+         * Only the bytes dropped from the front advance the absolute offset. */
+        m_bufferStartByte += m_buffer.size() - nBytesToKeep;
+        m_bufferBitsRead = nBytesToKeep * CHAR_BIT > m_movingBitsToKeep
                            ? nBytesToKeep * CHAR_BIT - m_movingBitsToKeep
                            : 0;
 

@@ -263,7 +263,7 @@ ParallelBitStringFinder<bitStringSize>::find()
                         subChunkSizeInBytes,
                         subChunkOffsetInBits,
                         this->m_bitStringToFind,
-                        ( this->m_nTotalBytesRead + bufferOffsetInBytes ) * CHAR_BIT,
+                        ( this->m_bufferStartByte + bufferOffsetInBytes ) * CHAR_BIT,
                         &result
                     );
                 } );
