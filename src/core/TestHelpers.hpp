@@ -109,37 +109,51 @@ private:
 
 
 /**
- * A non-seekable file reader that returns zero bytes and throws after a configured number of bytes.
- * This is useful for testing exception propagation out of asynchronous readers.
+ * An in-memory, non-seekable file reader.
+ *
+ * The single-argument constructor creates a failure-injection reader that returns zero bytes and throws after the
+ * given number of bytes. This is useful for testing exception propagation out of asynchronous readers.
  */
-class ThrowingFileReader final :
+class NonSeekableFileReader final :
     public FileReader
 {
 public:
     explicit
-    ThrowingFileReader( const size_t throwAfterBytes ) :
+    NonSeekableFileReader( std::vector<char>           data,
+                           const std::optional<size_t> throwAfterBytes = std::nullopt ) :
+        m_data( std::move( data ) ),
         m_throwAfterBytes( throwAfterBytes )
+    {
+        if ( m_throwAfterBytes && ( *m_throwAfterBytes > m_data.size() ) ) {
+            throw std::invalid_argument( "The throw position must be within the reader data!" );
+        }
+    }
+
+    explicit
+    NonSeekableFileReader( const size_t throwAfterBytes ) :
+        NonSeekableFileReader( std::vector<char>( throwAfterBytes, '\0' ), throwAfterBytes )
     {}
 
     void close() override { m_closed = true; }
     [[nodiscard]] bool closed() const override { return m_closed; }
-    [[nodiscard]] bool eof() const override { return false; }
+    /** EOF is only reported after a read past the end, like a socket or pipe that has not been probed yet. */
+    [[nodiscard]] bool eof() const override { return m_eof; }
     [[nodiscard]] bool fail() const override { return false; }
     [[nodiscard]] int fileno() const override { return -1; }
     [[nodiscard]] bool seekable() const override { return false; }
-    [[nodiscard]] std::optional<uintmax_t> size() const override { return std::nullopt; }
-    [[nodiscard]] uintmax_t tell() const override { return m_position; }
-    void clearerr() override {}
 
     [[nodiscard]] size_t
-    read( char* const  buffer,
-          const size_t nMaxBytesToRead ) override
+    read( char* buffer, size_t nMaxBytesToRead ) override
     {
-        if ( m_position >= m_throwAfterBytes ) {
+        if ( m_throwAfterBytes && ( m_position >= *m_throwAfterBytes ) ) {
             throw std::runtime_error( "Simulated read failure" );
         }
-        const auto nBytesRead = std::min( nMaxBytesToRead, m_throwAfterBytes - m_position );
-        std::fill( buffer, buffer + nBytesRead, '\0' );
+        if ( m_position >= m_data.size() ) {
+            m_eof = true;
+            return 0;
+        }
+        const auto nBytesRead = std::min( nMaxBytesToRead, m_data.size() - m_position );
+        std::memcpy( buffer, m_data.data() + m_position, nBytesRead );
         m_position += nBytesRead;
         return nBytesRead;
     }
@@ -147,12 +161,18 @@ public:
     uintmax_t
     seek( long long int, int ) override
     {
-        throw std::logic_error( "ThrowingFileReader cannot seek!" );
+        throw std::logic_error( "NonSeekableFileReader cannot seek!" );
     }
 
+    [[nodiscard]] std::optional<uintmax_t> size() const override { return std::nullopt; }
+    [[nodiscard]] uintmax_t tell() const override { return m_position; }
+    void clearerr() override { m_eof = false; }
+
 private:
+    std::vector<char> m_data;
+    const std::optional<size_t> m_throwAfterBytes;
     size_t m_position{ 0 };
-    const size_t m_throwAfterBytes;
+    bool m_eof{ false };
     bool m_closed{ false };
 };
 

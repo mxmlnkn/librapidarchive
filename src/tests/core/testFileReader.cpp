@@ -621,7 +621,7 @@ testEmptyInMemoryBufferedFileReaderIsNotClosed()
 void
 testSinglePassReaderPropagatesReadFailure()
 {
-    SinglePassFileReader reader( std::make_unique<ThrowingFileReader>( 100 ) );
+    SinglePassFileReader reader( std::make_unique<NonSeekableFileReader>( 100 ) );
     std::array<char, 16> buffer{};
 
     bool threw{ false };
@@ -637,8 +637,7 @@ testSinglePassReaderPropagatesReadFailure()
 void
 testSinglePassReaderFailureIsNotEof()
 {
-    auto reader = std::make_unique<SinglePassFileReader>(
-        std::make_unique<ThrowingFileReader>( 100 ) );
+    auto reader = std::make_unique<SinglePassFileReader>( std::make_unique<NonSeekableFileReader>( 100 ) );
     BitStringFinder<48> finder( std::move( reader ), 0x314159265359ULL, /* fileBufferSizeBytes */ 4_Ki );
 
     bool threw{ false };

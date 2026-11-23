@@ -19,7 +19,7 @@ testExceptionPropagation()
 {
     using RawFinder = ParallelBitStringFinder<8>;
     auto rawFinder = std::make_unique<RawFinder>(
-        std::make_unique<ThrowingFileReader>( 100 ), 0xAA, /* parallelization */ 2 );
+        std::make_unique<NonSeekableFileReader>( 100 ), 0xAA, /* parallelization */ 2 );
     BlockFinder<RawFinder> blockFinder( std::move( rawFinder ) );
 
     bool threw{ false };
