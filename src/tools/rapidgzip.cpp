@@ -37,23 +37,6 @@ using namespace rapidgzip;
 
 namespace
 {
-constexpr auto RAPIDGZIP_THIRD_PARTY_LIBRARIES = std::array{
-    thirdparty::CXXOPTS,
-#ifdef LIBRAPIDARCHIVE_WITH_ISAL
-    thirdparty::ISAL,
-#endif
-#ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
-    thirdparty::RPMALLOC,
-#endif
-    thirdparty::ZLIB,
-#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-    thirdparty::BZIP2,
-#endif
-    thirdparty::LIBSAIS,
-    thirdparty::TOYBOX,
-};
-
-
 struct Arguments
 {
     unsigned int decoderParallelism{ 0 };
@@ -415,28 +398,30 @@ rapidgzipCLI( int                  argc,
 
     /* Check against simple commands like help and version. */
 
-    if ( parsedArgs.count( "help" ) > 0 ) {
-        printRapidgzipHelp( options );
-        return 0;
-    }
-
-    if ( parsedArgs.count( "version" ) > 0 ) {
-        std::cout
-            << "rapidgzip, CLI to the parallelized, indexed, and seekable gzip decoding library rapidgzip version "
-            << static_cast<uint32_t>( rapidgzip::VERSION[0] ) << "."
-            << static_cast<uint32_t>( rapidgzip::VERSION[1] ) << "."
-            << static_cast<uint32_t>( rapidgzip::VERSION[2] ) << "\n";
-        return 0;
-    }
-
-    if ( parsedArgs.count( "oss-attributions" ) > 0 ) {
-        thirdparty::printOssAttributions( std::cout, RAPIDGZIP_THIRD_PARTY_LIBRARIES );
-        return 0;
-    }
-
-    if ( parsedArgs.count( "oss-attributions-yaml" ) > 0 ) {
-        thirdparty::printOssAttributionsYaml( std::cout, "rapidgzip", RAPIDGZIP_THIRD_PARTY_LIBRARIES );
-        return 0;
+    const auto informationalExitCode = handleInformationalAction(
+        parsedArgs, "rapidgzip",
+        "rapidgzip, CLI to the parallelized, indexed, and seekable gzip decoding library rapidgzip version "
+            + std::to_string( static_cast<uint32_t>( rapidgzip::VERSION[0] ) ) + "."
+            + std::to_string( static_cast<uint32_t>( rapidgzip::VERSION[1] ) ) + "."
+            + std::to_string( static_cast<uint32_t>( rapidgzip::VERSION[2] ) ) + "\n",
+        std::array{
+            thirdparty::CXXOPTS,
+        #ifdef LIBRAPIDARCHIVE_WITH_ISAL
+            thirdparty::ISAL,
+        #endif
+        #ifdef LIBRAPIDARCHIVE_WITH_RPMALLOC
+            thirdparty::RPMALLOC,
+        #endif
+            thirdparty::ZLIB,
+        #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+            thirdparty::BZIP2,
+        #endif
+            thirdparty::LIBSAIS,
+            thirdparty::TOYBOX,
+        },
+        [&options] () { printRapidgzipHelp( options ); } );
+    if ( informationalExitCode ) {
+        return *informationalExitCode;
     }
 
     /* Parse action arguments. */

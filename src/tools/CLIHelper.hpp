@@ -2,6 +2,7 @@
 
 #include <exception>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <typeinfo>
@@ -9,6 +10,8 @@
 #include <cxxopts.hpp>
 
 #include <filereader/FileReader.hpp>
+
+#include "thirdparty.hpp"
 
 
 [[nodiscard]] inline std::string
@@ -28,6 +31,44 @@ getFilePath( cxxopts::ParseResult const& parsedArgs,
         }
     }
     return {};
+}
+
+
+/**
+ * Handles --help, --version, and the OSS attribution actions.
+ *
+ * @param versionText The complete line to print for --version, including the trailing newline.
+ * @return The exit code when an action was requested, otherwise std::nullopt.
+ */
+template<typename HelpPrinter, typename Libraries>
+[[nodiscard]] std::optional<int>
+handleInformationalAction( const cxxopts::ParseResult&             parsedArgs,
+                           const std::string_view                  ossRootName,
+                           const std::string_view                  versionText,
+                           const Libraries&                        libraries,
+                           HelpPrinter&&                           printHelp )
+{
+    if ( parsedArgs.count( "help" ) > 0 ) {
+        printHelp();
+        return 0;
+    }
+
+    if ( parsedArgs.count( "version" ) > 0 ) {
+        std::cout << versionText;
+        return 0;
+    }
+
+    if ( parsedArgs.count( "oss-attributions" ) > 0 ) {
+        thirdparty::printOssAttributions( std::cout, libraries );
+        return 0;
+    }
+
+    if ( parsedArgs.count( "oss-attributions-yaml" ) > 0 ) {
+        thirdparty::printOssAttributionsYaml( std::cout, ossRootName, libraries );
+        return 0;
+    }
+
+    return std::nullopt;
 }
 
 

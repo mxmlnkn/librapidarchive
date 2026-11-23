@@ -43,16 +43,6 @@ using namespace indexed_bzip2;
 
 namespace
 {
-constexpr auto IBZIP2_THIRD_PARTY_LIBRARIES = std::array{
-    thirdparty::CXXOPTS,
-#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-    thirdparty::BZIP2,
-#endif
-    thirdparty::LIBSAIS,
-    thirdparty::TOYBOX,
-};
-
-
 void
 dumpOffsets( const std::vector<uint64_t>& offsets,
              const CheckedWrite&          checkedWrite )
@@ -244,24 +234,20 @@ ibzip2CLI( int argc, char const* const* argv )
 
     /* Check against simple commands like help and version. */
 
-    if ( parsedArgs.count( "help" ) > 0 ) {
-        printIbzip2Help( options );
-        return 0;
-    }
-
-    if ( parsedArgs.count( "version" ) > 0 ) {
-        std::cout << "ibzip2, CLI to the indexed and seekable bzip2 decoding library indexed-bzip2 version 2.0.1.\n";
-        return 0;
-    }
-
-    if ( parsedArgs.count( "oss-attributions" ) > 0 ) {
-        thirdparty::printOssAttributions( std::cout, IBZIP2_THIRD_PARTY_LIBRARIES );
-        return 0;
-    }
-
-    if ( parsedArgs.count( "oss-attributions-yaml" ) > 0 ) {
-        thirdparty::printOssAttributionsYaml( std::cout, "indexed_bzip2", IBZIP2_THIRD_PARTY_LIBRARIES );
-        return 0;
+    const auto informationalExitCode = handleInformationalAction(
+        parsedArgs, "indexed_bzip2",
+        "ibzip2, CLI to the indexed and seekable bzip2 decoding library indexed-bzip2 version 2.0.1\n",
+        std::array{
+            thirdparty::CXXOPTS,
+        #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+            thirdparty::BZIP2,
+        #endif
+            thirdparty::LIBSAIS,
+            thirdparty::TOYBOX,
+        },
+        [&options] () { printIbzip2Help( options ); } );
+    if ( informationalExitCode ) {
+        return *informationalExitCode;
     }
 
     /* Parse input and output file specifications. */
