@@ -309,7 +309,8 @@ public:
     /**
      * Throws on error.
      */
-    bool  // NOLINT(modernize-use-nodiscard)
+    // NOLINTNEXTLINE(modernize-use-nodiscard)
+    bool
     verify( uint32_t crc32ToCompare ) const
     {
         if ( !enabled() || ( crc32() == crc32ToCompare ) ) {

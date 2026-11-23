@@ -134,13 +134,42 @@ public:
         NonSeekableFileReader( std::vector<char>( throwAfterBytes, '\0' ), throwAfterBytes )
     {}
 
-    void close() override { m_closed = true; }
-    [[nodiscard]] bool closed() const override { return m_closed; }
+    void
+    close() override
+    {
+        m_closed = true;
+    }
+
+    [[nodiscard]] bool
+    closed() const override
+    {
+        return m_closed;
+    }
+
     /** EOF is only reported after a read past the end, like a socket or pipe that has not been probed yet. */
-    [[nodiscard]] bool eof() const override { return m_eof; }
-    [[nodiscard]] bool fail() const override { return false; }
-    [[nodiscard]] int fileno() const override { return -1; }
-    [[nodiscard]] bool seekable() const override { return false; }
+    [[nodiscard]] bool
+    eof() const override
+    {
+        return m_eof;
+    }
+
+    [[nodiscard]] bool
+    fail() const override
+    {
+        return false;
+    }
+
+    [[nodiscard]] int
+    fileno() const override
+    {
+        return -1;
+    }
+
+    [[nodiscard]] bool
+    seekable() const override
+    {
+        return false;
+    }
 
     [[nodiscard]] size_t
     read( char* buffer, size_t nMaxBytesToRead ) override
@@ -164,9 +193,23 @@ public:
         throw std::logic_error( "NonSeekableFileReader cannot seek!" );
     }
 
-    [[nodiscard]] std::optional<uintmax_t> size() const override { return std::nullopt; }
-    [[nodiscard]] uintmax_t tell() const override { return m_position; }
-    void clearerr() override { m_eof = false; }
+    [[nodiscard]] std::optional<uintmax_t>
+    size() const override
+    {
+        return std::nullopt;
+    }
+
+    [[nodiscard]] uintmax_t
+    tell() const override
+    {
+        return m_position;
+    }
+
+    void
+    clearerr() override
+    {
+        m_eof = false;
+    }
 
 private:
     std::vector<char> m_data;

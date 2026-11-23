@@ -762,7 +762,8 @@ public:
      * the caller to deep clone the index and WindowMap for, e.g., the setBlockOffsets API, which
      * destructively moves from the WindowMap.
      */
-    [[nodiscard]] const GzipIndex  // NOLINT(readability-const-return-type)
+    // NOLINTNEXTLINE(readability-const-return-type)
+    [[nodiscard]] const GzipIndex
     gzipIndex( bool withLineOffsets = false )
     {
         const auto offsets = blockOffsets();  // Also finalizes reading implicitly.

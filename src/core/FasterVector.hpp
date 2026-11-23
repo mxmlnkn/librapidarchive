@@ -246,14 +246,21 @@ public:
         }
     }
 
-    void clear() { m_size = 0; }
-    void shrink_to_fit()
+    void
+    clear()
+    {
+        m_size = 0;
+    }
+
+    void
+    shrink_to_fit()
     {
         if ( m_size < static_cast<size_t>( 0.9 * m_capacity ) ) {
             reallocate( m_size );
         }
     }
 
+    /* *INDENT-OFF* */
     [[nodiscard]] constexpr size_t capacity() const noexcept { return m_capacity; }
     [[nodiscard]] constexpr size_t size() const noexcept { return m_size; }
     [[nodiscard]] constexpr bool empty() const noexcept { return m_size == 0; }
@@ -276,6 +283,7 @@ public:
     [[nodiscard]] constexpr auto crend() const noexcept { return std::reverse_iterator<const T*>( m_data ); }
     [[nodiscard]] constexpr auto rend() const noexcept { return std::reverse_iterator<const T*>( m_data ); }
     [[nodiscard]] constexpr auto rend() noexcept { return std::reverse_iterator<T*>( m_data ); }
+    /* *INDENT-ON* */
 
     [[nodiscard]] const T&
     operator[]( size_t i ) const

@@ -68,7 +68,8 @@ public:
     /**
      * Throws on mismatch.
      */
-    bool  // NOLINT(modernize-use-nodiscard)
+    // NOLINTNEXTLINE(modernize-use-nodiscard)
+    bool
     verify( const uint32_t adler32ToCompare ) const
     {
         if ( !enabled() || ( adler32() == adler32ToCompare ) ) {
