@@ -368,8 +368,8 @@ private:
                     lock,
                     [this] () {
                         return m_cancelReaderThread
-                           || ( m_numberOfBytesRead < saturatingAddition( m_bufferUntilOffset.load(),
-                                                                          64 * CHUNK_SIZE ) );
+                               || ( m_numberOfBytesRead < saturatingAddition( m_bufferUntilOffset.load(),
+                                                                              64 * CHUNK_SIZE ) );
                     } );
                 continue;
             }

@@ -260,13 +260,20 @@ updateCRC32PCLMUL( uint32_t       crc,
 #endif  /* LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS */
 
 
-#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS \
-    && ( ( defined( __GNUC__ ) && !defined( __clang__ ) && ( __GNUC__ >= 11 ) ) \
-         || ( defined( __clang__ ) && ( __clang_major__ >= 12 ) ) )
+/* Clang 12 and GCC 11 support VPCLMUL. */
+#if ( defined( __GNUC__ ) && !defined( __clang__ ) && ( __GNUC__ >= 11 ) ) \
+    || ( defined( __clang__ ) && ( __clang_major__ >= 12 ) )
+    #define LIBRAPIDARCHIVE_BZIP2_CRC_HAS_VPCLMUL_COMPILER 1
+#else
+    #define LIBRAPIDARCHIVE_BZIP2_CRC_HAS_VPCLMUL_COMPILER 0
+#endif
+
+#if LIBRAPIDARCHIVE_COMPILE_X86_SIMD_KERNELS && LIBRAPIDARCHIVE_BZIP2_CRC_HAS_VPCLMUL_COMPILER
     #define LIBRAPIDARCHIVE_BZIP2_CRC_VPCLMUL 1
 #else
     #define LIBRAPIDARCHIVE_BZIP2_CRC_VPCLMUL 0
 #endif
+#undef LIBRAPIDARCHIVE_BZIP2_CRC_HAS_VPCLMUL_COMPILER
 
 #if LIBRAPIDARCHIVE_BZIP2_CRC_VPCLMUL
 /* The 256-bit variant folds two 128-bit lanes per register and twice the CLMUL work per instruction. */
