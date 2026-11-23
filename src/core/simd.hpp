@@ -24,6 +24,17 @@
     #define LIBRAPIDARCHIVE_COMPILE_X86_64_SIMD_KERNELS 0
 #endif
 
+/* SSE2 is baseline on x86_64 and on 32-bit MSVC with /arch:SSE2. On 32-bit GCC/Clang it requires -msse2.
+ * ARM64EC defines _M_X64/_M_AMD64 but is an ARM64 target and must not take the x86 SSE2 path. */
+#if ( defined( __SSE2__ ) || ( defined( _M_IX86_FP ) && ( _M_IX86_FP >= 2 ) ) \
+    || defined( _M_AMD64 ) || defined( _M_X64 ) ) && !defined( _M_ARM64EC )
+    #include <emmintrin.h>
+
+    #define LIBRAPIDARCHIVE_HAS_SSE2 1
+#else
+    #define LIBRAPIDARCHIVE_HAS_SSE2 0
+#endif
+
 
 namespace rapidgzip
 {

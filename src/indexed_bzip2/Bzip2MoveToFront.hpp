@@ -9,15 +9,10 @@
 #include <cstdint>
 
 #include <core/common.hpp>
+#include <core/simd.hpp>
 
-/* ARM64EC also defines _M_X64 and _M_AMD64, but it is an ARM64 target and must not take the x64
- * SSE2 path. The vendored libsais uses the same condition. */
-#if ( defined( __SSE2__ ) || ( defined( _M_IX86_FP ) && ( _M_IX86_FP >= 2 ) ) \
-    || defined( _M_AMD64 ) || defined( _M_X64 ) ) && !defined( _M_ARM64EC )
-    #define LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 1
+#if LIBRAPIDARCHIVE_HAS_SSE2
     #include <emmintrin.h>
-#else
-    #define LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 0
 #endif
 #if defined( __ARM_NEON )
     #include <arm_neon.h>
@@ -136,7 +131,7 @@ createPackedMTF( const uint8_t* const bytes,
 moveToFront( PackedMTF&   mtf,
              const size_t position ) noexcept
 {
-#if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+#if LIBRAPIDARCHIVE_HAS_SSE2
     if ( position < 64 ) {
         auto* const data = reinterpret_cast<uint8_t*>( mtf.data() );
         /* Keep the selected symbol because shifting overwrites its old list position. */

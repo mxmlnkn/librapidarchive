@@ -24,7 +24,7 @@
 #include <core/simd.hpp>
 
 #include "Bzip2Format.hpp"
-/* Also provides LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 and the SSE2 intrinsics used by createLastToFirstMapping. */
+/* Also provides LIBRAPIDARCHIVE_HAS_SSE2 and the SSE2 intrinsics used by createLastToFirstMapping. */
 #include "Bzip2MoveToFront.hpp"
 
 /* AArch64 has the table lookup and byte-extension instructions the NEON kernel needs. ARMv7 keeps the

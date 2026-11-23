@@ -448,7 +448,7 @@ public:
             size_t decodedSize = 0;
             uint32_t position = 0;
 
-        #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+        #if LIBRAPIDARCHIVE_HAS_SSE2
             /* Test four shifted 16-byte windows at once to find the next run start. Positions before it
              * are literals, which avoids one branch and comparison per byte for literal-heavy blocks. */
             while ( position + 20 <= writeCount ) {
@@ -1002,7 +1002,7 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
             }
         #endif
 
-        #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2 || defined( __ARM_NEON )
+        #if LIBRAPIDARCHIVE_HAS_SSE2 || defined( __ARM_NEON )
             /* Scan 16 positions at once. The scalar loop short-circuits after the first mismatch, but it still costs
              * one load and one compare per literal. A 128-bit/16-byte compare finds the first run start and lets whole
              * blocks of literals be copied with one load and one store. */
@@ -1012,7 +1012,7 @@ Block::BurrowsWheelerTransformData::decodeBlock( const size_t nMaxBytesToDecode,
                 const auto* const source = bwtData.get() + state.position;
                 /* Simply load from byte-shifted offsets instead of load + shift to avoid instruction dependencies
                  * and to effectively load 16 + 3 bytes as we need to compare 4 subsequent bytes for each position. */
-            #if LIBRAPIDARCHIVE_BZIP2_HAS_SSE2
+            #if LIBRAPIDARCHIVE_HAS_SSE2
                 const auto v0 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source ) );
                 const auto v1 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 1 ) );
                 const auto v2 = _mm_loadu_si128( reinterpret_cast<const __m128i*>( source + 2 ) );
