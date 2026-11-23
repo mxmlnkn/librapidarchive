@@ -194,8 +194,8 @@ writeBzip2Index( std::ostream&       out,
 
 
 inline void
-writeBzip2Index( const BlockOffsets&    offsets,
-                 const CheckedWrite&    checkedWrite )
+writeBzip2Index( const BlockOffsets& offsets,
+                 const CheckedWrite& checkedWrite )
 {
     if ( !checkedWrite ) {
         throw std::invalid_argument( "Write functor must be valid!" );

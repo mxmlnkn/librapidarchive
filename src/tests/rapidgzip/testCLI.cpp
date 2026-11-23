@@ -459,8 +459,8 @@ testDashMeansStdinAndStdout( const std::string&       compressedFilePath,
 
 
 void
-testCountDoesNotPolluteStdout( const std::string&          compressedFilePath,
-                               const std::vector<char>&    decompressed )
+testCountDoesNotPolluteStdout( const std::string&       compressedFilePath,
+                               const std::vector<char>& decompressed )
 {
 #if !defined( _WIN32 )
     const auto tmpFolder = createTemporaryDirectory( "rapidgzip.testCLI" );

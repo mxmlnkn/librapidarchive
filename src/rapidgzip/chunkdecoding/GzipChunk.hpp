@@ -189,7 +189,7 @@ public:
      */
     template<typename InflateWrapper>
     [[nodiscard]] static ChunkData
-    decodeChunkWithInflateWrapper( UniqueFileReader          && sharedFileReader,
+    decodeChunkWithInflateWrapper( UniqueFileReader &&          sharedFileReader,
                                    uint64_t               const encodedOffsetInBits,
                                    uint64_t               const exactUntilOffset,
                                    WindowView             const initialWindow,
@@ -660,7 +660,7 @@ public:
 
 
     [[nodiscard]] static ChunkData
-    decodeChunk( UniqueFileReader                      && sharedFileReader,
+    decodeChunk( UniqueFileReader &&                      sharedFileReader,
                  uint64_t                           const blockOffset,
                  uint64_t                           const untilOffset,
                  typename ChunkData::SharedWindow   const initialWindow,

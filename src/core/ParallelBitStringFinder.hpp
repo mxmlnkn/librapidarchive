@@ -42,8 +42,8 @@ public:
 
 public:
     ParallelBitStringFinder( UniqueFileReader fileReader,
-                             uint64_t         bitStringToFind,
-                             size_t           parallelization = std::max( 1U, availableCores() / 8U ),
+                             uint64_t bitStringToFind,
+                             size_t parallelization = std::max( 1U, availableCores() / 8U ),
                              size_t           requestedBytes = 0,
                              size_t           fileBufferSizeBytes = 1_Mi ) :
         BaseType( std::move( fileReader ),

@@ -342,9 +342,9 @@ formatValueStatistics( const std::vector<T>&  values,
 
 template<size_t N>
 [[nodiscard]] std::string
-formatValueStatistics( const std::array<uint64_t, N>&  counts,
-                       const size_t                    minValue,
-                       const std::string_view          unit )
+formatValueStatistics( const std::array<uint64_t, N>& counts,
+                       const size_t                   minValue,
+                       const std::string_view         unit )
 {
     std::vector<std::pair<double, uint64_t> > valueCounts;
     for ( size_t i = 0; i < counts.size(); ++i ) {

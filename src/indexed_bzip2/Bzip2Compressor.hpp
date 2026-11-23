@@ -259,11 +259,11 @@ scanBzip2ChunkOffsets( const std::vector<uint8_t>& compressed )
  *        that still contain additional blocks are reported and those inner offsets are omitted.
  */
 [[nodiscard]] inline Bzip2CompressionResult
-compressBzip2Parallel( rapidgzip::FileReader&                                        inputFile,
-                       const std::function<void( const std::vector<uint8_t>& )>&     writeData,
-                       const int                                                     level,
-                       const size_t                                                  parallelism,
-                       const std::function<void( uint64_t, uint64_t )>&              onBlockOffset = {} )
+compressBzip2Parallel( rapidgzip::FileReader&                                    inputFile,
+                       const std::function<void( const std::vector<uint8_t>& )>& writeData,
+                       const int                                                 level,
+                       const size_t                                              parallelism,
+                       const std::function<void( uint64_t, uint64_t )>&          onBlockOffset = {} )
 {
     if ( ( level < 1 ) || ( level > 9 ) ) {
         throw std::invalid_argument( "bzip2 compression level must be in the range 1..9." );

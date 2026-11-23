@@ -217,9 +217,9 @@ struct FileReaderOperation
 
 
 void
-applyOperation( FileReader&                 first,
-                FileReader&                 second,
-                const FileReaderOperation&  operation )
+applyOperation( FileReader&                first,
+                FileReader&                second,
+                const FileReaderOperation& operation )
 {
     switch ( operation.type )
     {
@@ -378,8 +378,8 @@ testBufferedFileReaderDifferential( const std::string& tmpFileName )
 
 
 void
-testNullBufferSkipAtEnd( FileReader&                fileReader,
-                         const std::vector<char>&   fileContents )
+testNullBufferSkipAtEnd( FileReader&              fileReader,
+                         const std::vector<char>& fileContents )
 {
     REQUIRE_EQUAL( fileReader.tell(), size_t( 0 ) );
 

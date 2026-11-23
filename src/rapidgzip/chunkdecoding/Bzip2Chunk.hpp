@@ -209,7 +209,7 @@ public:
 
 
     [[nodiscard]] static ChunkData
-    decodeChunk( UniqueFileReader       && sharedFileReader,
+    decodeChunk( UniqueFileReader &&       sharedFileReader,
                  uint64_t            const chunkOffset,
                  uint64_t            const untilOffset,
                  std::atomic<bool>  const& cancelThreads,

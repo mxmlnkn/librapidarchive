@@ -23,8 +23,8 @@ using namespace rapidgzip;
 namespace
 {
 void
-applyReferenceUpdate( std::array<uint8_t, 256>&  list,
-                      const size_t               position )
+applyReferenceUpdate( std::array<uint8_t, 256>& list,
+                      const size_t              position )
 {
     const auto moved = list[position];
     for ( size_t i = position; i > 0; --i ) {

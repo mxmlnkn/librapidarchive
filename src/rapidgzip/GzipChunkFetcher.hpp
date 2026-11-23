@@ -770,7 +770,7 @@ public:
      *                      start.
      */
     [[nodiscard]] static ChunkData
-    decodeBlock( UniqueFileReader             && sharedFileReader,
+    decodeBlock( UniqueFileReader &&             sharedFileReader,
                  uint64_t                  const blockOffset,
                  uint64_t                  const untilOffset,
                  SharedWindow                    initialWindow,

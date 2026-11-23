@@ -54,9 +54,9 @@ volatile uint64_t benchmarkSink{ 0 };
 
 template<typename Function>
 [[nodiscard]] double
-measure( Function&&                    function,
-         const std::vector<uint64_t>&  values,
-         const size_t                  repeats )
+measure( Function&&                   function,
+         const std::vector<uint64_t>& values,
+         const size_t                 repeats )
 {
     uint64_t sum = 0;
     const auto start = std::chrono::steady_clock::now();

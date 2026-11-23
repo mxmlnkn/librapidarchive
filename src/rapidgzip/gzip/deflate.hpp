@@ -979,7 +979,8 @@ template<bool ENABLE_STATISTICS>
 template<bool treatLastBlockAsError>
 Error
 Block<ENABLE_STATISTICS>::readHeader( gzip::BitReader& bitReader )
-try {
+try
+{
     m_isLastBlock = bitReader.read<1>();
 
     if constexpr ( treatLastBlockAsError ) {

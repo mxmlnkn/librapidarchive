@@ -173,8 +173,8 @@ struct Footer
 
 
 inline std::pair<Header, Error>
-readHeader( gzip::BitReader&  bitReader,
-            const size_t      maxCapturedFieldSize = DEFAULT_MAX_CAPTURED_FIELD_SIZE )
+readHeader( gzip::BitReader& bitReader,
+            const size_t     maxCapturedFieldSize = DEFAULT_MAX_CAPTURED_FIELD_SIZE )
 {
     Header header;
 

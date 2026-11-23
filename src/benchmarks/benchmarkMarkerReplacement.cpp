@@ -133,7 +133,7 @@ replaceInPlaceExtendedWindowAlternativeFormat( std::vector<std::uint16_t>&      
 
 void
 onlyCompactBufferInPlace( std::vector<std::uint16_t>&      buffer,
-                          const std::vector<std::uint8_t>& /* window */ )
+                          const std::vector<std::uint8_t>& window [[maybe_unused]] )
 {
     auto* const replaced = reinterpret_cast<std::uint8_t*>( buffer.data() );
 
@@ -165,7 +165,7 @@ onlyCompactBufferInPlace( std::vector<std::uint16_t>&      buffer,
 
 void
 onlyCompactBufferWithIntermediary( std::vector<std::uint16_t>&      buffer,
-                                   const std::vector<std::uint8_t>& /* window */ )
+                                   const std::vector<std::uint8_t>& window [[maybe_unused]] )
 {
     std::vector<std::uint8_t> result( buffer.size() );
     #pragma omp parallel for simd
@@ -178,7 +178,7 @@ onlyCompactBufferWithIntermediary( std::vector<std::uint16_t>&      buffer,
 
 void
 onlyCompactBufferWithIntermediary2( std::vector<std::uint16_t>&      buffer,
-                                    const std::vector<std::uint8_t>& /* window */ )
+                                    const std::vector<std::uint8_t>& window [[maybe_unused]] )
 {
     std::vector<std::uint8_t> result( buffer.size() );
 
@@ -197,7 +197,7 @@ onlyCompactBufferWithIntermediary2( std::vector<std::uint16_t>&      buffer,
 
 void
 onlyCompactBufferWithIntermediarySwap( std::vector<std::uint16_t>&      buffer,
-                                       const std::vector<std::uint8_t>& /* window */ )
+                                       const std::vector<std::uint8_t>& window [[maybe_unused]] )
 {
     std::vector<std::uint16_t> result( buffer.size() );
     auto* const __restrict__ replaced = reinterpret_cast<std::uint8_t*>( result.data() );
@@ -211,7 +211,7 @@ onlyCompactBufferWithIntermediarySwap( std::vector<std::uint16_t>&      buffer,
 
 void
 onlyCompactBufferInPlaceCopy( std::vector<std::uint16_t>&      buffer,
-                              const std::vector<std::uint8_t>& /* window */ )
+                              const std::vector<std::uint8_t>& window [[maybe_unused]] )
 {
     std::copy( buffer.begin(), buffer.end(), reinterpret_cast<std::uint8_t*>( buffer.data() ) );
 }

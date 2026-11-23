@@ -38,11 +38,11 @@ using namespace indexed_bzip2;
  */
 template<typename Reader>
 void
-testSeek( size_t                            decodedFileSize,
-          std::ifstream&                    decodedFile,
-          const std::unique_ptr<Reader>&    encodedFile,
-          long long int                     offset,
-          int                               origin = SEEK_SET )
+testSeek( size_t                         decodedFileSize,
+          std::ifstream&                 decodedFile,
+          const std::unique_ptr<Reader>& encodedFile,
+          long long int                  offset,
+          int                            origin = SEEK_SET )
 {
     std::cerr << "Seek to " << offset << "\n";
 
@@ -70,9 +70,9 @@ testSeek( size_t                            decodedFileSize,
 
 template<typename Reader>
 void
-testRead( std::ifstream&                    decodedFile,
-          const std::unique_ptr<Reader>&    encodedFile,
-          size_t                            nBytesToRead )
+testRead( std::ifstream&                 decodedFile,
+          const std::unique_ptr<Reader>& encodedFile,
+          size_t                         nBytesToRead )
 {
     std::cerr << "Read " << nBytesToRead << "B from " << encodedFile->tell() << "\n";
 
@@ -471,7 +471,7 @@ testOversizedCodeLength( const size_t parallelization )
 
 template<typename Policy>
 void
-testEmptyAndTruncatedInputs( const std::string& /* encodedTestFilePath */,
+testEmptyAndTruncatedInputs( const std::string& encodedTestFilePath [[maybe_unused]],
                              const size_t       parallelization )
 {
     const auto readAllOrCaptureMessage =

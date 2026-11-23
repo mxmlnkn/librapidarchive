@@ -179,11 +179,11 @@ makeBitStringSearchPattern( const uint64_t bitString,
  * @return whether the S-bit window starting at bit @p shift of byte @p needleOffset - 1 equals the pattern.
  */
 [[nodiscard]] inline bool
-matchesBitStringAt( const uint8_t*                    buffer,
-                    const size_t                      bufferSize,
-                    const size_t                      needleOffset,
-                    const uint8_t                     shift,
-                    const BitStringSearchPattern&     pattern ) noexcept
+matchesBitStringAt( const uint8_t*                buffer,
+                    const size_t                  bufferSize,
+                    const size_t                  needleOffset,
+                    const uint8_t                 shift,
+                    const BitStringSearchPattern& pattern ) noexcept
 {
     assert( needleOffset > 0 );
 
@@ -451,9 +451,9 @@ findBitStringsAVX512( const uint8_t*                buffer,
 
 template<uint8_t bitStringSize>
 [[nodiscard]] std::vector<size_t>
-findBitStringsFast( std::string_view const&   buffer,
-                    const uint64_t            bitString,
-                    BitStringFinderKernel     kernel )
+findBitStringsFast( std::string_view const& buffer,
+                    const uint64_t          bitString,
+                    BitStringFinderKernel   kernel )
 {
     static_assert( ( bitStringSize >= 2 * CHAR_BIT ) && ( bitStringSize <= 56 ),
                    "The fast finder needs a pattern that fits into a 64-bit window." );

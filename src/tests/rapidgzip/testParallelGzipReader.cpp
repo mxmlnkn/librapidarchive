@@ -1260,14 +1260,14 @@ createGzipIndex( const std::vector<uint8_t>& data,
 
 
 void
-requireReadError( const std::vector<uint8_t>&        data,
-                  const size_t                       chunkSize,
-                  const size_t                       readBufferSize,
-                  const std::vector<char>*           indexData,
-                  const size_t                       preReadBytes,
-                  const std::optional<size_t>        seekOffset,
-                  const std::string&                 expectedMessage,
-                  const bool                         verifyChecksums )
+requireReadError( const std::vector<uint8_t>& data,
+                  const size_t                chunkSize,
+                  const size_t                readBufferSize,
+                  const std::vector<char>*    indexData,
+                  const size_t                preReadBytes,
+                  const std::optional<size_t> seekOffset,
+                  const std::string&          expectedMessage,
+                  const bool                  verifyChecksums )
 {
     rapidgzip::ParallelGzipReader<rapidgzip::ChunkData> reader(
         std::make_unique<BufferViewFileReader>( data ), /* parallelization */ 2, chunkSize );
