@@ -26,37 +26,6 @@ using namespace rapidgzip;
 
 namespace
 {
-/**
- * A seekable reader over in-memory data that deliberately reports no size, e.g., like a Python file object
- * that supports seeking but has no reliable length.
- */
-class UnknownSizeFileReader final :
-    public BufferViewFileReader
-{
-public:
-    explicit
-    UnknownSizeFileReader( std::vector<uint8_t> data ) :
-        BufferViewFileReader( data.data(), data.size() ),
-        m_data( std::move( data ) )
-    {}
-
-    [[nodiscard]] UniqueFileReader
-    cloneRaw() const override
-    {
-        return std::make_unique<UnknownSizeFileReader>( m_data );
-    }
-
-    [[nodiscard]] std::optional<uintmax_t>
-    size() const override
-    {
-        return std::nullopt;
-    }
-
-private:
-    std::vector<uint8_t> m_data;
-};
-
-
 void
 testBgzfBlockFinderWithUnknownFileSize( const std::filesystem::path& path )
 {

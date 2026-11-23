@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <filesystem>
 #include <mutex>
@@ -14,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include <filereader/BufferView.hpp>
 #include <filereader/FileReader.hpp>
 
 #include "common.hpp"  // duration
@@ -151,6 +154,37 @@ private:
     size_t m_position{ 0 };
     const size_t m_throwAfterBytes;
     bool m_closed{ false };
+};
+
+
+/**
+ * A seekable reader over in-memory data that deliberately reports no size, e.g., like a Python file object
+ * that supports seeking but has no reliable length.
+ */
+class UnknownSizeFileReader final :
+    public BufferViewFileReader
+{
+public:
+    explicit
+    UnknownSizeFileReader( std::vector<uint8_t> data ) :
+        BufferViewFileReader( data.data(), data.size() ),
+        m_data( std::move( data ) )
+    {}
+
+    [[nodiscard]] UniqueFileReader
+    cloneRaw() const override
+    {
+        return std::make_unique<UnknownSizeFileReader>( m_data );
+    }
+
+    [[nodiscard]] std::optional<uintmax_t>
+    size() const override
+    {
+        return std::nullopt;
+    }
+
+private:
+    std::vector<uint8_t> m_data;
 };
 
 

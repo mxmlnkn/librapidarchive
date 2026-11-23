@@ -1794,33 +1794,6 @@ testBgzfSeekWithImportedMidMemberIndex( const std::filesystem::path& rootFolder 
 }
 
 
-class UnknownSizeFileReader final :
-    public BufferViewFileReader
-{
-public:
-    explicit
-    UnknownSizeFileReader( std::vector<uint8_t> data ) :
-        BufferViewFileReader( data.data(), data.size() ),
-        m_data( std::move( data ) )
-    {}
-
-    [[nodiscard]] UniqueFileReader
-    cloneRaw() const override
-    {
-        return std::make_unique<UnknownSizeFileReader>( m_data );
-    }
-
-    [[nodiscard]] std::optional<uintmax_t>
-    size() const override
-    {
-        return std::nullopt;
-    }
-
-private:
-    std::vector<uint8_t> m_data;
-};
-
-
 void
 testBgzfWithUnknownFileSize( const std::filesystem::path& rootFolder )
 {
