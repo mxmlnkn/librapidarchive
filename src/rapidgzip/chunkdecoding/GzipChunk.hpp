@@ -478,7 +478,7 @@ public:
                     throw std::logic_error( "[GzipChunkFetcher::decodeChunkWithRapidgzip] Invalid file type!" );
                 case FileType::BGZF:
                 case FileType::GZIP:
-                    error = gzip::readHeader( *bitReader ).second;
+                    error = gzip::readHeader( *bitReader, /* maxCapturedFieldSize */ 0 ).second;
                     break;
                 case FileType::ZLIB:
                     error = zlib::readHeader( *bitReader ).second;

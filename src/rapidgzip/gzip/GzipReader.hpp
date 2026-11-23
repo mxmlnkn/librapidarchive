@@ -479,9 +479,8 @@ private:
         case FileType::NONE:
         case FileType::BGZF:
         case FileType::GZIP:
-        {
-            auto [header, error] = gzip::readHeader( m_bitReader, /* maxCapturedFieldSize */ 0 );
-            if ( error != Error::NONE ) {
+            if ( const auto error = gzip::readHeader( m_bitReader, /* maxCapturedFieldSize */ 0 ).second;
+                 error != Error::NONE ) {
                 if ( hasPreviousMember && remainingInputIsZero( headerStart ) ) {
                     m_atEndOfFile = true;
                     return;
@@ -491,7 +490,7 @@ private:
                 throw std::domain_error( std::move( message ).str() );
             }
             break;
-        }
+
         case FileType::ZLIB:
         {
             auto [header, error] = zlib::readHeader( m_bitReader );
