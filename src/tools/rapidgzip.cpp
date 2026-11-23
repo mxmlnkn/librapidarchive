@@ -848,22 +848,6 @@ rapidgzipCLI( int                  argc,
 int
 main( int argc, char** argv )
 {
-    try
-    {
-        return rapidgzipCLI( argc, argv );
-    } catch ( const EndOfFileReached& exception ) {
-        std::cerr << "Unexpected end of file. Truncated or invalid compressed stream?\n";
-        return 1;
-    } catch ( const std::exception& exception ) {
-        const std::string_view message{ exception.what() };
-        if ( message.empty() ) {
-            std::cerr << "Caught exception with typeid: " << typeid( exception ).name() << "\n";
-        } else {
-            std::cerr << "Caught exception: " << message << "\n";
-        }
-        return 1;
-    }
-
-    return 1;
+    return runCLI( [argc, argv] () { return rapidgzipCLI( argc, argv ); } );
 }
 #endif
