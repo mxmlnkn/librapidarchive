@@ -180,29 +180,6 @@ ibzip2CLI( int argc, char const* const* argv )
 
     const auto parsedArgs = options.parse( argc, argv );
 
-    Arguments args;
-    args.force = parsedArgs["force"].as<bool>();
-    args.verbose = parsedArgs["verbose"].as<bool>();
-    args.quiet = parsedArgs["quiet"].as<bool>();
-    args.sandbox = parsedArgs.count( "no-sandbox" ) == 0;
-
-    const auto getParallelism = [] ( const auto p ) { return p > 0 ? p : availablePhysicalCores(); };
-    const auto blockFinderParallelism = parsedArgs["block-finder-parallelism"].as<unsigned int>();
-    args.decoderParallelism = getParallelism( parsedArgs["decoder-parallelism"].as<unsigned int>() );
-
-    if ( args.verbose ) {
-        for ( auto const* const path : { "input", "output", "list-compressed-offsets", "export-index" } ) {
-            std::string value = "<none>";
-            try {
-                value = getFilePath( parsedArgs, path );
-                if ( value.empty() && ( parsedArgs.count( path ) > 0 ) ) {
-                    value = "<stdout>";
-                }
-            } catch ( ... ) {}
-            std::cerr << "file path for " << path << ": " << value << "\n";
-        }
-    }
-
     /* Check against simple commands like help and version. */
 
     const auto informationalExitCode = handleInformationalAction(
@@ -221,31 +198,30 @@ ibzip2CLI( int argc, char const* const* argv )
         return *informationalExitCode;
     }
 
-    /* Parse input and output file specifications. */
-
-    const auto inputFilePathOptional = parseInputPath( parsedArgs );
-    if ( !inputFilePathOptional ) {
+    Arguments args;
+    if ( !parseArguments( args, parsedArgs ) ) {
         return 1;
     }
-    args.inputFilePath = *inputFilePathOptional;
 
+    if ( args.decoderParallelism <= 0 ) {
+        args.decoderParallelism = availablePhysicalCores();
+    }
+    const auto blockFinderParallelism = parsedArgs["block-finder-parallelism"].as<unsigned int>();
+
+    /* Parse input and output file specifications. */
+
+    if ( ( parsedArgs.count( "decompress" ) > 0 ) && ( parsedArgs.count( "compress" ) > 0 ) ) {
+        std::cerr << "Only either compression or decompression may be requested!\n";
+        return 1;
+    }
     const auto compress = parsedArgs.count( "compress" ) > 0;
-    args.outputFilePath = getFilePath( parsedArgs, "output" );
 
     /* Parse action arguments. */
 
     const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
     const auto exportIndexRequested = parsedArgs.count( "export-index" ) > 0;
-    args.countBytes = parsedArgs.count( "count" ) > 0;
-    args.countLines = parsedArgs.count( "count-lines" ) > 0;
-    args.test = parsedArgs["test"].as<bool>();
-    args.writeToStdOut =
-        ( parsedArgs.count( "stdout" ) > 0 )
-        || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
-    args.decompress = !compress && ( parsedArgs.count( "decompress" ) > 0 );
 
-    if ( parsedArgs.count( "ranges" ) > 0 ) {
-        args.fileRanges = parseFileRanges( parsedArgs["ranges"].as<std::string>() );
+    if ( args.fileRanges ) {
         for ( const auto& range : *args.fileRanges ) {
             if ( range.offsetIsLine || range.sizeIsLine ) {
                 std::cerr << "Line-based ranges are not supported for bzip2. Use byte ranges instead.\n";
@@ -253,11 +229,6 @@ ibzip2CLI( int argc, char const* const* argv )
             }
         }
     }
-
-    args.indexLoadPath = parsedArgs.count( "import-index" ) > 0
-                         ? parsedArgs["import-index"].as<std::string>()
-                         : std::string();
-    args.indexSavePath = getFilePath( parsedArgs, "export-index" );
 
     const auto decode = !compress
                         && ( args.decompress || args.test || args.countBytes || args.countLines
@@ -279,14 +250,6 @@ ibzip2CLI( int argc, char const* const* argv )
                                                 /* warnOnFallback */ !args.quiet );
     }
 
-    if ( compress
-         && ( ( parsedArgs.count( "decompress" ) > 0 ) || args.test || listCompressedOffsets
-              || args.countBytes || args.countLines || args.fileRanges.has_value()
-              || !args.indexLoadPath.empty() ) ) {
-        std::cerr << "Compression cannot be combined with decompression, test, count, range, or "
-                  << "import-index options.\n";
-        return 1;
-    }
 #ifndef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
     if ( compress ) {
         std::cerr << "This build does not have libbz2 compression support enabled!\n";
@@ -295,16 +258,6 @@ ibzip2CLI( int argc, char const* const* argv )
 #endif
 
     if ( ( writeOutput || compress ) && !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
-        return 1;
-    }
-
-    if ( !args.indexLoadPath.empty() && !fileExists( args.indexLoadPath ) ) {
-        std::cerr << "The block offset index to import was not found: " << args.indexLoadPath << "\n";
-        return 1;
-    }
-    if ( !args.indexSavePath.empty() && fileExists( args.indexSavePath ) && !args.force ) {
-        std::cerr << "Output file for block offsets '" << args.indexSavePath
-                  << "' already exists! Use --force to overwrite.\n";
         return 1;
     }
 
@@ -611,7 +564,7 @@ ibzip2CLI( int argc, char const* const* argv )
             sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
         }
         const auto offsets = findCompressedBlocks(
-            *sharedInputFile, getParallelism( blockFinderParallelism ),
+            *sharedInputFile, blockFinderParallelism > 0 ? blockFinderParallelism : availablePhysicalCores(),
             static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ) );
         dumpOffsets( offsets, [&output] ( const void* data, const size_t size ) { output.write( data, size ); } );
         output.truncateToWrittenSize();

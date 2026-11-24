@@ -6,6 +6,9 @@ set -o pipefail
 
 
 IBZIP2='src/tools/ibzip2'
+if [[ -f "${IBZIP2}.exe" ]]; then
+    IBZIP2="${IBZIP2}.exe"
+fi
 export IBZIP2
 
 
@@ -93,10 +96,17 @@ fi
 export -f echoerr commandExists computeMd5 checkMd5 checkBz2Md5
 
 # Exercise the index paths, which open all files before the decoder starts.
-tmpFolder=$( mktemp -d )
+# Use a build-relative temporary directory. mktemp -d under Git Bash can return MSYS paths that
+# the native Windows executable cannot open consistently.
+tmpFolder="$( pwd )/testIbzip2-tmp"
+rm -rf "$tmpFolder"
+mkdir -p "$tmpFolder"
 trap 'rm -rf "$tmpFolder"' EXIT
-if ! $IBZIP2 -d -f -o "$tmpFolder/base64" --export-index "$tmpFolder/base64.index" ../src/tests/data/base64-256KiB.bz2; then
-    echoerr 'Exporting an index failed!'
+$IBZIP2 -d -f -o "$tmpFolder/base64" --export-index "$tmpFolder/base64.index" ../src/tests/data/base64-256KiB.bz2
+status=$?
+if [[ $status -ne 0 ]]; then
+    echoerr "Exporting an index failed with status $status!"
+    ls -l "$tmpFolder" || true
     exit 1
 fi
 if [[ "$( wc -c < "$tmpFolder/base64" )" -ne 262144 ]]; then
@@ -104,11 +114,33 @@ if [[ "$( wc -c < "$tmpFolder/base64" )" -ne 262144 ]]; then
     exit 1
 fi
 if ! cat ../src/tests/data/base64-256KiB.bz2 | $IBZIP2 -L "$tmpFolder/offsets" > /dev/null; then
-    echoerr 'Listing compressed offsets from stdin failed!'
+    echoerr 'Exporting an index from stdin failed!'
     exit 1
 fi
 if [[ ! -s "$tmpFolder/offsets" ]]; then
-    echoerr 'Listing compressed offsets from stdin produced an empty file!'
+    echoerr 'Exporting an index from stdin produced an empty file!'
+    exit 1
+fi
+
+# The direct block-offset listing requires a seekable input and --force for an existing output.
+if ! $IBZIP2 -l "$tmpFolder/compressed-offsets" ../src/tests/data/base64-256KiB.bz2; then
+    echoerr 'Listing compressed offsets failed!'
+    exit 1
+fi
+if [[ ! -s "$tmpFolder/compressed-offsets" ]]; then
+    echoerr 'Listing compressed offsets produced an empty file!'
+    exit 1
+fi
+if $IBZIP2 -l "$tmpFolder/compressed-offsets" ../src/tests/data/base64-256KiB.bz2 > /dev/null 2>&1; then
+    echoerr 'Listing compressed offsets should require --force when the output exists!'
+    exit 1
+fi
+if ! $IBZIP2 -f -l "$tmpFolder/compressed-offsets" ../src/tests/data/base64-256KiB.bz2; then
+    echoerr 'Listing compressed offsets with --force failed!'
+    exit 1
+fi
+if cat ../src/tests/data/base64-256KiB.bz2 | $IBZIP2 -l "$tmpFolder/stdin-offsets" > /dev/null 2>&1; then
+    echoerr 'Listing compressed offsets from non-seekable stdin should fail!'
     exit 1
 fi
 

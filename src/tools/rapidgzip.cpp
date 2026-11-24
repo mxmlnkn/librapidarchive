@@ -234,29 +234,6 @@ decompressParallel( RapidgzipArguments& args,
 }
 
 
-[[nodiscard]] std::pair<std::string, UniqueFileReader>
-parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
-{
-    const auto inputFilePathOptional = parseInputPath( parsedArgs );
-    if ( !inputFilePathOptional ) {
-        return {};
-    }
-    const auto inputFilePath = *inputFilePathOptional;
-
-    auto inputFile = openFileOrStdin( inputFilePath );
-    const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
-    if ( ioReadMethod == "sequential" ) {
-        inputFile = std::make_unique<SinglePassFileReader>( std::move( inputFile ) );
-    } else if ( ( ioReadMethod == "locked-read" ) || ( ioReadMethod == "pread" ) ) {
-        auto sharedFile = ensureSharedFileReader( std::move( inputFile ) );
-        sharedFile->setUsePread( ioReadMethod == "pread" );
-        inputFile = std::move( sharedFile );
-    }
-
-    return { inputFilePath, std::move( inputFile ) };
-}
-
-
 int
 rapidgzipCLI( int                  argc,
               char const * const * argv )
@@ -284,9 +261,6 @@ rapidgzipCLI( int                  argc,
                    "already some implicit and explicit checks like whether the end of the file could be reached "
                    "and whether the stream size is correct.",
       cxxopts::value( args.crc32Enabled )->implicit_value( "false" ) )
-    ( "io-read-method", "Option to force a certain I/O method for reading. By default, pread will be used "
-                        "when possible. Possible values: pread, sequential, locked-read",
-      cxxopts::value<std::string>()->default_value( "pread" ) )
     ( "index-format", "Option to select an output index format. Possible values: gztool, gztool-with-lines, "
                       "indexed_gzip.",
       cxxopts::value<std::string>()->default_value( "indexed_gzip" ) )
@@ -323,32 +297,6 @@ rapidgzipCLI( int                  argc,
 
     const auto parsedArgs = options.parse( argc, argv );
 
-    args.force = parsedArgs["force"].as<bool>();
-    args.verbose = parsedArgs["verbose"].as<bool>();
-    args.quiet = parsedArgs["quiet"].as<bool>();
-    args.sandbox = parsedArgs.count( "no-sandbox" ) == 0;
-
-    if ( args.verbose ) {
-        std::cerr << "Called with:";
-        for ( int i = 0; i < argc; ++i ) {
-            std::cerr << " '" << argv[i] << "'";
-        }
-        std::cerr << "\n";
-    }
-
-    const auto getParallelism = [] ( const auto p ) { return p > 0 ? p : availableCores(); };
-    args.decoderParallelism = getParallelism( parsedArgs["decoder-parallelism"].as<unsigned int>() );
-
-    if ( args.verbose ) {
-        for ( auto const* const path : { "input", "output" } ) {
-            std::string value = "<none>";
-            try {
-                value = parsedArgs[path].as<std::string>();
-            } catch ( ... ) {}
-            std::cerr << "file path for " << path << ": " << value << "\n";
-        }
-    }
-
     /* Check against simple commands like help and version. */
 
     const auto informationalExitCode = handleInformationalAction(
@@ -379,13 +327,14 @@ rapidgzipCLI( int                  argc,
 
     /* Parse action arguments. */
 
-    args.countBytes = parsedArgs.count( "count" ) > 0;
-    args.countLines = parsedArgs.count( "count-lines" ) > 0;
-    args.test = parsedArgs.count( "test" ) > 0;
-    args.writeToStdOut =
-        ( parsedArgs.count( "stdout" ) > 0 )
-        || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
-    args.decompress = ( parsedArgs.count( "decompress" ) > 0 ) || ( parsedArgs.count( "ranges" ) > 0 ) || args.test;
+    if ( !parseArguments( args, parsedArgs ) ) {
+        return 1;
+    }
+
+    if ( args.decoderParallelism <= 0 ) {
+        args.decoderParallelism = availableCores();
+    }
+    args.decompress = args.decompress || args.fileRanges || args.test;
 
     const auto analyze = ( parsedArgs.count( "analyze" ) > 0 ) || ( parsedArgs.count( "analyze-features" ) > 0 );
     if ( parsedArgs.count( "analyze-features" ) > 0 ) {
@@ -393,9 +342,7 @@ rapidgzipCLI( int                  argc,
     }
 
     /* Parse ranges. */
-    if ( parsedArgs.count( "ranges" ) > 0 ) {
-        args.fileRanges = parseFileRanges( parsedArgs["ranges"].as<std::string>() );
-
+    if ( args.fileRanges ) {
         /* Check whether the index needs to be kept because the ranges do not traverse the file in order. */
         if ( args.fileRanges->size() > 1 ) {
             for ( size_t i = 0; i + 1 < args.fileRanges->size(); ++i ) {
@@ -419,16 +366,6 @@ rapidgzipCLI( int                  argc,
         }
     }
 
-    /* Parse input file specifications. */
-
-    std::tie( args.inputFilePath, args.inputFile ) = parseInputFileSpecification( parsedArgs );
-    if ( !args.inputFile ) {
-        return 1;
-    }
-
-    /* Parse output file specifications. */
-
-    args.outputFilePath = getFilePath( parsedArgs, "output" );
     /* Automatically determine output file path if none has been given and not writing to stdout. */
     if ( args.outputFilePath.empty() && !args.inputFilePath.empty() && !args.test && !args.writeToStdOut ) {
         args.outputFilePath = deduceOutputPath( args.inputFilePath,
@@ -442,21 +379,6 @@ rapidgzipCLI( int                  argc,
     }
 
     /* Parse index arguments. */
-
-    args.indexLoadPath = parsedArgs.count( "import-index" ) > 0
-                         ? parsedArgs["import-index"].as<std::string>()
-                         : std::string();
-    args.indexSavePath = parsedArgs.count( "export-index" ) > 0
-                         ? parsedArgs["export-index"].as<std::string>()
-                         : std::string();
-    if ( !args.indexLoadPath.empty() && args.indexSavePath.empty() && ( args.decoderParallelism == 1 ) &&
-         !args.quiet ) {
-        std::cerr << "[Warning] The index only has an effect for parallel decoding and index exporting.\n";
-    }
-    if ( !args.indexLoadPath.empty() && !fileExists( args.indexLoadPath ) ) {
-        std::cerr << "The index to import was not found!\n";
-        return 1;
-    }
 
     if ( parsedArgs.count( "index-format" ) > 0 ) {
         const auto indexFormat = parsedArgs["index-format"].as<std::string>();
@@ -494,11 +416,6 @@ rapidgzipCLI( int                  argc,
     }
 
     /* Actually do things as requested. */
-
-    if ( !args.inputFile ) {
-        std::cerr << "Could not open input file: " << args.inputFilePath << "!\n";
-        return 1;
-    }
 
     if ( args.decompress ) {
         if ( args.writeToStdOut || ( !args.test && args.outputFilePath.empty() && args.inputFilePath.empty() ) ) {

@@ -184,6 +184,7 @@ readTextFile( const std::string& path )
 }
 
 
+#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
 void
 testCompressionIndex( const std::filesystem::path& dataFolder )
 {
@@ -255,6 +256,9 @@ testCompressionIndex( const std::filesystem::path& dataFolder )
              { "-d", "-f", "-o", decodedPath, "--import-index", emptyP1IndexPath, emptyCompressedPath } );
     REQUIRE( readFile<std::vector<char> >( decodedPath ).empty() );
 }
+
+
+#endif
 
 
 void
@@ -368,6 +372,7 @@ testTestOption( const std::filesystem::path& dataFolder )
 }
 
 
+#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
 void
 testCompressionOutputPath()
 {
@@ -386,6 +391,7 @@ testCompressionOutputPath()
     REQUIRE( !std::filesystem::exists( tmpFolder.path() / "input" ) );
     REQUIRE( !std::filesystem::exists( tmpFolder.path() / "input.out" ) );
 }
+#endif
 }  // namespace indexed_bzip2
 
 
@@ -418,8 +424,10 @@ main( int    argc,
     testRanges( dataFolder );
     testIndex( dataFolder );
     testStreamingOffsets( dataFolder );
+#ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
     testCompressionIndex( dataFolder );
     testCompressionOutputPath();
+#endif
     testTestOption( dataFolder );
     testDirectoryInput( dataFolder );
 

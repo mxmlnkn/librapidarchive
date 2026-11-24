@@ -679,6 +679,8 @@ jobs:
       shell: bash
       # At this step, indexed_bzip2 should be installed.
       run: |
+        # Make the MinGW runtime DLLs visible to ibzip2.exe on windows-latest.
+        export PATH="/c/mingw64/bin:$PATH"
         mkdir -p build-ibzip2 && cd -- "$_"
         cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DLIBRAPIDARCHIVE_WITH_ISAL=OFF ..
         cmake --build . -- ibzip2

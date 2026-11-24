@@ -14,6 +14,9 @@
 #include <core/FileRanges.hpp>
 #include <core/FileUtils.hpp>
 #include <filereader/FileReader.hpp>
+#include <filereader/Shared.hpp>
+#include <filereader/SinglePass.hpp>
+#include <filereader/Standard.hpp>
 
 #include "thirdparty.hpp"
 
@@ -90,7 +93,7 @@ deduceOutputPath( const std::string&                            inputFilePath,
 checkOutputFileWritable( const std::string& outputFilePath,
                          const bool         force )
 {
-    if ( ( outputFilePath == "/dev/null" ) || !fileExists( outputFilePath ) || force ) {
+    if ( force || ( outputFilePath == "/dev/null" ) || !fileExists( outputFilePath ) ) {
         return true;
     }
 
@@ -152,6 +155,9 @@ addCommonFileOptions( cxxopts::Options&      options,
       cxxopts::value<std::string>() );
 
     options.add_options( "Advanced" )
+    ( "io-read-method", "Option to force a certain I/O method for reading. By default, pread will be used "
+                        "when possible. Possible values: pread, sequential, locked-read",
+      cxxopts::value<std::string>()->default_value( "pread" ) )
     ( "no-sandbox", "Disable the Linux process sandbox that drops privileges and restricts file and network access. "
                     "Only use this for debugging." );
 }
@@ -194,6 +200,56 @@ getFilePath( cxxopts::ParseResult const& parsedArgs,
 }
 
 
+[[nodiscard]] std::pair<std::string, UniqueFileReader>
+parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
+{
+    const auto inputFilePathOptional = parseInputPath( parsedArgs );
+    if ( !inputFilePathOptional ) {
+        return {};
+    }
+    const auto inputFilePath = *inputFilePathOptional;
+
+    auto inputFile = openFileOrStdin( inputFilePath );
+    const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
+    if ( ioReadMethod == "sequential" ) {
+        inputFile = std::make_unique<SinglePassFileReader>( std::move( inputFile ) );
+    } else if ( ( ioReadMethod == "locked-read" ) || ( ioReadMethod == "pread" ) ) {
+        auto sharedFile = ensureSharedFileReader( std::move( inputFile ) );
+        sharedFile->setUsePread( ioReadMethod == "pread" );
+        inputFile = std::move( sharedFile );
+    }
+
+    return { inputFilePath, std::move( inputFile ) };
+}
+
+
+/**
+ * Prints the paths of the given file options for --verbose.
+ *
+ * cxxopts does not expose whether an option is registered for a tool. ParseResult::count returns zero for
+ * unknown option names, so callers can also pass options that only another tool has. Only index with
+ * count > 0 because operator[] throws when the option was not given.
+ */
+inline void
+printFilePathArguments( const cxxopts::ParseResult&          parsedArgs,
+                        const std::vector<std::string_view>& pathOptions )
+{
+    for ( const auto pathOption : pathOptions ) {
+        const auto optionName = std::string{ pathOption };
+        std::string path;
+        if ( parsedArgs.count( optionName ) > 0 ) {
+            path = parsedArgs[optionName].as<std::string>();
+            if ( path.empty() || ( path == "-" ) ) {
+                path = "<stdin|stdout>";
+            }
+        } else {
+            path = "<none>";
+        }
+        std::cerr << "file path for " << pathOption << ": " << path << "\n";
+    }
+}
+
+
 struct Arguments
 {
     /* Flags from addCommonFileOptions. */
@@ -202,6 +258,7 @@ struct Arguments
     bool force{ false };
     bool keep{ false };
     bool sandbox{ true };
+    bool compress{ false };
     bool decompress{ false };
     bool test{ false };
     bool countBytes{ false };
@@ -223,6 +280,91 @@ struct Arguments
     UniqueFileReader indexLoadFile;
     std::optional<OutputFile> indexSaveFile;
 };
+
+
+/**
+ * Parses the common options, resolves all paths, opens every file, and finally installs the sandbox.
+ *
+ * The files must be opened here so that a later sandbox can deny all remaining path access.
+ *
+ * @return false after printing an error. The caller should then return a nonzero exit code.
+ */
+[[nodiscard]] inline bool
+parseArguments( Arguments&                  args,
+                const cxxopts::ParseResult& parsedArgs )
+{
+    args.force = parsedArgs["force"].as<bool>();
+    args.verbose = parsedArgs["verbose"].as<bool>();
+    args.quiet = parsedArgs["quiet"].as<bool>();
+    args.sandbox = parsedArgs.count( "no-sandbox" ) == 0;
+    args.decoderParallelism = parsedArgs["decoder-parallelism"].as<unsigned int>();
+
+    args.countBytes = parsedArgs.count( "count" ) > 0;
+    args.countLines = parsedArgs.count( "count-lines" ) > 0;
+    args.test = parsedArgs.count( "test" ) > 0;
+    args.writeToStdOut =
+        ( parsedArgs.count( "stdout" ) > 0 )
+        || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
+    args.compress = parsedArgs.count( "compress" ) > 0;
+    args.decompress = parsedArgs.count( "decompress" ) > 0;
+
+    if ( parsedArgs.count( "ranges" ) > 0 ) {
+        args.fileRanges = parseFileRanges( parsedArgs["ranges"].as<std::string>() );
+    }
+
+    if ( args.compress
+         && ( args.decompress || args.test || args.countBytes || args.countLines
+              || args.fileRanges.has_value()
+              || ( parsedArgs.count( "import-index" ) > 0 )
+              || ( parsedArgs.count( "list-compressed-offsets" ) > 0 ) ) ) {
+        std::cerr << "Compression cannot be combined with decompression, test, count, range, "
+                  << "import-index, or list-compressed-offsets options.\n";
+        return false;
+    }
+
+    if ( args.verbose ) {
+        printFilePathArguments( parsedArgs, { "input", "output", "import-index", "export-index" } );
+        printFilePathArguments( parsedArgs, { "list-compressed-offsets" } );
+    }
+
+    /* Parse file paths. */
+
+    std::tie( args.inputFilePath, args.inputFile ) = parseInputFileSpecification( parsedArgs );
+    if ( !args.inputFile ) {
+        std::cerr << "Could not open input file: " << args.inputFilePath << "!\n";
+        return false;
+    }
+
+    args.outputFilePath = getFilePath( parsedArgs, "output" );
+    if ( !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
+        return false;
+    }
+
+    /* --import-index */
+
+    args.indexLoadPath = parsedArgs.count( "import-index" ) > 0
+                         ? parsedArgs["import-index"].as<std::string>()
+                         : std::string();
+    if ( !args.indexLoadPath.empty() && !fileExists( args.indexLoadPath ) ) {
+        std::cerr << "The index to import was not found: " << args.indexLoadPath << "\n";
+        return 1;
+    }
+    if ( !args.indexLoadPath.empty() && args.indexSavePath.empty() && ( args.decoderParallelism == 1 )
+         && !args.quiet ) {
+        std::cerr << "[Warning] The index only has an effect for parallel decoding and index exporting.\n";
+    }
+
+    /* --export-index */
+
+    args.indexSavePath = parsedArgs.count( "export-index" ) > 0
+                         ? getFilePath( parsedArgs, "export-index" )
+                         : std::string();
+    if ( !checkOutputFileWritable( args.indexSavePath, args.force ) ) {
+        return false;
+    }
+
+    return true;
+}
 
 
 /**

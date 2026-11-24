@@ -79,22 +79,26 @@ Usage:
                           to stdout. The former --list-offsets spelling is
                           accepted as an alias.
 
+ Advanced options:
+      --io-read-method arg  Option to force a certain I/O method for
+                            reading. By default, pread will be used when
+                            possible. Possible values: pread, sequential,
+                            locked-read (default: pread)
+      --no-sandbox          Disable the Linux process sandbox that drops
+                            privileges and restricts file and network
+                            access. Only use this for debugging.
+      --buffer-size arg     Specifies the output buffer size between calls
+                            to the Bzip2 decoder and writing to standard
+                            out. If only --export-index is used with
+                            nothing else then it affects the input buffer
+                            for the block finder. (default: 0)
+
  Compression options:
   -z, --compress   Compress to bzip2. Each worker writes an independent
                    bzip2 stream. The complete streams are concatenated in
                    input order, which bzip2 tools accept.
       --level arg  bzip2 block size / compression level in the range 1..9
                    (default 9). (default: 9)
-
- Advanced options:
-      --buffer-size arg  Specifies the output buffer size between calls to
-                         the Bzip2 decoder and writing to standard out. If
-                         only --export-index is used with nothing else then
-                         it affects the input buffer for the block finder.
-                         (default: 0)
-      --no-sandbox       Disable the Linux process sandbox that drops
-                         privileges and restricts file and network access.
-                         Only use this for debugging.
 
 If no file names are given, ibzip2 decompresses from standard input to standard output.
 

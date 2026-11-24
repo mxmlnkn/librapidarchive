@@ -284,6 +284,28 @@ testCLI()
     callCLI( "./rapidgzip", rapidgzipCLI,
              { "--export-index"s, indexFilePath + ".gztool", "--index-format"s, "gztool"s, compressedFilePath } );
 
+    /* Re-exporting an index requires --force, like any other output file. */
+    {
+        const auto overwrite = callCLI( "./rapidgzip", rapidgzipCLI,
+                                        { "--export-index"s, indexFilePath, compressedFilePath },
+                                        /* expectSuccess */ false );
+        REQUIRE( overwrite.exitCode != 0 );
+        REQUIRE( overwrite.err.find( "already exists" ) != std::string::npos );
+
+        callCLI( "./rapidgzip", rapidgzipCLI,
+                 { "--force"s, "--export-index"s, indexFilePath, compressedFilePath } );
+    }
+
+#if !defined( _WIN32 )
+    /* A dash writes the index to stdout, matching ibzip2. */
+    const auto stdoutIndexPath = ( tmpFolder.path() / "random-words.gz.stdout.index" ).string();
+    {
+        const ScopedStandardOutputRedirect redirect( stdoutIndexPath );
+        callCLI( "./rapidgzip", rapidgzipCLI, { "--export-index"s, "-", compressedFilePath } );
+    }
+    REQUIRE( std::filesystem::file_size( stdoutIndexPath ) > 0 );
+#endif
+
     const auto testWithoutFile =
         [&] ( const std::vector<std::string>& arguments ) { testCLI( arguments, filePath, decompressed ); };
 
@@ -334,7 +356,7 @@ testCLI()
     const ArgumentLists combinableActions = {
         { { "--count"s } },
         { { "--count-lines"s } },
-        { { "--export-index"s, ( tmpFolder.path() / "index-file" ).string() } },
+        { { "--export-index"s, ( tmpFolder.path() / "index-file" ).string(), "--force" } },
         /* Any combination of --decompress with the three processing options
          * should be doable to implement because decompression requires holding all data,
          * which makes it trivial to do any post-processing on the data. */
@@ -362,16 +384,17 @@ testCLI()
         };
 
     /* Test exporting of gztool index with and without line offsets. */
-    addTest( { "--export-index"s, indexFilePath + ".gztool", "--index-format"s, "gztool"s } );
-    addTest( { "--export-index"s, indexFilePath + ".with-lines.gztool", "--index-format"s, "gztool-with-lines"s } );
+    addTest( { "--export-index"s, indexFilePath + ".gztool", "--index-format"s, "gztool"s, "--force" } );
+    addTest( { "--export-index"s, indexFilePath + ".with-lines.gztool", "--index-format"s, "gztool-with-lines"s,
+               "--force" } );
 
     /* Test index conversion. */
     addTest( { "--import-index"s, indexFilePath, "--export-index"s, indexFilePath + ".gztool",
-               "--index-format"s, "gztool"s } );
+               "--index-format"s, "gztool"s, "--force" } );
     addTest( { "--import-index"s, indexFilePath + ".gztool", "--export-index"s, indexFilePath + ".converted",
-               "--index-format"s, "indexed_gzip"s } );
+               "--index-format"s, "indexed_gzip"s, "--force" } );
     addTest( { "--import-index"s, indexFilePath + ".gztool", "--export-index"s, indexFilePath + ".converted",
-               "--index-format"s, "gztool-with-lines"s } );
+               "--index-format"s, "gztool-with-lines"s, "--force" } );
 
     for ( const auto& actionArguments : concatenateCombinations( combinableActions ) ) {
         combinedArguments.emplace_back( actionArguments );
