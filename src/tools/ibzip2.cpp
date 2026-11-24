@@ -26,6 +26,7 @@
 #include <core/FileRanges.hpp>
 #include <core/FileUtils.hpp>
 #include <core/ParallelBitStringFinder.hpp>
+#include <filereader/Shared.hpp>
 #include <filereader/Standard.hpp>
 #include <indexed_bzip2/bzip2.hpp>
 #include <indexed_bzip2/BZ2Reader.hpp>
@@ -55,7 +56,7 @@ dumpOffsets( const std::vector<uint64_t>& offsets,
 
 
 [[nodiscard]] std::vector<uint64_t>
-findCompressedBlocks( const std::string& inputFilePath,
+findCompressedBlocks( const FileReader&  fileReader,
                       const unsigned int parallelism,
                       const unsigned int bufferSize )
 {
@@ -68,7 +69,9 @@ findCompressedBlocks( const std::string& inputFilePath,
         using Finder = BitStringFinder<bzip2::MAGIC_BITS_SIZE>;
         using ParallelFinder = ParallelBitStringFinder<bzip2::MAGIC_BITS_SIZE>;
 
-        auto file = openFileOrStdin( inputFilePath );
+        /* Clone the already-open reader instead of reopening the path. The clone shares the underlying file
+         * and uses pread, so it also works inside a Landlock sandbox that denies new path opens. */
+        auto file = fileReader.clone();
 
         std::unique_ptr<Finder> finder =
             parallelism == 1
@@ -584,8 +587,21 @@ ibzip2CLI( int argc, char const* const* argv )
         /* If effectively only the compressed offsets are requested, then we can use the blockfinder directly! */
         /* Open the output before starting any finder threads so that a sandbox can deny later path access. */
         OutputFile output( compressedOffsetsFilePath );
+
+        auto inputFile = openFileOrStdin( inputFilePath );
+        if ( !inputFile ) {
+            std::cerr << "Could not open input file: " << inputFilePath << "!\n";
+            return 1;
+        }
+        if ( !inputFile->seekable() ) {
+            std::cerr << "Listing compressed offsets requires seekable input. "
+                         "Spool non-seekable input to a file first.\n";
+            return 1;
+        }
+        auto sharedInputFile = ensureSharedFileReader( std::move( inputFile ) );
+
         const auto offsets = findCompressedBlocks(
-            inputFilePath, getParallelism( blockFinderParallelism ),
+            *sharedInputFile, getParallelism( blockFinderParallelism ),
             static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ) );
         dumpOffsets( offsets, [&output] ( const void* data, const size_t size ) { output.write( data, size ); } );
         output.truncateToWrittenSize();
