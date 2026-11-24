@@ -11,6 +11,7 @@
 #include <cxxopts.hpp>
 
 #include <core/common.hpp>
+#include <core/FileRanges.hpp>
 #include <core/FileUtils.hpp>
 #include <filereader/FileReader.hpp>
 
@@ -191,6 +192,37 @@ getFilePath( cxxopts::ParseResult const& parsedArgs,
     }
     return {};
 }
+
+
+struct Arguments
+{
+    /* Flags from addCommonFileOptions. */
+    bool verbose{ false };
+    bool quiet{ false };
+    bool force{ false };
+    bool keep{ false };
+    bool sandbox{ true };
+    bool decompress{ false };
+    bool test{ false };
+    bool countBytes{ false };
+    bool countLines{ false };
+    bool writeToStdOut{ false };
+
+    unsigned int decoderParallelism{ 0 };
+    std::optional<std::vector<FileRange> > fileRanges;
+
+    /* Resolved paths. An empty input path means stdin, an empty output path means stdout. */
+    std::string inputFilePath;
+    std::string outputFilePath;
+    std::string indexLoadPath;
+    std::string indexSavePath;
+
+    UniqueFileReader inputFile;
+    std::unique_ptr<OutputFile> outputFile;
+    std::unique_ptr<OutputFile> stdoutFile;
+    UniqueFileReader indexLoadFile;
+    std::optional<OutputFile> indexSaveFile;
+};
 
 
 /**
