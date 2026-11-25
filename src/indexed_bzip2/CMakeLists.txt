@@ -1,3 +1,12 @@
+# Keep this in the subdirectory so that consumers adding only src/ get the same default. Defining the
+# macro with an empty value would bypass the fallback in Bzip2Crc32.hpp and break the build.
+set(LIBRAPIDARCHIVE_BZIP2_CRC_SLICES "8" CACHE STRING
+    "Number of bytes per bzip2 CRC slicing iteration. Must be 1, 4, or 8.")
+if(NOT LIBRAPIDARCHIVE_BZIP2_CRC_SLICES MATCHES "^(1|4|8)$")
+    message(FATAL_ERROR "LIBRAPIDARCHIVE_BZIP2_CRC_SLICES must be 1, 4, or 8, not "
+                        "'${LIBRAPIDARCHIVE_BZIP2_CRC_SLICES}'.")
+endif()
+
 add_library(indexed_bzip2 INTERFACE)
 target_include_directories(indexed_bzip2 INTERFACE ${CMAKE_CURRENT_LIST_DIR}/..)
 target_sources(indexed_bzip2 INTERFACE
