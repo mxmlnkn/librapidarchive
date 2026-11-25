@@ -316,6 +316,22 @@ rapidgzipCLI( int                  argc,
         return *informationalExitCode;
     }
 
+    /* Specialized input-only actions such as --analyze do not need any output or index parsing. */
+    const auto analyze = ( parsedArgs.count( "analyze" ) > 0 ) || ( parsedArgs.count( "analyze-features" ) > 0 );
+    if ( analyze ) {
+        if ( parsedArgs.count( "analyze-features" ) > 0 ) {
+            args.analyzeFeatures = deflate::parseAnalyzeFeatures( parsedArgs["analyze-features"].as<std::string>() );
+        }
+        if ( !parseInputArguments( args, parsedArgs ) ) {
+            return 1;
+        }
+        if ( args.sandbox ) {
+            sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
+        }
+        return rapidgzip::deflate::analyze( std::move( args.inputFile ), args.verbose, args.analyzeFeatures )
+               == rapidgzip::Error::NONE ? 0 : 1;
+    }
+
     /* Parse action arguments. */
 
     if ( !parseArguments( args, parsedArgs ) ) {
@@ -326,11 +342,6 @@ rapidgzipCLI( int                  argc,
         args.decoderParallelism = availableCores();
     }
     args.decompress = args.decompress || args.fileRanges || args.test;
-
-    const auto analyze = ( parsedArgs.count( "analyze" ) > 0 ) || ( parsedArgs.count( "analyze-features" ) > 0 );
-    if ( parsedArgs.count( "analyze-features" ) > 0 ) {
-        args.analyzeFeatures = deflate::parseAnalyzeFeatures( parsedArgs["analyze-features"].as<std::string>() );
-    }
 
     /* Parse ranges. */
     if ( args.fileRanges ) {
@@ -386,16 +397,6 @@ rapidgzipCLI( int                  argc,
         if ( !args.indexSaveFile && !args.quiet ) {
             std::cerr << "[Warning] The index format has no effect without --export-index!\n";
         }
-    }
-
-    /* Check if analysis is requested. */
-
-    if ( analyze ) {
-        if ( args.sandbox ) {
-            sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
-        }
-        return rapidgzip::deflate::analyze( std::move( args.inputFile ), args.verbose, args.analyzeFeatures )
-               == rapidgzip::Error::NONE ? 0 : 1;
     }
 
     /* Check that there is at least one actionable request. */

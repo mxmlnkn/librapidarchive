@@ -293,15 +293,12 @@ struct Arguments
 
 
 /**
- * Parses the common options, resolves all paths, opens every file, and finally installs the sandbox.
- *
- * The files must be opened here so that a later sandbox can deny all remaining path access.
+ * Parses the flags common to all actions. This does not open any file.
  *
  * @return false after printing an error. The caller should then return a nonzero exit code.
  */
 [[nodiscard]] inline bool
-parseArguments( Arguments&                  args,
-                const cxxopts::ParseResult& parsedArgs )
+parseCommonArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 {
     args.force = parsedArgs["force"].as<bool>();
     args.verbose = parsedArgs["verbose"].as<bool>();
@@ -337,6 +334,14 @@ parseArguments( Arguments&                  args,
         printFilePathArguments( parsedArgs, { "list-compressed-offsets" } );
     }
 
+    return true;
+}
+
+
+/** Opens the input and applies the --io-read-method wrapper. */
+[[nodiscard]] inline bool
+openInputFile( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+{
     /* Parse file paths. */
 
     auto input = parseInputFileSpecification( parsedArgs );
@@ -347,6 +352,32 @@ parseArguments( Arguments&                  args,
     args.inputFilePath = std::move( input.path );
     args.inputFile = std::move( input.file );
     args.inputWasSeekable = input.wasSeekable;
+
+    return true;
+}
+
+
+/** Input-only variant for specialized actions such as --analyze. Does not resolve or open any output file. */
+[[nodiscard]] inline bool
+parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+{
+    return parseCommonArguments( args, parsedArgs ) && openInputFile( args, parsedArgs );
+}
+
+
+/**
+ * Parses the common options and opens the input, output, and index files.
+ *
+ * The files must be opened here so that a later sandbox can deny all remaining path access.
+ *
+ * @return false after printing an error. The caller should then return a nonzero exit code.
+ */
+[[nodiscard]] inline bool
+parseArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+{
+    if ( !parseInputArguments( args, parsedArgs ) ) {
+        return false;
+    }
 
     args.outputFilePath = getFilePath( parsedArgs, "output" );
     if ( !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
