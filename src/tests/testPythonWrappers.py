@@ -258,22 +258,23 @@ def testDecompression(parameters):
 
 
 def testBzip2IndexImportSeekToStart():
-    data = b'A'
+    # More than one bzip2 block so that the imported block map is actually exercised.
+    data = bytes(range(256)) * 10000
     compressed = bz2.compress(data)
     for parallelization in (1, 2):
         with tempfile.NamedTemporaryFile(suffix='.bz2', delete=False) as file:
             file.write(compressed)
             fileName = file.name
         try:
-            with RapidgzipFile(fileName, parallelization=parallelization) as reader:
+            with IndexedBzip2File(fileName, parallelization=parallelization) as reader:
                 assert reader.read() == data
-                index = io.BytesIO()
-                reader.export_index(index)
-            index.seek(0)
-            with RapidgzipFile(fileName, parallelization=parallelization) as reader:
-                reader.import_index(index)
-                reader.seek(0)
+                offsets = reader.block_offsets()
+            with IndexedBzip2File(fileName, parallelization=parallelization) as reader:
+                reader.set_block_offsets(offsets)
                 assert reader.read() == data
+                for position in (0, 1, len(data) // 2, len(data) - 1):
+                    reader.seek(position)
+                    assert reader.read(1) == data[position:position + 1]
         finally:
             os.remove(fileName)
 
@@ -941,9 +942,10 @@ if __name__ == '__main__':
         encoders += ['pbzip2']
 
     bufferSizes = [-1, 128, 333, 500, 1024, 1024 * 1024, 64 * 1024 * 1024]
+    # RapidgzipFile is the gzip reader; its index API does not apply to bzip2 streams.
+    # RapidgzipFile bz2 decompression itself is covered by testPythonInterface().
     parameters = [
-        TestParameters(size, encoder, compressionLevel, pattern, patternSize, bufferSizes, 1, 'bz2', FileOpener)
-        for FileOpener in [RapidgzipFile, IndexedBzip2File]
+        TestParameters(size, encoder, compressionLevel, pattern, patternSize, bufferSizes, 1, 'bz2', IndexedBzip2File)
         for size in [1, 2, 3, 4, 5, 10, 20, 30, 100, 1000, 10000, 100000, 200000, 0]
         for encoder in encoders
         for compressionLevel in range(1, 9 + 1)
