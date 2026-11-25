@@ -26,7 +26,7 @@ jobs:
         persist-credentials: false
         submodules: recursive
 
-    - uses: docker/setup-qemu-action@v3
+    - uses: docker/setup-qemu-action@v4
       if: inputs.arch != 'i686'
       with:
         platforms: all
