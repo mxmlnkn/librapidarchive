@@ -353,7 +353,7 @@ parseCommonArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 }
 
 
-/** Opens the input and applies the --io-read-method wrapper. */
+/** Opens the raw input. The --io-read-method wrapper is applied only after the sandbox is installed. */
 [[nodiscard]] inline bool
 openInputFile( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 {
@@ -364,7 +364,14 @@ openInputFile( Arguments& args, const cxxopts::ParseResult& parsedArgs )
     args.inputFilePath = *inputFilePath;
     args.inputFile = openFileOrStdin( args.inputFilePath );
     args.inputWasSeekable = args.inputFile->seekable();
+    return true;
+}
 
+
+/** The wrappers may start a reader thread, so create them only after the restrictions are active. */
+inline void
+applyIoReadMethod( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+{
     const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
     if ( ioReadMethod == "sequential" ) {
         args.inputFile = std::make_unique<SinglePassFileReader>( std::move( args.inputFile ) );
@@ -373,7 +380,15 @@ openInputFile( Arguments& args, const cxxopts::ParseResult& parsedArgs )
         sharedFile->setUsePread( ioReadMethod == "pread" );
         args.inputFile = std::move( sharedFile );
     }
-    return true;
+}
+
+
+inline void
+installSandbox( const Arguments& args )
+{
+    if ( args.sandbox ) {
+        sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
+    }
 }
 
 
@@ -476,10 +491,27 @@ openOutputFiles( Arguments&                  args,
 [[nodiscard]] inline bool
 parseArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs, const ArgumentsOptions& options )
 {
-    if ( !parseInputArguments( args, parsedArgs ) ) {
+    if ( !parseCommonArguments( args, parsedArgs )
+         || !openInputFile( args, parsedArgs )
+         || !openOutputFiles( args, parsedArgs, options ) ) {
         return false;
     }
-    return openOutputFiles( args, parsedArgs, options );
+    installSandbox( args );
+    applyIoReadMethod( args, parsedArgs );
+    return true;
+}
+
+
+/** Input-only variant for specialized actions such as --analyze. Does not resolve or open any output file. */
+[[nodiscard]] inline bool
+parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+{
+    if ( !parseCommonArguments( args, parsedArgs ) || !openInputFile( args, parsedArgs ) ) {
+        return false;
+    }
+    installSandbox( args );
+    applyIoReadMethod( args, parsedArgs );
+    return true;
 }
 
 

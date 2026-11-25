@@ -299,10 +299,6 @@ ibzip2CLI( int argc, char const* const* argv )
             ? std::function<void( uint64_t, uint64_t )>( writeBlockOffset )
             : std::function<void( uint64_t, uint64_t )>();
 
-        if ( args.sandbox ) {
-            rapidgzip::sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
-        }
-
         try {
             const auto tCompressionStart = now();
             const auto result = indexed_bzip2::compressBzip2Parallel(
@@ -345,10 +341,6 @@ ibzip2CLI( int argc, char const* const* argv )
         auto& out = writeToStdErr ? std::cerr : std::cout;
 
         const auto offsetOutputRequested = args.indexSaveFile.has_value() || compressedOffsetsFile.has_value();
-
-        if ( args.sandbox ) {
-            rapidgzip::sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
-        }
 
         std::unique_ptr<BZ2ReaderInterface> reader;
         if ( args.decoderParallelism == 1 ) {
@@ -524,9 +516,6 @@ ibzip2CLI( int argc, char const* const* argv )
         }
         auto sharedInputFile = ensureSharedFileReader( std::move( args.inputFile ) );
 
-        if ( args.sandbox ) {
-            sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
-        }
         const auto offsets = findCompressedBlocks(
             *sharedInputFile, blockFinderParallelism > 0 ? blockFinderParallelism : availablePhysicalCores(),
             static_cast<unsigned int>( bufferSize > 0 ? bufferSize : 32_Ki ) );

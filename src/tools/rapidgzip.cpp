@@ -154,11 +154,6 @@ decompressParallel( RapidgzipArguments& args,
 {
     using Reader = rapidgzip::ParallelGzipReader<ChunkData>;
 
-    /* Open all files before the decoder starts so that a sandbox can deny any later path access. */
-    if ( args.sandbox ) {
-        sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
-    }
-
     auto reader = std::make_unique<Reader>( std::move( args.inputFile ), args.decoderParallelism, args.chunkSize );
 
     const auto gatherLineOffsets =
@@ -320,9 +315,6 @@ rapidgzipCLI( int                  argc,
         }
         if ( !parseInputArguments( args, parsedArgs ) ) {
             return 1;
-        }
-        if ( args.sandbox ) {
-            sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
         }
         return rapidgzip::deflate::analyze( std::move( args.inputFile ), args.verbose, args.analyzeFeatures )
                == rapidgzip::Error::NONE ? 0 : 1;
