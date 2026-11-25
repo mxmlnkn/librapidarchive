@@ -250,11 +250,9 @@ struct Arguments
     unsigned int decoderParallelism{ 0 };
     std::optional<std::vector<FileRange> > fileRanges;
 
-    /* Resolved paths. An empty input path means stdin, an empty output path means stdout.
-     * Engaged index paths mean the option was requested. An engaged empty indexSavePath means stdout. */
+    /* Paths kept for verbose messages. An empty input path means stdin, an empty output path means stdout. */
     std::string inputFilePath;
     std::string outputFilePath;
-    std::optional<std::string> indexSavePath;
 
     UniqueFileReader inputFile;
     bool inputWasSeekable{ false };
@@ -297,6 +295,12 @@ struct ArgumentsOptions
     std::vector<std::string_view> decompressionSuffixes;
     /** Tool-specific file options that --verbose prints in addition to the common ones. */
     std::vector<std::string_view> additionalPathOptions;
+
+    /** Route an index written to stdout to stderr when the tool can write decoded data to stdout at all. */
+    bool indexSaveToStderrWhenStdoutFile{ false };
+
+    /** Opens tool-specific output files before the sandbox is installed. Return false on error. */
+    std::function<bool( Arguments& )> openAdditionalFiles;
 };
 
 
@@ -382,14 +386,38 @@ parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 
 
 /**
- * Resolves the decoded output path, including the compression suffix and the decompression suffix deduction.
- * This does not open any output or index file yet.
+ * Resolves and opens all output and index files. The sandbox is installed only after this returns.
  */
 [[nodiscard]] inline bool
-resolveOutputPath( Arguments&                  args,
-                   const cxxopts::ParseResult& parsedArgs,
-                   const ArgumentsOptions&     options )
+openOutputFiles( Arguments&                  args,
+                 const cxxopts::ParseResult& parsedArgs,
+                 const ArgumentsOptions&     options )
 {
+    /* --import-index */
+
+    if ( parsedArgs.count( "import-index" ) > 0 ) {
+        const auto path = parsedArgs["import-index"].as<std::string>();
+        if ( !fileExists( path ) ) {
+            std::cerr << "The index to import was not found: " << path << "\n";
+            return false;
+        }
+        args.indexLoadFile = std::make_unique<StandardFileReader>( path );
+    }
+
+    /* --export-index */
+
+    std::optional<std::string> indexSavePath;
+    if ( parsedArgs.count( "export-index" ) > 0 ) {
+        indexSavePath = getFilePath( parsedArgs, "export-index" );
+        if ( !indexSavePath->empty() && !checkOutputFileWritable( *indexSavePath, args.force ) ) {
+            return false;
+        }
+    }
+
+    if ( args.indexLoadFile && !indexSavePath && ( args.decoderParallelism == 1 ) && !args.quiet ) {
+        std::cerr << "[Warning] The index only has an effect for parallel decoding and index exporting.\n";
+    }
+
     args.outputFilePath = getFilePath( parsedArgs, "output" );
 
     const auto writeOutput = args.compress
@@ -423,6 +451,17 @@ resolveOutputPath( Arguments&                  args,
         }
     }
 
+    if ( indexSavePath ) {
+        const auto useStderr = options.indexSaveToStderrWhenStdoutFile
+                               ? static_cast<bool>( args.stdoutFile )
+                               : args.primaryOutputIsStdout();
+        args.indexSaveFile.emplace( *indexSavePath, useStderr );
+    }
+
+    if ( options.openAdditionalFiles && !options.openAdditionalFiles( args ) ) {
+        return false;
+    }
+
     return true;
 }
 
@@ -440,36 +479,7 @@ parseArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs, const A
     if ( !parseInputArguments( args, parsedArgs ) ) {
         return false;
     }
-    if ( !resolveOutputPath( args, parsedArgs, options ) ) {
-        return false;
-    }
-
-    /* --import-index */
-
-    if ( parsedArgs.count( "import-index" ) > 0 ) {
-        const auto path = parsedArgs["import-index"].as<std::string>();
-        if ( !fileExists( path ) ) {
-            std::cerr << "The index to import was not found: " << path << "\n";
-            return false;
-        }
-        args.indexLoadFile = std::make_unique<StandardFileReader>( path );
-    }
-
-    /* --export-index */
-
-    if ( parsedArgs.count( "export-index" ) > 0 ) {
-        args.indexSavePath = getFilePath( parsedArgs, "export-index" );
-        if ( !checkOutputFileWritable( *args.indexSavePath, args.force ) ) {
-            return false;
-        }
-        args.indexSaveFile.emplace( *args.indexSavePath );
-    }
-
-    if ( args.indexLoadFile && !args.indexSavePath && ( args.decoderParallelism == 1 ) && !args.quiet ) {
-        std::cerr << "[Warning] The index only has an effect for parallel decoding and index exporting.\n";
-    }
-
-    return true;
+    return openOutputFiles( args, parsedArgs, options );
 }
 
 

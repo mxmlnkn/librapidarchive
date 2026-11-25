@@ -344,6 +344,7 @@ rapidgzipCLI( int                  argc,
 
     ArgumentsOptions argumentsOptions;
     argumentsOptions.decompressionSuffixes = { ".bgzf", ".bgz", ".gzip", ".gz", ".zlib", ".deflate", ".bzip2", ".bz2" };
+    argumentsOptions.indexSaveToStderrWhenStdoutFile = true;
 
     /* Parse action arguments. */
 
