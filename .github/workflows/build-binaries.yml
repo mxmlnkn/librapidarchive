@@ -2,7 +2,7 @@ name: Test Building Static Binaries
 
 on:
   push:
-    branches: "master"
+    branches: [ "master", "rapidgzip-v*" ]
   workflow_dispatch:
 
 jobs:

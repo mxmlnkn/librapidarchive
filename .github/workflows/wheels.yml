@@ -2,7 +2,7 @@ name: Build Wheels
 
 on:
   push:
-    branches: 'master'
+    branches: [ "master", "rapidgzip-v*" ]
     tags: 'v*.*.*'
   workflow_dispatch:
 
