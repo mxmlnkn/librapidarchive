@@ -293,6 +293,30 @@ testStreamingOffsets( const std::filesystem::path& dataFolder )
     }
     REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
     REQUIRE_EQUAL( readTextFile( stdoutPath ), readTextFile( listPath ) );
+
+    /* A count must not be appended to an index written to stdout, and the index must stay usable. */
+    const auto countIndexPath = ( tmpFolder.path() / "count.index" ).string();
+    {
+        const ScopedStandardOutputRedirect redirect( countIndexPath );
+        const auto result = callCLI( "./ibzip2", ibzip2CLI,
+                                     { "-P", "2", "--count", "--export-index", "-", compressedPath } );
+        REQUIRE( result.err.find( std::to_string( data.size() ) ) != std::string::npos );
+    }
+    callCLI( "./ibzip2", ibzip2CLI,
+             { "-d", "-f", "-o", decodedPath, "--import-index", countIndexPath, compressedPath } );
+    REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
+
+    /* Verbose block finding must not append its summary to offsets written to stdout. */
+    const auto verboseStdoutPath = ( tmpFolder.path() / "verbose.stdout" ).string();
+    {
+        const ScopedStandardOutputRedirect redirect( verboseStdoutPath );
+        const auto result = callCLI( "./ibzip2", ibzip2CLI,
+                                     { "-v", "-l", "-", compressedPath } );
+        REQUIRE( result.err.find( "Found" ) != std::string::npos );
+    }
+    const auto verboseStdout = readTextFile( verboseStdoutPath );
+    REQUIRE( !verboseStdout.empty() );
+    REQUIRE( verboseStdout.find( "Found" ) == std::string::npos );
 #endif
 
     const auto invalidIoReadMethod = callCLI(

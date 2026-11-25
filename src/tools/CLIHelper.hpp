@@ -114,8 +114,7 @@ addCommonFileOptions( cxxopts::Options&      options,
 {
     options.add_options( "Decompression" )
     ( "c,stdout", "Output to standard output. This is the default, when reading from standard input." )
-    ( "f,force", "Force overwriting existing output files. "
-                 "Also forces decompression even when piped to /dev/null." )
+    ( "f,force", "Force overwriting existing output files." )
     ( "i,input", "Input file. If none is given, data is read from standard input.",
       cxxopts::value<std::string>() )
     ( "o,output",
@@ -143,9 +142,8 @@ addCommonFileOptions( cxxopts::Options&      options,
     ( countLinesOption, "Print the number of newline characters in the decompressed data." )
     ( "import-index", "Use an existing block offset index in the format written by --export-index.",
       cxxopts::value<std::string>() )
-    ( "t,test", "Verify decompression and checksums, if not disabled with --no-verify. "
-                "Note that this does not have any additional effect when combined with --decompress "
-                "or --ranges because it is equivalent to --decompress -o /dev/null." );
+    ( "t,test", "Verify decompression and checksums. With --stdout or --output, the data is still "
+                "written while it is verified." );
 
     options.add_options( "Decompression" )
     ( "P,decoder-parallelism",
@@ -370,7 +368,8 @@ openInputFile( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 
 /** The wrappers may start a reader thread, so create them only after the restrictions are active. */
 inline void
-applyIoReadMethod( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+applyIoReadMethod( Arguments&                  args,
+                   const cxxopts::ParseResult& parsedArgs )
 {
     const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
     if ( ioReadMethod == "sequential" ) {
@@ -389,14 +388,6 @@ installSandbox( const Arguments& args )
     if ( args.sandbox ) {
         sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
     }
-}
-
-
-/** Input-only variant for specialized actions such as --analyze. Does not resolve or open any output file. */
-[[nodiscard]] inline bool
-parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
-{
-    return parseCommonArguments( args, parsedArgs ) && openInputFile( args, parsedArgs );
 }
 
 
@@ -504,7 +495,8 @@ parseArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs, const A
 
 /** Input-only variant for specialized actions such as --analyze. Does not resolve or open any output file. */
 [[nodiscard]] inline bool
-parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+parseInputArguments( Arguments&                  args,
+                     const cxxopts::ParseResult& parsedArgs )
 {
     if ( !parseCommonArguments( args, parsedArgs ) || !openInputFile( args, parsedArgs ) ) {
         return false;

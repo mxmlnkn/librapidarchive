@@ -354,8 +354,11 @@ rapidgzipCLI( int                  argc,
         /* Check whether the index needs to be kept because the ranges do not traverse the file in order. */
         if ( args.fileRanges->size() > 1 ) {
             for ( size_t i = 0; i + 1 < args.fileRanges->size(); ++i ) {
-                if ( args.fileRanges->at( i ).offset + args.fileRanges->at( i ).size
-                     > args.fileRanges->at( i + 1 ).offset ) {
+                const auto& current = args.fileRanges->at( i );
+                const auto& next = args.fileRanges->at( i + 1 );
+                /* Avoid offset + size overflow for size == UINT64_MAX, which represents 'inf'. */
+                if ( ( next.offset < current.offset )
+                     || ( current.size > next.offset - current.offset ) ) {
                     args.keepIndex = true;
                     break;
                 }
@@ -625,7 +628,8 @@ rapidgzipCLI( int                  argc,
     }
 
     const auto writeToStdErr = ( args.stdoutFile && args.stdoutFile->writingToStdout() )
-                               || ( args.outputFile && args.outputFile->writingToStdout() );
+                               || ( args.outputFile && args.outputFile->writingToStdout() )
+                               || ( args.indexSaveFile && args.indexSaveFile->writingToStdout() );
     if ( args.outputFile ) {
         args.outputFile->truncate( totalBytesRead );
         args.outputFile.reset();  // Close the file here to include it in the time measurement.

@@ -6,8 +6,6 @@ Usage:
   -c, --stdout                  Output to standard output. This is the
                                 default, when reading from standard input.
   -f, --force                   Force overwriting existing output files.
-                                Also forces decompression even when piped
-                                to /dev/null.
   -o, --output arg              Output file. If none is given, use the
                                 input file name with '.bz2' stripped or
                                 '<input file>.out'. If no input is read
@@ -33,11 +31,12 @@ Usage:
                                 lastly, everything after skipping the first
                                 40.
   -p, --block-finder-parallelism arg
-                                This only has an effect if the parallel
-                                decoder is used with the -P option. If an
-                                optional integer >= 1 is given, then that
-                                is the number of threads to use for finding
-                                bzip2 blocks. If 0 is given, the finder
+                                This only has an effect for the parallel
+                                decoder and the block finder used by
+                                --list-compressed-offsets. If an optional
+                                integer >= 1 is given, then that is the
+                                number of threads to use for finding bzip2
+                                blocks. If 0 is given, the finder
                                 parallelism is chosen automatically from
                                 the decoder parallelism (1 to 8). (default:
                                 1)
@@ -53,11 +52,10 @@ Usage:
                                 YAML format for use with Conda.
   -l, --list-compressed-offsets arg
                                 List only the bzip2 block offsets given in
-                                bits one per line to the specified output
-                                file. If no file is given, it will print to
-                                stdout or to stderr if the decoded data is
-                                already written to stdout. Specifying '-'
-                                as file path, will write to stdout.
+                                bits, one per line, to the specified output
+                                file. Specifying '-' writes to stdout, or
+                                to stderr when the decoded data itself is
+                                written to stdout.
 
  Actions options:
   -d, --decompress        Force decompression.
@@ -66,11 +64,9 @@ Usage:
                           decompressed data.
       --import-index arg  Use an existing block offset index in the format
                           written by --export-index.
-  -t, --test              Verify decompression and checksums, if not
-                          disabled with --no-verify. Note that this does
-                          not have any additional effect when combined with
-                          --decompress or --ranges because it is equivalent
-                          to --decompress -o /dev/null.
+  -t, --test              Verify decompression and checksums. With --stdout
+                          or --output, the data is still written while it
+                          is verified.
   -L, --export-index arg  Write a block offset index with one '<encoded
                           bits>,<decoded bytes>' pair per line. Entries are
                           written incrementally while decoding or
@@ -97,8 +93,8 @@ Usage:
   -z, --compress   Compress to bzip2. Each worker writes an independent
                    bzip2 stream. The complete streams are concatenated in
                    input order, which bzip2 tools accept.
-      --level arg  bzip2 block size / compression level in the range 1..9
-                   (default 9). (default: 9)
+      --level arg  bzip2 block size / compression level in the range 1..9.
+                   (default: 9)
 
 If no file names are given, ibzip2 decompresses from standard input to standard output.
 

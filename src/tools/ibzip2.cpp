@@ -140,9 +140,8 @@ ibzip2CLI( int argc, char const* const* argv )
 
     options.add_options( "Output" )
     ( "l,list-compressed-offsets",
-      "List only the bzip2 block offsets given in bits one per line to the specified output file. "
-      "If no file is given, it will print to stdout or to stderr if the decoded data is already written to stdout. "
-      "Specifying '-' as file path, will write to stdout.",
+      "List only the bzip2 block offsets given in bits, one per line, to the specified output file. "
+      "Specifying '-' writes to stdout, or to stderr when the decoded data itself is written to stdout.",
       cxxopts::value<std::string>() );
     addExportIndexOption( options, "L,list-offsets",
                           "Write a block offset index with one '<encoded bits>,<decoded bytes>' pair "
@@ -152,7 +151,8 @@ ibzip2CLI( int argc, char const* const* argv )
 
     options.add_options( "Decompression" )
     ( "p,block-finder-parallelism",
-      "This only has an effect if the parallel decoder is used with the -P option. "
+      "This only has an effect for the parallel decoder and the block finder used by "
+      "--list-compressed-offsets. "
       "If an optional integer >= 1 is given, then that is the number of threads to use for finding bzip2 blocks. "
       "If 0 is given, the finder parallelism is chosen automatically from the decoder parallelism (1 to 8).",
       cxxopts::value<unsigned int>()->default_value( "1" ) );
@@ -160,7 +160,7 @@ ibzip2CLI( int argc, char const* const* argv )
     options.add_options( "Compression" )
     ( "z,compress", "Compress to bzip2. Each worker writes an independent bzip2 stream. "
                     "The complete streams are concatenated in input order, which bzip2 tools accept." )
-    ( "level", "bzip2 block size / compression level in the range 1..9 (default 9).",
+    ( "level", "bzip2 block size / compression level in the range 1..9.",
       cxxopts::value<int>()->default_value( "9" ) );
 
     options.add_options( "Advanced" )
@@ -337,7 +337,10 @@ ibzip2CLI( int argc, char const* const* argv )
         auto* const outputFile = args.primaryOutputFile();
         const auto outputFileDescriptor = outputFile ? outputFile->fd() : -1;
 
-        const auto writeToStdErr = outputFile && outputFile->writingToStdout();
+        const auto structuredOutputOnStdout =
+            ( args.indexSaveFile && args.indexSaveFile->writingToStdout() )
+            || ( compressedOffsetsFile && compressedOffsetsFile->writingToStdout() );
+        const auto writeToStdErr = ( outputFile && outputFile->writingToStdout() ) || structuredOutputOnStdout;
         auto& out = writeToStdErr ? std::cerr : std::cout;
 
         const auto offsetOutputRequested = args.indexSaveFile.has_value() || compressedOffsetsFile.has_value();
@@ -524,7 +527,8 @@ ibzip2CLI( int argc, char const* const* argv )
         compressedOffsetsFile->truncateToWrittenSize();
 
         if ( args.verbose ) {
-            std::cout << "Found " << offsets.size() << " blocks\n";
+            auto& out = compressedOffsetsFile->writingToStdout() ? std::cerr : std::cout;
+            out << "Found " << offsets.size() << " blocks\n";
         }
         return 0;
     }

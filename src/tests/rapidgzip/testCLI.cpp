@@ -304,6 +304,19 @@ testCLI()
         callCLI( "./rapidgzip", rapidgzipCLI, { "--export-index"s, "-", compressedFilePath } );
     }
     REQUIRE( std::filesystem::file_size( stdoutIndexPath ) > 0 );
+
+    /* A count must not be appended to an index written to stdout, and the index must stay usable. */
+    const auto countIndexPath = ( tmpFolder.path() / "random-words.gz.count.index" ).string();
+    const auto countOutputPath = ( tmpFolder.path() / "random-words.gz.count.output" ).string();
+    {
+        const ScopedStandardOutputRedirect redirect( countIndexPath );
+        const auto result = callCLI( "./rapidgzip", rapidgzipCLI,
+                                     { "--export-index"s, "-", "--count"s, compressedFilePath } );
+        REQUIRE( result.err.find( std::to_string( decompressed.size() ) ) != std::string::npos );
+    }
+    callCLI( "./rapidgzip", rapidgzipCLI,
+             { "-d"s, "-f"s, "--import-index"s, countIndexPath, "-o"s, countOutputPath, compressedFilePath } );
+    REQUIRE( readFile<std::vector<char> >( countOutputPath ) == decompressed );
 #endif
 
     const auto testWithoutFile =
