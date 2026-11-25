@@ -289,6 +289,10 @@ jobs:
       if: "! startsWith(matrix.os, 'windows')"
       run: bash src/tests/checkHeaderSelfContainment.sh
 
+    - name: Check CMake Consumer Integration
+      if: "! startsWith(matrix.os, 'windows')"
+      run: bash src/tests/checkCMakeConsumer.sh
+
     - name: Build Examples
       working-directory: src/examples/cmake-fetch-content
       run: |
