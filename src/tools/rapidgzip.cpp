@@ -147,12 +147,12 @@ enum class DecompressErrorCode
 
 
 template<typename ChunkData,
-         typename ReadFunctor = std::function<size_t( std::unique_ptr<rapidgzip::ParallelGzipReader<ChunkData> >& )> >
+         typename ReadFunctor = std::function<size_t( std::unique_ptr<ParallelGzipReader<ChunkData> >& )> >
 [[nodiscard]] DecompressErrorCode
 decompressParallel( RapidgzipArguments& args,
                     const ReadFunctor&  readFunctor )
 {
-    using Reader = rapidgzip::ParallelGzipReader<ChunkData>;
+    using Reader = ParallelGzipReader<ChunkData>;
 
     auto reader = std::make_unique<Reader>( std::move( args.inputFile ), args.decoderParallelism, args.chunkSize );
 
@@ -316,8 +316,9 @@ rapidgzipCLI( int                  argc,
         if ( !parseInputArguments( args, parsedArgs ) ) {
             return 1;
         }
-        return rapidgzip::deflate::analyze( std::move( args.inputFile ), args.verbose, args.analyzeFeatures )
-               == rapidgzip::Error::NONE ? 0 : 1;
+        return deflate::analyze( std::move( args.inputFile ), args.verbose, args.analyzeFeatures ) == Error::NONE
+               ? 0
+               : 1;
     }
 
     /* Validate the index format before parseArguments creates any output file. */
@@ -398,11 +399,11 @@ rapidgzipCLI( int                  argc,
 
     /* The CLI owns one splice session for its stdout stream. The session destructor leaks the final tail
      * because the reader can still reference it after the writer has finished. */
-    rapidgzip::SpliceVault* stdoutSpliceVault = nullptr;
+    SpliceVault* stdoutSpliceVault = nullptr;
 #ifdef LIBRAPIDARCHIVE_WITH_VMSPLICE
-    std::unique_ptr<rapidgzip::SpliceVault> stdoutSpliceVaultOwner;
+    std::unique_ptr<SpliceVault> stdoutSpliceVaultOwner;
     if ( stdoutFileDescriptor != -1 ) {
-        stdoutSpliceVaultOwner = std::make_unique<rapidgzip::SpliceVault>( stdoutFileDescriptor );
+        stdoutSpliceVaultOwner = std::make_unique<SpliceVault>( stdoutFileDescriptor );
         stdoutSpliceVault = stdoutSpliceVaultOwner.get();
     }
 #endif
@@ -439,9 +440,9 @@ rapidgzipCLI( int                  argc,
     const auto writeAndCount =
         [stdoutFileDescriptor, stdoutSpliceVault, &args, &outputFileDescriptors,
          &newlineCount, &totalBytesRead, &writeDuration]
-        ( const std::shared_ptr<rapidgzip::ChunkData>& chunkData,
-          size_t const                                 offsetInChunk,
-          size_t const                                 dataToWriteSize )
+        ( const std::shared_ptr<ChunkData>& chunkData,
+          size_t const                      offsetInChunk,
+          size_t const                      dataToWriteSize )
         {
             for ( const auto fileDescriptor : outputFileDescriptors ) {
                 const auto tWriteStart = now();
@@ -464,7 +465,7 @@ rapidgzipCLI( int                  argc,
             totalBytesRead += dataToWriteSize;
 
             if ( args.countLines ) {
-                using rapidgzip::deflate::DecodedData;
+                using deflate::DecodedData;
                 for ( auto it = DecodedData::Iterator( *chunkData, offsetInChunk, dataToWriteSize );
                       static_cast<bool>( it ); ++it )
                 {
@@ -480,10 +481,10 @@ rapidgzipCLI( int                  argc,
     const auto hasOutputFiles = ( outputFileDescriptor != -1 ) || ( stdoutFileDescriptor != -1 );
     if ( !args.indexSaveFile && args.countBytes && !args.countLines && !args.decompress && !hasOutputFiles ) {
         /* Need to do nothing with the chunks because decompressParallel returns the decompressed size.
-         * Note that we use rapidgzip::ChunkDataCounter to speed up decompression. Therefore an index
+         * Note that we use ChunkDataCounter to speed up decompression. Therefore an index
          * will not be created and there also will be no checksum verification! */
         args.crc32Enabled = false;
-        errorCode = decompressParallel<rapidgzip::ChunkDataCounter>(
+        errorCode = decompressParallel<ChunkDataCounter>(
             args, [&totalBytesRead] ( const auto& reader ) {
                 totalBytesRead = reader->seek( 0, SEEK_END );
             } );
@@ -512,17 +513,16 @@ rapidgzipCLI( int                  argc,
 
                 const auto forwardLineWrites =
                     [&lastLineOffset, &remainingLineCount, newlineCharacter, &writeFunctor]
-                    ( const std::shared_ptr<rapidgzip::ChunkData>& chunkData,
-                      const size_t                                 offsetInChunk,
-                      const size_t                                 dataToWriteSize )
+                    ( const std::shared_ptr<ChunkData>& chunkData,
+                      const size_t                      offsetInChunk,
+                      const size_t                      dataToWriteSize )
                     {
                         if ( remainingLineCount == 0 ) {
                             return;
                         }
 
-                        using rapidgzip::deflate::DecodedData;
                         size_t nBytesRead{ 0 };
-                        for ( auto it = DecodedData::Iterator( *chunkData, offsetInChunk, dataToWriteSize );
+                        for ( auto it = deflate::DecodedData::Iterator( *chunkData, offsetInChunk, dataToWriteSize );
                               static_cast<bool>( it ); ++it )
                         {
                             const auto& [buffer, size] = *it;
@@ -561,7 +561,7 @@ rapidgzipCLI( int                  argc,
                 reader->seekTo( lastLineOffset );
             };
 
-        errorCode = decompressParallel<rapidgzip::ChunkData>(
+        errorCode = decompressParallel<ChunkData>(
             args, [&] ( const auto& reader ) {
                 if ( !args.fileRanges ) {
                     if ( !hasOutputFiles && args.countLines && !reader->newlineOffsets().empty() ) {
