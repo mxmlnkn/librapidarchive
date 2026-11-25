@@ -229,8 +229,13 @@ ibzip2CLI( int argc, char const* const* argv )
         }
     }
 
+    ArgumentsOptions argumentsOptions;
+    argumentsOptions.compressionSuffix = ".bz2";
+    argumentsOptions.decompressionSuffixes = { ".bz2", ".bzip2" };
+    argumentsOptions.additionalPathOptions = { "list-compressed-offsets" };
+
     Arguments args;
-    if ( !parseArguments( args, parsedArgs ) ) {
+    if ( !parseArguments( args, parsedArgs, argumentsOptions ) ) {
         return 1;
     }
     if ( args.decoderParallelism == 0 ) {
@@ -244,8 +249,6 @@ ibzip2CLI( int argc, char const* const* argv )
         return 1;
     }
 
-    /* Parse action arguments. */
-
     const auto decode = !compress
                         && ( args.decompress || args.test || args.countBytes || args.countLines
                              || args.fileRanges || args.indexSavePath );
@@ -255,20 +258,6 @@ ibzip2CLI( int argc, char const* const* argv )
      * that CLI benchmark results remain comparable with other decoders. */
     const auto writeOutput = !compress && ( args.decompress || args.fileRanges.has_value() )
                              && ( !args.test || args.writeToStdOut || !args.outputFilePath.empty() );
-
-    if ( compress ) {
-        /* Compression appends the target suffix. It must not strip an existing input suffix. */
-        if ( !args.writeToStdOut && args.outputFilePath.empty() && !args.inputFilePath.empty() ) {
-            args.outputFilePath = args.inputFilePath + ".bz2";
-        }
-    } else if ( writeOutput && !args.writeToStdOut && args.outputFilePath.empty() && !args.inputFilePath.empty() ) {
-        args.outputFilePath = deduceOutputPath( args.inputFilePath, { ".bz2", ".bzip2" },
-                                                /* warnOnFallback */ !args.quiet );
-    }
-
-    if ( ( writeOutput || compress ) && !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
-        return 1;
-    }
 
     /* Actually do things as requested. */
 

@@ -262,6 +262,35 @@ struct Arguments
     std::unique_ptr<OutputFile> stdoutFile;
     UniqueFileReader indexLoadFile;
     std::optional<OutputFile> indexSaveFile;
+
+    [[nodiscard]] bool
+    requestsDecodedOutput() const noexcept
+    {
+        return decompress || test || fileRanges.has_value();
+    }
+
+    /** The output used by tools that write to exactly one stream, preferring an explicit file over stdout. */
+    [[nodiscard]] OutputFile*
+    primaryOutputFile() const noexcept
+    {
+        return outputFile ? outputFile.get() : stdoutFile.get();
+    }
+
+    [[nodiscard]] bool
+    primaryOutputIsStdout() const noexcept
+    {
+        const auto* const output = primaryOutputFile();
+        return output && output->writingToStdout();
+    }
+};
+
+
+struct ArgumentsOptions
+{
+    std::string_view compressionSuffix;
+    std::vector<std::string_view> decompressionSuffixes;
+    /** Tool-specific file options that --verbose prints in addition to the common ones. */
+    std::vector<std::string_view> additionalPathOptions;
 };
 
 
@@ -302,11 +331,6 @@ parseCommonArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
         std::cerr << "Compression cannot be combined with decompression, test, count, range, "
                   << "import-index, or list-compressed-offsets options.\n";
         return false;
-    }
-
-    if ( args.verbose ) {
-        printFilePathArguments( parsedArgs, { "input", "output", "import-index", "export-index" } );
-        printFilePathArguments( parsedArgs, { "list-compressed-offsets" } );
     }
 
     const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
@@ -352,6 +376,43 @@ parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 
 
 /**
+ * Resolves the decoded output path, including the compression suffix and the decompression suffix deduction.
+ * This does not open any output or index file yet.
+ */
+[[nodiscard]] inline bool
+resolveOutputPath( Arguments&                  args,
+                   const cxxopts::ParseResult& parsedArgs,
+                   const ArgumentsOptions&     options )
+{
+    args.outputFilePath = getFilePath( parsedArgs, "output" );
+
+    const auto writeOutput = args.compress
+                             || ( args.requestsDecodedOutput()
+                                  && ( !args.test || args.writeToStdOut || !args.outputFilePath.empty() ) );
+    if ( args.compress ) {
+        /* Compression appends the target suffix. It must not strip an existing input suffix. */
+        if ( !args.writeToStdOut && args.outputFilePath.empty() && !args.inputFilePath.empty() ) {
+            args.outputFilePath = args.inputFilePath + std::string( options.compressionSuffix );
+        }
+    } else if ( writeOutput && !args.writeToStdOut && args.outputFilePath.empty() && !args.inputFilePath.empty() ) {
+        args.outputFilePath = deduceOutputPath( args.inputFilePath, options.decompressionSuffixes,
+                                                /* warnOnFallback */ !args.quiet );
+    }
+
+    if ( writeOutput && !args.outputFilePath.empty() && !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
+        return false;
+    }
+
+    if ( args.verbose ) {
+        printFilePathArguments( parsedArgs, { "input", "output", "import-index", "export-index" } );
+        printFilePathArguments( parsedArgs, options.additionalPathOptions );
+    }
+
+    return true;
+}
+
+
+/**
  * Parses the common options and opens the input, output, and index files.
  *
  * The files must be opened here so that a later sandbox can deny all remaining path access.
@@ -359,14 +420,12 @@ parseInputArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
  * @return false after printing an error. The caller should then return a nonzero exit code.
  */
 [[nodiscard]] inline bool
-parseArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
+parseArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs, const ArgumentsOptions& options )
 {
     if ( !parseInputArguments( args, parsedArgs ) ) {
         return false;
     }
-
-    args.outputFilePath = getFilePath( parsedArgs, "output" );
-    if ( !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
+    if ( !resolveOutputPath( args, parsedArgs, options ) ) {
         return false;
     }
 

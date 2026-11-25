@@ -342,16 +342,19 @@ rapidgzipCLI( int                  argc,
         }
     }
 
+    ArgumentsOptions argumentsOptions;
+    argumentsOptions.decompressionSuffixes = { ".bgzf", ".bgz", ".gzip", ".gz", ".zlib", ".deflate", ".bzip2", ".bz2" };
+
     /* Parse action arguments. */
 
-    if ( !parseArguments( args, parsedArgs ) ) {
+    if ( !parseArguments( args, parsedArgs, argumentsOptions ) ) {
         return 1;
     }
 
     if ( args.decoderParallelism <= 0 ) {
         args.decoderParallelism = availableCores();
     }
-    args.decompress = args.decompress || args.fileRanges || args.test;
+    args.decompress = args.requestsDecodedOutput();
 
     /* Parse ranges. */
     if ( args.fileRanges ) {
@@ -376,18 +379,6 @@ rapidgzipCLI( int                  argc,
                 break;
             }
         }
-    }
-
-    /* Automatically determine output file path if none has been given and not writing to stdout. */
-    if ( args.outputFilePath.empty() && !args.inputFilePath.empty() && !args.test && !args.writeToStdOut ) {
-        args.outputFilePath = deduceOutputPath( args.inputFilePath,
-                                                { ".bgzf", ".bgz", ".gzip", ".gz", ".zlib", ".deflate", ".bzip2",
-                                                  ".bz2" },
-                                           /* warnOnFallback */ !args.quiet && args.decompress );
-    }
-
-    if ( args.decompress && !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
-        return 1;
     }
 
     /* Parse index arguments. */
