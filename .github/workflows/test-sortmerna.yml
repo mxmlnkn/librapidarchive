@@ -1,0 +1,59 @@
+name: SortMeRNA Consumer
+
+on:
+  push:
+    branches: [ "master", "main*", "dev*", "rapidgzip-v*" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  Build:
+    name: Build SortMeRNA v8.0.2
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Check out SortMeRNA
+      uses: actions/checkout@v7
+      with:
+        repository: sortmerna/sortmerna
+        ref: v8.0.2
+        path: sortmerna
+        persist-credentials: false
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt update
+        sudo apt-get -y install cmake gzip ninja-build python3 python3-pip
+
+    - name: Install Python Dependencies
+      run: |
+        python3 -m pip install --upgrade pip || true
+        python3 -m pip install pyyaml jinja2 requests
+
+    - name: Compute Cache Key
+      id: cache
+      shell: bash
+      run: |
+        # RocksDB defaults to -march=native, so cached objects are only valid on runners with the same CPU features.
+        fingerprint=$(grep -m1 -E '^(flags|Features)' /proc/cpuinfo | sha256sum | cut -d' ' -f1)
+        sources=$(sha256sum sortmerna/3rdparty.jinja .github/scripts/buildSortMeRNA.sh | sha256sum | cut -d' ' -f1)
+        echo "key=sortmerna-v8.0.2-${RUNNER_OS}-${RUNNER_ARCH}-$fingerprint-$sources" >> "$GITHUB_OUTPUT"
+
+    - name: Cache SortMeRNA Dependencies
+      uses: actions/cache@v6
+      with:
+        path: |
+          sortmerna/3rdparty
+          sortmerna/build/3rdparty
+        key: ${{ steps.cache.outputs.key }}
+
+    - name: Build and Run SortMeRNA
+      env:
+        JOBS: 4
+      run: bash .github/scripts/buildSortMeRNA.sh "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/sortmerna"
