@@ -285,6 +285,10 @@ jobs:
         python3 -m pip install --upgrade pip || true  # Fails on macOS because of homebrew
         python3 -m pip install --upgrade-strategy eager --upgrade indexed_gzip pgzip
 
+    - name: Check Standalone Header Includes
+      if: "! startsWith(matrix.os, 'windows')"
+      run: bash src/tests/checkHeaderSelfContainment.sh
+
     - name: Build Examples
       working-directory: src/examples/cmake-fetch-content
       run: |
