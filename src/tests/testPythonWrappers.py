@@ -160,7 +160,12 @@ def createStripedCompressedFile(sizeInBytes, compressionLevel, encoder, sequence
 
 def storeFiles(rawFile, compressedFile, name, compressedExtension):
     if rawFile:
-        shutil.copyfile(rawFile.name, name)
+        # Copy from the open file object because Windows locks named temporary files while they are open.
+        rawFile.flush()
+        rawFile.seek(0)
+        with open(name, 'wb') as output:
+            shutil.copyfileobj(rawFile, output)
+        rawFile.close()
 
     if compressedFile:
         shutil.copyfile(compressedFile.name, f"{name}.{compressedExtension}")
@@ -246,9 +251,31 @@ def testDecompression(parameters):
         decompressedFile.close()
         assert decompressedFile.closed
 
+    rawFile.close()
     os.remove(compressedFile.name)
 
     return True
+
+
+def testBzip2IndexImportSeekToStart():
+    data = b'A'
+    compressed = bz2.compress(data)
+    for parallelization in (1, 2):
+        with tempfile.NamedTemporaryFile(suffix='.bz2', delete=False) as file:
+            file.write(compressed)
+            fileName = file.name
+        try:
+            with RapidgzipFile(fileName, parallelization=parallelization) as reader:
+                assert reader.read() == data
+                index = io.BytesIO()
+                reader.export_index(index)
+            index.seek(0)
+            with RapidgzipFile(fileName, parallelization=parallelization) as reader:
+                reader.import_index(index)
+                reader.seek(0)
+                assert reader.read() == data
+        finally:
+            os.remove(fileName)
 
 
 def testPythonInterface(openIndexedFileFromName, compressionLevel, encoder, closeUnderlyingFile=None):
@@ -817,6 +844,7 @@ if __name__ == '__main__':
     print("Cores:", os.cpu_count())
 
     testFileTypeAPI()
+    testBzip2IndexImportSeekToStart()
     testDetermineFileTypeKeepsFileDescriptor()
     testNegativeParallelizationIsRejected()
     testInvalidFileObjectConversions()
