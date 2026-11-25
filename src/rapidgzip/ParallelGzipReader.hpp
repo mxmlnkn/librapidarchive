@@ -626,7 +626,7 @@ public:
             processGzipStreamSizes( chunkData, decodedOffsetInBytes );
 
             [[maybe_unused]] const auto tCRC32Start = now();
-            processCRC32( chunkData, offsetInBlock, nBytesToDecode, decodedOffsetInBytes );
+            processCRC32( *chunkData, decodedOffsetInBytes );
             if ( m_statisticsEnabled ) {
                 m_crc32Time += duration( tCRC32Start );
             }
@@ -1595,17 +1595,15 @@ private:
     }
 
     void
-    processCRC32( const std::shared_ptr<ChunkData>& chunkData,
-                  [[maybe_unused]] size_t const     offsetInBlock,
-                  [[maybe_unused]] size_t const     dataToWriteSize,
-                  const size_t                      chunkDecodedOffset )
+    processCRC32( const ChunkData& chunkData,
+                  const size_t     chunkDecodedOffset )
     {
-        if ( !m_crc32.enabled() || chunkData->crc32s.empty() ) {
+        if ( !m_crc32.enabled() || chunkData.crc32s.empty() ) {
             return;
         }
 
-        const auto chunkStart = chunkData->encodedOffsetInBits;
-        const auto chunkEnd = chunkStart + chunkData->encodedSizeInBits;
+        const auto chunkStart = chunkData.encodedOffsetInBits;
+        const auto chunkEnd = chunkStart + chunkData.encodedSizeInBits;
 
         /* read() may be called multiple times for the same chunk. The running checksum must only be updated
          * once per chunk, otherwise its state and the frontier become inconsistent. */
@@ -1630,54 +1628,54 @@ private:
         }
 
         /* As long as CRC32 is enabled, this should not happen and we filtered above for !m_crc32.enabled(). */
-        if ( chunkData->crc32s.size() != chunkData->footers.size() + 1 ) {
+        if ( chunkData.crc32s.size() != chunkData.footers.size() + 1 ) {
             throw std::logic_error( "Fewer CRC32s in chunk than expected based on the gzip footers!" );
         }
 
         const auto totalCRC32StreamSize = std::accumulate(
-            chunkData->crc32s.begin(), chunkData->crc32s.end(), size_t( 0 ),
+            chunkData.crc32s.begin(), chunkData.crc32s.end(), size_t( 0 ),
             [] ( size_t sum, const auto& calculator ) { return sum + calculator.streamSize(); } );
-        if ( totalCRC32StreamSize != chunkData->decodedSizeInBytes ) {
+        if ( totalCRC32StreamSize != chunkData.decodedSizeInBytes ) {
             std::stringstream message;
             message << "CRC32 computation stream size (" << formatBytes( totalCRC32StreamSize ) << ") differs from "
-                    << "chunk size: " << formatBytes( chunkData->decodedSizeInBytes ) << "!\n"
+                    << "chunk size: " << formatBytes( chunkData.decodedSizeInBytes ) << "!\n"
                     << "Please open an issue or disable integrated CRC32 verification as a quick workaround.";
             throw std::logic_error( std::move( message ).str() );
         }
 
-        const auto fileType = chunkData->configuration.fileType;
+        const auto fileType = chunkData.configuration.fileType;
         const auto isZlib = fileType == FileType::ZLIB;
         const auto isContinuation = checksumStateValid && ( nextCRC32ChunkOffset == chunkStart );
         /* A chunk at the beginning of the file starts at a known stream start. */
         const auto startsAtStreamStart = isContinuation || ( chunkDecodedOffset == 0 );
 
         if ( isContinuation ) {
-            crc32.append( chunkData->crc32s.front() );
+            crc32.append( chunkData.crc32s.front() );
         } else {
             /* Start over from this chunk's first segment. It may be a partial stream and is therefore only
              * verified below if it is known to be complete. */
-            crc32 = chunkData->crc32s.front();
+            crc32 = chunkData.crc32s.front();
         }
 
         const auto firstFooterOffset =
-            chunkData->footers.empty() ? chunkData->decodedSizeInBytes
-                                       : chunkData->footers.front().blockBoundary.decodedOffset;
+            chunkData.footers.empty() ? chunkData.decodedSizeInBytes
+                                      : chunkData.footers.front().blockBoundary.decodedOffset;
         if ( isZlib ) {
             if ( !isContinuation ) {
                 adler32.reset();
             }
-            updateAdler32( adler32, *chunkData, 0, firstFooterOffset );
+            updateAdler32( adler32, chunkData, 0, firstFooterOffset );
         }
 
         bool canVerifyNextStream = startsAtStreamStart;
         size_t previousFooterOffset = 0;
-        for ( size_t i = 0; i < chunkData->footers.size(); ++i ) {
-            const auto& footer = chunkData->footers[i];
+        for ( size_t i = 0; i < chunkData.footers.size(); ++i ) {
+            const auto& footer = chunkData.footers[i];
             const auto footerByteOffset = ceilDiv( footer.blockBoundary.encodedOffset, CHAR_BIT );
 
             if ( isZlib && ( i > 0 ) ) {
                 adler32.reset();
-                updateAdler32( adler32, *chunkData, previousFooterOffset,
+                updateAdler32( adler32, chunkData, previousFooterOffset,
                                footer.blockBoundary.decodedOffset - previousFooterOffset );
             }
 
@@ -1712,14 +1710,14 @@ private:
             }
 
             previousFooterOffset = footer.blockBoundary.decodedOffset;
-            crc32 = chunkData->crc32s.at( i + 1 );
+            crc32 = chunkData.crc32s.at( i + 1 );
             canVerifyNextStream = true;
         }
 
-        if ( isZlib && !chunkData->footers.empty() ) {
+        if ( isZlib && !chunkData.footers.empty() ) {
             adler32.reset();
-            updateAdler32( adler32, *chunkData, previousFooterOffset,
-                           chunkData->decodedSizeInBytes - previousFooterOffset );
+            updateAdler32( adler32, chunkData, previousFooterOffset,
+                           chunkData.decodedSizeInBytes - previousFooterOffset );
         }
 
         nextCRC32ChunkOffset = chunkEnd;
