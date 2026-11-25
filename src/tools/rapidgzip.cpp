@@ -397,14 +397,6 @@ rapidgzipCLI( int                  argc,
 
     /* Actually do things as requested. */
 
-    if ( args.decompress ) {
-        if ( args.writeToStdOut || ( !args.test && args.outputFilePath.empty() && args.inputFilePath.empty() ) ) {
-            args.stdoutFile = std::make_unique<OutputFile>( /* empty path implies stdout */ "" );
-        }
-        if ( !args.outputFilePath.empty() ) {
-            args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
-        }
-    }
     const auto outputFileDescriptor = args.outputFile ? args.outputFile->fd() : -1;
     const auto stdoutFileDescriptor = args.stdoutFile ? args.stdoutFile->fd() : -1;
 

@@ -256,20 +256,19 @@ ibzip2CLI( int argc, char const* const* argv )
      * data is still written while it is verified, matching rapidgzip and the usual CLI expectation.
      * Do not special-case /dev/null: the write path is intentionally kept identical to any other output so
      * that CLI benchmark results remain comparable with other decoders. */
-    const auto writeOutput = !compress && ( args.decompress || args.fileRanges.has_value() )
-                             && ( !args.test || args.writeToStdOut || !args.outputFilePath.empty() );
+    const auto writeOutput = !compress && args.writesOutput();
 
     /* Actually do things as requested. */
 
     if ( compress ) {
     #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-        args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
-        const auto outputFileDescriptor = args.outputFile->fd();
+        auto* const outputFile = args.primaryOutputFile();
+        const auto outputFileDescriptor = outputFile->fd();
 
         if ( args.verbose ) {
             std::cerr << "Compress " << ( args.inputFilePath.empty() ? "<stdin>" : args.inputFilePath.c_str() )
                       << " -> ";
-            if ( args.outputFile->writingToStdout() ) {
+            if ( outputFile->writingToStdout() ) {
                 std::cerr << "<stdout>";
             } else {
                 std::cerr << args.outputFilePath;
@@ -278,7 +277,7 @@ ibzip2CLI( int argc, char const* const* argv )
         }
 
         if ( args.indexSavePath ) {
-            args.indexSaveFile.emplace( *args.indexSavePath, args.outputFile->writingToStdout() );
+            args.indexSaveFile.emplace( *args.indexSavePath, outputFile->writingToStdout() );
         }
         const auto writeBlockOffset =
             [&args] ( const uint64_t compressedOffset, const uint64_t decodedOffset )
@@ -305,7 +304,7 @@ ibzip2CLI( int argc, char const* const* argv )
             if ( args.indexSaveFile ) {
                 args.indexSaveFile->truncateToWrittenSize();
             }
-            args.outputFile->truncate( result.compressedBytes );
+            outputFile->truncate( result.compressedBytes );
             if ( args.verbose ) {
                 std::cerr << "Compressed " << result.uncompressedBytes << " B to "
                           << result.compressedBytes << " B in " << compressionDuration << " s -> "
@@ -332,12 +331,10 @@ ibzip2CLI( int argc, char const* const* argv )
                       << args.decoderParallelism << " threads\n";
         }
 
-        if ( writeOutput ) {
-            args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
-        }
-        const auto outputFileDescriptor = args.outputFile ? args.outputFile->fd() : -1;
+        auto* const outputFile = args.primaryOutputFile();
+        const auto outputFileDescriptor = outputFile ? outputFile->fd() : -1;
 
-        const auto writeToStdErr = args.outputFile && args.outputFile->writingToStdout();
+        const auto writeToStdErr = outputFile && outputFile->writingToStdout();
         auto& out = writeToStdErr ? std::cerr : std::cout;
 
         std::optional<OutputFile> compressedOffsetsFile;
@@ -469,9 +466,11 @@ ibzip2CLI( int argc, char const* const* argv )
             args.indexSaveFile->truncateToWrittenSize();
         }
 
-        if ( args.outputFile ) {
-            args.outputFile->truncate( nBytesWrittenTotal );
-            args.outputFile.reset();  /* Close the file here to include it in the time measurement. */
+        if ( outputFile ) {
+            outputFile->truncate( nBytesWrittenTotal );
+            /* Close the files here to include them in the time measurement. */
+            args.outputFile.reset();
+            args.stdoutFile.reset();
         }
 
         if ( args.verbose ) {

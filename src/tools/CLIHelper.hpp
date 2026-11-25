@@ -269,6 +269,12 @@ struct Arguments
         return decompress || test || fileRanges.has_value();
     }
 
+    [[nodiscard]] bool
+    writesOutput() const noexcept
+    {
+        return outputFile || stdoutFile;
+    }
+
     /** The output used by tools that write to exactly one stream, preferring an explicit file over stdout. */
     [[nodiscard]] OutputFile*
     primaryOutputFile() const noexcept
@@ -406,6 +412,15 @@ resolveOutputPath( Arguments&                  args,
     if ( args.verbose ) {
         printFilePathArguments( parsedArgs, { "input", "output", "import-index", "export-index" } );
         printFilePathArguments( parsedArgs, options.additionalPathOptions );
+    }
+
+    if ( writeOutput ) {
+        if ( args.writeToStdOut || ( args.outputFilePath.empty() && args.inputFilePath.empty() ) ) {
+            args.stdoutFile = std::make_unique<OutputFile>( /* empty path implies stdout */ "" );
+        }
+        if ( !args.outputFilePath.empty() ) {
+            args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
+        }
     }
 
     return true;
