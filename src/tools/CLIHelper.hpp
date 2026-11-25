@@ -205,38 +205,6 @@ getFilePath( cxxopts::ParseResult const& parsedArgs,
 }
 
 
-struct InputFileSpecification
-{
-    std::string path;
-    UniqueFileReader file;
-    bool wasSeekable{ false };
-};
-
-
-[[nodiscard]] InputFileSpecification
-parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
-{
-    const auto inputFilePathOptional = parseInputPath( parsedArgs );
-    if ( !inputFilePathOptional ) {
-        return {};
-    }
-    const auto inputFilePath = *inputFilePathOptional;
-
-    auto inputFile = openFileOrStdin( inputFilePath );
-    const auto wasSeekable = inputFile->seekable();
-    const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
-    if ( ioReadMethod == "sequential" ) {
-        inputFile = std::make_unique<SinglePassFileReader>( std::move( inputFile ) );
-    } else if ( ( ioReadMethod == "locked-read" ) || ( ioReadMethod == "pread" ) ) {
-        auto sharedFile = ensureSharedFileReader( std::move( inputFile ) );
-        sharedFile->setUsePread( ioReadMethod == "pread" );
-        inputFile = std::move( sharedFile );
-    }
-
-    return { inputFilePath, std::move( inputFile ), wasSeekable };
-}
-
-
 /**
  * Prints the paths of the given file options for --verbose.
  *
@@ -341,6 +309,12 @@ parseCommonArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
         printFilePathArguments( parsedArgs, { "list-compressed-offsets" } );
     }
 
+    const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
+    if ( ( ioReadMethod != "sequential" ) && ( ioReadMethod != "locked-read" ) && ( ioReadMethod != "pread" ) ) {
+        std::cerr << "Unknown I/O read method: " << ioReadMethod << "\n";
+        return false;
+    }
+
     return true;
 }
 
@@ -349,17 +323,22 @@ parseCommonArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 [[nodiscard]] inline bool
 openInputFile( Arguments& args, const cxxopts::ParseResult& parsedArgs )
 {
-    /* Parse file paths. */
-
-    auto input = parseInputFileSpecification( parsedArgs );
-    if ( !input.file ) {
-        std::cerr << "Could not open input file: " << input.path << "!\n";
+    const auto inputFilePath = parseInputPath( parsedArgs );
+    if ( !inputFilePath ) {
         return false;
     }
-    args.inputFilePath = std::move( input.path );
-    args.inputFile = std::move( input.file );
-    args.inputWasSeekable = input.wasSeekable;
+    args.inputFilePath = *inputFilePath;
+    args.inputFile = openFileOrStdin( args.inputFilePath );
+    args.inputWasSeekable = args.inputFile->seekable();
 
+    const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
+    if ( ioReadMethod == "sequential" ) {
+        args.inputFile = std::make_unique<SinglePassFileReader>( std::move( args.inputFile ) );
+    } else {
+        auto sharedFile = ensureSharedFileReader( std::move( args.inputFile ) );
+        sharedFile->setUsePread( ioReadMethod == "pread" );
+        args.inputFile = std::move( sharedFile );
+    }
     return true;
 }
 

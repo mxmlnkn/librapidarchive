@@ -294,6 +294,11 @@ testStreamingOffsets( const std::filesystem::path& dataFolder )
     REQUIRE( readFile<std::vector<char> >( decodedPath ) == data );
     REQUIRE_EQUAL( readTextFile( stdoutPath ), readTextFile( listPath ) );
 #endif
+
+    const auto invalidIoReadMethod = callCLI(
+        "./ibzip2", ibzip2CLI, { "--io-read-method", "bogus", compressedPath }, /* expectSuccess */ false );
+    REQUIRE( invalidIoReadMethod.exitCode != 0 );
+    REQUIRE( invalidIoReadMethod.err.find( "Unknown I/O read method" ) != std::string::npos );
 }
 
 void
