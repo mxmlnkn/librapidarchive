@@ -49,7 +49,7 @@ struct Arguments
     bool keepIndex{ false };
     bool windowSparsity{ true };
     bool gatherLineOffsets{ false };
-    IndexFormat indexFormat{ IndexFormat::INDEXED_GZIP };
+    IndexFormat indexFormat{ IndexFormat::GZTOOL };
     std::optional<std::vector<FileRange> > fileRanges{};
 };
 
@@ -316,9 +316,9 @@ rapidgzipCLI( int                  argc,
     ( "io-read-method", "Option to force a certain I/O method for reading. By default, pread will be used "
                         "when possible. Possible values: pread, sequential, locked-read",
       cxxopts::value<std::string>()->default_value( "pread" ) )
-    ( "index-format", "Option to select an output index format. Possible values: gztool, gztool-with-lines, "
-                      "indexed_gzip.",
-      cxxopts::value<std::string>()->default_value( "indexed_gzip" ) )
+    ( "index-format", "Option to select an output index format. Possible values: gztool (default), "
+                      "gztool-with-lines, indexed_gzip.",
+      cxxopts::value<std::string>()->default_value( "gztool" ) )
     ( "sparse-windows", "On by default. Reduce index compressibility by zeroing out window data that is not "
                         "referenced in the subsequent stream.",
       cxxopts::value( args.windowSparsity )->implicit_value( "true" ) )

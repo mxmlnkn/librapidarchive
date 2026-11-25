@@ -1125,7 +1125,7 @@ public:
 
     void
     exportIndex( const std::function<void( const void* buffer, size_t size )>& checkedWrite,
-                 const IndexFormat                                             indexFormat = IndexFormat::INDEXED_GZIP )
+                 const IndexFormat                                             indexFormat = IndexFormat::GZTOOL )
     {
         const auto t0 = now();
 
@@ -1160,7 +1160,7 @@ public:
 
     void
     exportIndex( PyObject*         pythonObject,
-                 const IndexFormat indexFormat = IndexFormat::INDEXED_GZIP )
+                 const IndexFormat indexFormat = IndexFormat::GZTOOL )
     {
         const auto file = std::make_unique<PythonFileReader>( pythonObject );
         const auto checkedWrite =

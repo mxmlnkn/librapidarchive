@@ -562,7 +562,7 @@ cdef class _RapidgzipFile():
                 return self.gzipReader.importIndex(<PyObject*>fileObject)
         return self.gzipReader.importIndex(<PyObject*>file)
 
-    def export_index(self, file, index_format = IndexFormat.INDEXED_GZIP):
+    def export_index(self, file, index_format = IndexFormat.GZTOOL):
         if not self.gzipReader:
             raise Exception("Invalid file object!")
 
