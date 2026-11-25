@@ -9,6 +9,7 @@
 #include <utility>
 
 #include <core/BitManipulation.hpp>
+#include <filereader/FileReader.hpp>
 #include <huffman/HuffmanCodingSymbolsPerLength.hpp>
 
 

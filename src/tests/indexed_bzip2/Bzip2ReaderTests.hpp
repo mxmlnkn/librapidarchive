@@ -16,6 +16,7 @@
 #include <core/FileUtils.hpp>
 #include <core/TestHelpers.hpp>
 #include <filereader/BufferView.hpp>
+#include <filereader/Standard.hpp>
 #include <indexed_bzip2/BZ2ReaderInterface.hpp>
 
 #include "Bzip2TestHelpers.hpp"

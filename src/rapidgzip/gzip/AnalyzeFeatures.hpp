@@ -9,6 +9,8 @@
 #include <string_view>
 #include <vector>
 
+#include <core/common.hpp>
+
 
 namespace rapidgzip::deflate
 {

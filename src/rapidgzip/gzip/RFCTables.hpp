@@ -3,6 +3,8 @@
 #include <array>
 #include <cstdint>
 
+#include <core/Error.hpp>
+
 #include "definitions.hpp"
 
 
