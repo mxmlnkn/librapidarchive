@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <iostream>
 #include <exception>
-#include <filesystem>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -20,16 +19,13 @@
 
 #include <core/AffinityHelpers.hpp>
 #include <core/common.hpp>
-#include <core/FileRanges.hpp>
 #include <core/FileUtils.hpp>
 #include <core/Statistics.hpp>
-#include <filereader/Standard.hpp>
 #include <rapidgzip/gzip/AnalyzeFeatures.hpp>
 #include <rapidgzip/gzip/GzipAnalyzer.hpp>
 #include <rapidgzip/rapidgzip.hpp>
 
 #include "CLIHelper.hpp"
-#include "Sandbox.hpp"
 #include "thirdparty.hpp"
 
 
@@ -332,6 +328,20 @@ rapidgzipCLI( int                  argc,
                == rapidgzip::Error::NONE ? 0 : 1;
     }
 
+    /* Validate the index format before parseArguments creates any output file. */
+    if ( parsedArgs.count( "index-format" ) > 0 ) {
+        const auto indexFormatString = parsedArgs["index-format"].as<std::string>();
+        if ( indexFormatString == "indexed_gzip" ) {
+            args.indexFormat = IndexFormat::INDEXED_GZIP;
+        } else if ( indexFormatString == "gztool" ) {
+            args.indexFormat = IndexFormat::GZTOOL;
+        } else if ( indexFormatString == "gztool-with-lines" ) {
+            args.indexFormat = IndexFormat::GZTOOL_WITH_LINES;
+        } else {
+            throw std::invalid_argument( "Invalid index format string: " + indexFormatString );
+        }
+    }
+
     /* Parse action arguments. */
 
     if ( !parseArguments( args, parsedArgs ) ) {
@@ -382,21 +392,8 @@ rapidgzipCLI( int                  argc,
 
     /* Parse index arguments. */
 
-    if ( parsedArgs.count( "index-format" ) > 0 ) {
-        const auto indexFormat = parsedArgs["index-format"].as<std::string>();
-        if ( indexFormat == "indexed_gzip" ) {
-            args.indexFormat = IndexFormat::INDEXED_GZIP;
-        } else if ( indexFormat == "gztool" ) {
-            args.indexFormat = IndexFormat::GZTOOL;
-        } else if ( indexFormat == "gztool-with-lines" ) {
-            args.indexFormat = IndexFormat::GZTOOL_WITH_LINES;
-        } else {
-            throw std::invalid_argument( "Invalid index format string: " + indexFormat );
-        }
-
-        if ( !args.indexSaveFile && !args.quiet ) {
-            std::cerr << "[Warning] The index format has no effect without --export-index!\n";
-        }
+    if ( ( parsedArgs.count( "index-format" ) > 0 ) && !args.indexSaveFile && !args.quiet ) {
+        std::cerr << "[Warning] The index format has no effect without --export-index!\n";
     }
 
     /* Check that there is at least one actionable request. */

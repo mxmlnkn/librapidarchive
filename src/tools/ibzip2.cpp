@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -27,7 +26,6 @@
 #include <core/FileUtils.hpp>
 #include <core/ParallelBitStringFinder.hpp>
 #include <filereader/Shared.hpp>
-#include <filereader/Standard.hpp>
 #include <indexed_bzip2/bzip2.hpp>
 #include <indexed_bzip2/BZ2Reader.hpp>
 #include <indexed_bzip2/Bzip2Compressor.hpp>
@@ -35,7 +33,6 @@
 #include <indexed_bzip2/ParallelBZ2Reader.hpp>
 
 #include "CLIHelper.hpp"
-#include "Sandbox.hpp"
 #include "thirdparty.hpp"
 
 
@@ -198,36 +195,56 @@ ibzip2CLI( int argc, char const* const* argv )
         return *informationalExitCode;
     }
 
-    Arguments args;
-    if ( !parseArguments( args, parsedArgs ) ) {
-        return 1;
-    }
-
-    if ( args.decoderParallelism <= 0 ) {
-        args.decoderParallelism = availablePhysicalCores();
-    }
-    const auto blockFinderParallelism = parsedArgs["block-finder-parallelism"].as<unsigned int>();
-
-    /* Parse input and output file specifications. */
-
-    if ( ( parsedArgs.count( "decompress" ) > 0 ) && ( parsedArgs.count( "compress" ) > 0 ) ) {
-        std::cerr << "Only either compression or decompression may be requested!\n";
-        return 1;
-    }
     const auto compress = parsedArgs.count( "compress" ) > 0;
+#ifndef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
+    if ( compress ) {
+        std::cerr << "This build does not have libbz2 compression support enabled!\n";
+        return 1;
+    }
+#endif
 
-    /* Parse action arguments. */
+    const auto level = parsedArgs["level"].as<int>();
+    if ( compress && ( ( level < 1 ) || ( level > 9 ) ) ) {
+        std::cerr << "bzip2 compression level must be in the range 1..9!\n";
+        return 1;
+    }
+
+    const auto compressedOffsetsFilePath = getFilePath( parsedArgs, "list-compressed-offsets" );
+    if ( !checkOutputFileWritable( compressedOffsetsFilePath, parsedArgs["force"].as<bool>() ) ) {
+        return 1;
+    }
 
     const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
+    const auto blockFinderParallelism = parsedArgs["block-finder-parallelism"].as<unsigned int>();
+    const auto bufferSize = parsedArgs["buffer-size"].as<unsigned int>();
 
-    if ( args.fileRanges ) {
-        for ( const auto& range : *args.fileRanges ) {
+    /* Keep the line-range limitation local to ibzip2 so it is easy to remove later. Validate before
+     * parseArguments opens any deduced output file. */
+    if ( parsedArgs.count( "ranges" ) > 0 ) {
+        for ( const auto& range : parseFileRanges( parsedArgs["ranges"].as<std::string>() ) ) {
             if ( range.offsetIsLine || range.sizeIsLine ) {
                 std::cerr << "Line-based ranges are not supported for bzip2. Use byte ranges instead.\n";
                 return 1;
             }
         }
     }
+
+    Arguments args;
+    if ( !parseArguments( args, parsedArgs ) ) {
+        return 1;
+    }
+    if ( args.decoderParallelism == 0 ) {
+        args.decoderParallelism = availablePhysicalCores();
+    }
+
+    /* Parse input and output file specifications. */
+
+    if ( ( parsedArgs.count( "decompress" ) > 0 ) && compress ) {
+        std::cerr << "Only either compression or decompression may be requested!\n";
+        return 1;
+    }
+
+    /* Parse action arguments. */
 
     const auto decode = !compress
                         && ( args.decompress || args.test || args.countBytes || args.countLines
@@ -249,35 +266,13 @@ ibzip2CLI( int argc, char const* const* argv )
                                                 /* warnOnFallback */ !args.quiet );
     }
 
-#ifndef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-    if ( compress ) {
-        std::cerr << "This build does not have libbz2 compression support enabled!\n";
-        return 1;
-    }
-#endif
-
     if ( ( writeOutput || compress ) && !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
-        return 1;
-    }
-
-    const auto bufferSize = parsedArgs["buffer-size"].as<unsigned int>();
-
-    const auto compressedOffsetsFilePath = getFilePath( parsedArgs, "list-compressed-offsets" );
-    if ( !compressedOffsetsFilePath.empty() && fileExists( compressedOffsetsFilePath ) && !args.force ) {
-        std::cerr << "Output file compressed offsets '" << compressedOffsetsFilePath
-                  << "' for offsets already exists! Use --force to overwrite.\n";
         return 1;
     }
 
     /* Actually do things as requested. */
 
     if ( compress ) {
-        const auto level = parsedArgs["level"].as<int>();
-        if ( ( level < 1 ) || ( level > 9 ) ) {
-            std::cerr << "bzip2 compression level must be in the range 1..9!\n";
-            return 1;
-        }
-
     #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
         args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
         const auto outputFileDescriptor = args.outputFile->fd();

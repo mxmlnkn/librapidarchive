@@ -2,11 +2,15 @@
 
 #include <exception>
 #include <filesystem>
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <typeinfo>
+#include <utility>
+#include <vector>
 
 #include <cxxopts.hpp>
 
@@ -18,6 +22,7 @@
 #include <filereader/SinglePass.hpp>
 #include <filereader/Standard.hpp>
 
+#include "Sandbox.hpp"
 #include "thirdparty.hpp"
 
 
@@ -69,9 +74,9 @@ parseInputPath( const cxxopts::ParseResult& parsedArgs )
  *        conditions and with different prefixes, so both are parameters.
  */
 [[nodiscard]] inline std::string
-deduceOutputPath( const std::string&                            inputFilePath,
-                  const std::initializer_list<std::string_view> suffixes,
-                  const bool                                    warnOnFallback )
+deduceOutputPath( const std::string&                   inputFilePath,
+                  const std::vector<std::string_view>& suffixes,
+                  const bool                           warnOnFallback )
 {
     for ( const auto suffix : suffixes ) {
         if ( endsWith( inputFilePath, suffix, /* case sensitive */ false ) ) {
@@ -312,6 +317,8 @@ parseCommonArguments( Arguments& args, const cxxopts::ParseResult& parsedArgs )
     args.writeToStdOut =
         ( parsedArgs.count( "stdout" ) > 0 )
         || ( ( parsedArgs.count( "output" ) > 0 ) && ( parsedArgs["output"].as<std::string>() == "-" ) );
+    /* count() is safe for tools that do not register --compress, so the shared conflict checks can already
+     * run before rapidgzip gains compression support. */
     args.compress = parsedArgs.count( "compress" ) > 0;
     args.decompress = parsedArgs.count( "decompress" ) > 0;
 
