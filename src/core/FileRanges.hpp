@@ -66,7 +66,9 @@ readNumber( const char* const first,
                                      + std::string( first, last ) );
     }
 
-    static const std::vector<std::pair<std::string_view, size_t> > PREFIXES{
+    /* The largest factors do not fit into size_t on 32-bit targets, where they would truncate to zero and
+     * turn the overflow check below into a division by zero. */
+    static const std::vector<std::pair<std::string_view, uint64_t> > PREFIXES{
         { "ki", 1ULL << 10U },  /* Strily speaking neither valid SI or IEC, but I like it for consistency with SI. */
         { "Ki", 1ULL << 10U },
         { "Mi", 1ULL << 20U },
@@ -86,8 +88,8 @@ readNumber( const char* const first,
     const auto* current = skipWhitespaces( result.ptr, last );
     const std::string_view unitString{ current, static_cast<size_t>( std::distance( current, last ) ) };
 
-    size_t longestMatch{ 0 };
-    size_t longestMatchFactor{ 1 };
+    size_t   longestMatch{ 0 };
+    uint64_t longestMatchFactor{ 1 };
     bool longestMatchIsLine{ false };
     for ( const auto suffix : { std::string_view( "B" ), std::string_view( "L" ), std::string_view( "" ) } ) {
         for ( const auto& [prefix, factor] : PREFIXES ) {
@@ -107,6 +109,9 @@ readNumber( const char* const first,
     valueIsLine = longestMatchIsLine;
     if ( longestMatch == 0 ) {
         return result.ptr;
+    }
+    if ( value > std::numeric_limits<size_t>::max() / longestMatchFactor ) {
+        throw std::invalid_argument( "File range value is too large!" );
     }
     value *= longestMatchFactor;
     return current + longestMatch;
