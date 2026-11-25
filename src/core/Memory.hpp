@@ -11,6 +11,11 @@
     #define RAPIDGZIP_HAS_HEAPMIN
 #elif defined(__APPLE__)
     #include <malloc/malloc.h>
+    /* <mach/vm_param.h>, included by <malloc/malloc.h>, defines BYTE_SIZE as a macro, which collides with
+     * rapidgzip::BYTE_SIZE in gzip/definitions.hpp. */
+    #ifdef BYTE_SIZE
+        #undef BYTE_SIZE
+    #endif
     #define RAPIDGZIP_HAS_MALLOC_ZONE_PRESSURE_RELIEF
 #endif
 
