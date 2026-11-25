@@ -27,6 +27,7 @@
     #include <filereader/Standard.hpp>
 #endif
 
+#include "ChecksumVerifier.hpp"
 #include "gzip/adler32.hpp"
 #include "gzip/crc32.hpp"
 #include "gzip/gzip.hpp"
@@ -365,10 +366,10 @@ public:
             out << "[ParallelGzipReader] Time spent:\n";
             out << "    Writing to output         : " << m_writeOutputTime << " s\n";
             out << "    Computing CRC32           : " << m_crc32Time << " s\n";
-            out << "    Number of verified CRC32s : " << m_verifiedCRC32Count << "\n";
-            out << "    Number of verified Adler32s: " << m_verifiedAdler32Count << "\n";
+            out << "    Number of verified CRC32s : " << m_checksumVerifier.verifiedCRC32Count() << "\n";
+            out << "    Number of verified Adler32s: " << m_checksumVerifier.verifiedAdler32Count() << "\n";
             out << "\nChunk Configuration:\n";
-            out << "    CRC32 enabled      : " << m_crc32.enabled() << "\n";
+            out << "    CRC32 enabled      : " << m_checksumVerifier.enabled() << "\n";
             out << "    Window compression : " << ( m_windowCompressionType
                                                     ? toString( *m_windowCompressionType )
                                                     : std::string( "Default" ) ) << "\n";
@@ -623,10 +624,15 @@ public:
             const auto nBytesToDecode = static_cast<size_t>(
                 std::min<uint64_t>( blockSize - offsetInBlock, nBytesToRead - nBytesDecoded ) );
 
-            processGzipStreamSizes( chunkData, decodedOffsetInBytes );
-
             [[maybe_unused]] const auto tCRC32Start = now();
-            processCRC32( *chunkData, decodedOffsetInBytes );
+            std::optional<size_t> firstBlockEncodedOffset;
+            if ( m_checksumVerifier.needsFirstBlockOffset( *chunkData ) && m_blockFinder ) {
+                const auto [offset, errorCode] = m_blockFinder->get( /* block index */ 0, /* timeout */ 0 );
+                if ( offset && ( errorCode == BlockFinder::GetReturnCode::SUCCESS ) ) {
+                    firstBlockEncodedOffset = *offset;
+                }
+            }
+            m_checksumVerifier.processChunk( *chunkData, decodedOffsetInBytes, firstBlockEncodedOffset );
             if ( m_statisticsEnabled ) {
                 m_crc32Time += duration( tCRC32Start );
             }
@@ -692,7 +698,7 @@ public:
             if ( !seekable() ) {
                 throw std::invalid_argument( "Cannot seek backwards with non-seekable input!" );
             }
-            resetChecksumVerificationState( positiveOffset );
+            m_checksumVerifier.resetState( positiveOffset );
             m_atEndOfFile = false;
             m_currentPosition = positiveOffset;
             return positiveOffset;
@@ -706,14 +712,14 @@ public:
         }
 
         if ( blockInfo.contains( positiveOffset ) ) {
-            resetChecksumVerificationState( positiveOffset );
+            m_checksumVerifier.resetState( positiveOffset );
             m_currentPosition = positiveOffset;
             m_atEndOfFile = m_blockMap->finalized() && ( m_currentPosition >= m_blockMap->back().second );
             return tell();
         }
 
         if ( m_blockMap->finalized() ) {
-            resetChecksumVerificationState( positiveOffset );
+            m_checksumVerifier.resetState( positiveOffset );
             m_atEndOfFile = true;
             m_currentPosition = m_blockMap->back().second;
             return tell();
@@ -722,7 +728,7 @@ public:
         /* Jump to furthest known point as performance optimization. Note that even if that is right after
          * the last byte, i.e., offset == size(), then no eofbit is set even in ifstream! In ifstream you
          * can even seek to after the file end with no fail bits being set in my tests! */
-        resetChecksumVerificationState( positiveOffset );
+        m_checksumVerifier.resetState( positiveOffset );
         m_atEndOfFile = false;
         m_currentPosition = blockInfo.decodedOffsetInBytes + blockInfo.decodedSizeInBytes;
         read( -1, nullptr, positiveOffset - tell() );
@@ -879,7 +885,7 @@ public:
     void
     setCRC32Enabled( bool enabled )
     {
-        if ( m_crc32.enabled() == enabled ) {
+        if ( m_checksumVerifier.enabled() == enabled ) {
             return;
         }
         if ( enabled ) {
@@ -889,10 +895,10 @@ public:
             if ( m_chunkFetcher ) {
                 m_chunkFetcher->clearCache();
             }
-            resetChecksumVerificationState( 0 );
+            m_checksumVerifier.resetState( 0 );
         }
 
-        m_crc32.setEnabled( enabled );
+        m_checksumVerifier.setEnabled( enabled );
         applyChunkDataConfiguration();
     }
 
@@ -964,7 +970,7 @@ private:
             throw std::invalid_argument( "May not clear offsets. Construct a new ParallelGzipReader instead!" );
         }
 
-        resetChecksumVerificationState( tell() );
+        m_checksumVerifier.resetState( tell() );
         if ( offsets.size() < 2 ) {
             throw std::invalid_argument( "Block offset map must contain at least one valid block and one EOS block!" );
         }
@@ -1361,14 +1367,14 @@ public:
     void
     setDeflateStreamCRC32s( std::unordered_map<size_t, uint32_t> crc32s )
     {
-        m_deflateStreamCRC32s = std::move( crc32s );
+        m_checksumVerifier.setDeflateStreamCRC32s( std::move( crc32s ) );
     }
 
     void
     addDeflateStreamCRC32( size_t   endOfStreamOffsetInBytes,
                            uint32_t crc32 )
     {
-        m_deflateStreamCRC32s.insert_or_assign( endOfStreamOffsetInBytes, crc32 );
+        m_checksumVerifier.addDeflateStreamCRC32( endOfStreamOffsetInBytes, crc32 );
     }
 
 private:
@@ -1379,7 +1385,7 @@ private:
             return;
         }
 
-        m_chunkConfiguration.crc32Enabled = m_crc32.enabled();
+        m_chunkConfiguration.crc32Enabled = m_checksumVerifier.enabled();
         m_chunkConfiguration.windowCompressionType =
             m_keepIndex ? m_windowCompressionType : std::make_optional( CompressionType::NONE );
         /* Window sparsity only makes sense when keeping the index. */
@@ -1506,233 +1512,6 @@ private:
         blockFinder().setBlockOffsets( std::move( encodedBlockOffsets ) );
     }
 
-    /**
-     * Resetting the checksum state is necessary after seeking or replacing the block map because the data
-     * between the previous and the new position may have been skipped. Reading from offset 0 starts at a
-     * known stream start and can be verified from scratch.
-     */
-    void
-    resetChecksumVerificationState( const size_t position )
-    {
-        m_checksumStateValid = position == 0;
-        m_nextCRC32ChunkOffset = 0;
-        m_crc32.reset();
-        m_adler32.reset();
-        m_lastStreamEndDecodedOffset = position == 0 ? std::optional<size_t>( 0 ) : std::nullopt;
-        m_lastProcessedChecksumChunkOffset = std::numeric_limits<size_t>::max();
-        m_lastProcessedISIZEChunkOffset = std::numeric_limits<size_t>::max();
-    }
-
-    /**
-     * The gzip ISIZE field is a modulo-2^32 copy of the stream's decoded size. GzipChunk only checks it when it
-     * also read the stream header, which is never the case for the first member because its header was consumed
-     * during file type detection, and it cannot check streams spanning multiple chunks. Use the global decoded
-     * offsets here instead, which works independently of chunk splitting and of the decoder used.
-     */
-    void
-    processGzipStreamSizes( const std::shared_ptr<ChunkData>& chunkData,
-                            const size_t                      chunkDecodedOffset )
-    {
-        const auto fileType = chunkData->configuration.fileType;
-        if ( ( fileType != FileType::GZIP ) && ( fileType != FileType::BGZF ) ) {
-            return;
-        }
-
-        /* read() may be called multiple times for the same chunk. Process its footers only once. */
-        if ( m_lastProcessedISIZEChunkOffset == chunkData->encodedOffsetInBits ) {
-            return;
-        }
-
-        /* Do not update the member before all footers have been verified, so that a caller retrying after a
-         * verification error processes this chunk again instead of silently skipping it. */
-        auto lastStreamEndDecodedOffset = m_lastStreamEndDecodedOffset;
-        for ( size_t i = 0; i < chunkData->footers.size(); ++i ) {
-            const auto& footer = chunkData->footers[i];
-            const auto streamEnd = chunkDecodedOffset + footer.blockBoundary.decodedOffset;
-
-            std::optional<size_t> streamStart;
-            if ( i == 0 ) {
-                /* May be unknown after seeking into the middle of a stream. A chunk at decoded offset 0
-                 * and every BGZF block start are known stream starts. */
-                if ( lastStreamEndDecodedOffset ) {
-                    streamStart = lastStreamEndDecodedOffset;
-                } else if ( ( chunkDecodedOffset == 0 )
-                            || ( ( ( chunkDecodedOffset + footer.blockBoundary.decodedOffset ) < ( 1ULL << 32U ) )
-                                 && ( footer.blockBoundary.decodedOffset == footer.gzipFooter.uncompressedSize ) ) ) {
-                    streamStart = chunkDecodedOffset;
-                }
-            } else {
-                streamStart = chunkDecodedOffset + chunkData->footers[i - 1].blockBoundary.decodedOffset;
-            }
-
-            if ( streamStart ) {
-                const auto streamSize = streamEnd - *streamStart;
-                /* ISIZE is stored modulo 2^32. */
-                if ( static_cast<uint32_t>( streamSize ) != footer.gzipFooter.uncompressedSize ) {
-                    std::stringstream message;
-                    message << "Mismatching size (" << streamSize << " <-> footer: "
-                            << footer.gzipFooter.uncompressedSize << ") for gzip stream!";
-                    throw std::runtime_error( std::move( message ).str() );
-                }
-            }
-            lastStreamEndDecodedOffset = streamEnd;
-        }
-
-        m_lastStreamEndDecodedOffset = lastStreamEndDecodedOffset;
-        m_lastProcessedISIZEChunkOffset = chunkData->encodedOffsetInBits;
-    }
-
-    static void
-    updateAdler32( Adler32Calculator& adler32,
-                   const ChunkData&   chunkData,
-                   const size_t       offset,
-                   const size_t       size )
-    {
-        for ( auto it = deflate::DecodedData::Iterator( chunkData, offset, size ); it; ++it ) {
-            const auto& [buffer, bufferSize] = *it;
-            adler32.update( buffer, bufferSize );
-        }
-    }
-
-    void
-    processCRC32( const ChunkData& chunkData,
-                  const size_t     chunkDecodedOffset )
-    {
-        if ( !m_crc32.enabled() || chunkData.crc32s.empty() ) {
-            return;
-        }
-
-        const auto chunkStart = chunkData.encodedOffsetInBits;
-        const auto chunkEnd = chunkStart + chunkData.encodedSizeInBits;
-
-        /* read() may be called multiple times for the same chunk. The running checksum must only be updated
-         * once per chunk, otherwise its state and the frontier become inconsistent. */
-        if ( m_lastProcessedChecksumChunkOffset == chunkStart ) {
-            return;
-        }
-
-        /* Use local copies and commit them only after all verifications succeeded. Otherwise, a caller retrying
-         * after a checksum error would either double-count the chunk or skip verification entirely. */
-        auto crc32 = m_crc32;
-        auto adler32 = m_adler32;
-        auto checksumStateValid = m_checksumStateValid;
-        auto nextCRC32ChunkOffset = m_nextCRC32ChunkOffset;
-        auto verifiedCRC32Count = m_verifiedCRC32Count;
-        auto verifiedAdler32Count = m_verifiedAdler32Count;
-
-        if ( ( nextCRC32ChunkOffset == 0 ) && m_blockFinder ) {
-            const auto [offset, errorCode] = m_blockFinder->get( /* block index */ 0, /* timeout */ 0 );
-            if ( offset && ( errorCode == BlockFinder::GetReturnCode::SUCCESS ) ) {
-                nextCRC32ChunkOffset = *offset;
-            }
-        }
-
-        /* As long as CRC32 is enabled, this should not happen and we filtered above for !m_crc32.enabled(). */
-        if ( chunkData.crc32s.size() != chunkData.footers.size() + 1 ) {
-            throw std::logic_error( "Fewer CRC32s in chunk than expected based on the gzip footers!" );
-        }
-
-        const auto totalCRC32StreamSize = std::accumulate(
-            chunkData.crc32s.begin(), chunkData.crc32s.end(), size_t( 0 ),
-            [] ( size_t sum, const auto& calculator ) { return sum + calculator.streamSize(); } );
-        if ( totalCRC32StreamSize != chunkData.decodedSizeInBytes ) {
-            std::stringstream message;
-            message << "CRC32 computation stream size (" << formatBytes( totalCRC32StreamSize ) << ") differs from "
-                    << "chunk size: " << formatBytes( chunkData.decodedSizeInBytes ) << "!\n"
-                    << "Please open an issue or disable integrated CRC32 verification as a quick workaround.";
-            throw std::logic_error( std::move( message ).str() );
-        }
-
-        const auto fileType = chunkData.configuration.fileType;
-        const auto isZlib = fileType == FileType::ZLIB;
-        const auto isContinuation = checksumStateValid && ( nextCRC32ChunkOffset == chunkStart );
-        /* A chunk at the beginning of the file starts at a known stream start. */
-        const auto startsAtStreamStart = isContinuation || ( chunkDecodedOffset == 0 );
-
-        if ( isContinuation ) {
-            crc32.append( chunkData.crc32s.front() );
-        } else {
-            /* Start over from this chunk's first segment. It may be a partial stream and is therefore only
-             * verified below if it is known to be complete. */
-            crc32 = chunkData.crc32s.front();
-        }
-
-        const auto firstFooterOffset =
-            chunkData.footers.empty() ? chunkData.decodedSizeInBytes
-                                      : chunkData.footers.front().blockBoundary.decodedOffset;
-        if ( isZlib ) {
-            if ( !isContinuation ) {
-                adler32.reset();
-            }
-            updateAdler32( adler32, chunkData, 0, firstFooterOffset );
-        }
-
-        bool canVerifyNextStream = startsAtStreamStart;
-        size_t previousFooterOffset = 0;
-        for ( size_t i = 0; i < chunkData.footers.size(); ++i ) {
-            const auto& footer = chunkData.footers[i];
-            const auto footerByteOffset = ceilDiv( footer.blockBoundary.encodedOffset, CHAR_BIT );
-
-            if ( isZlib && ( i > 0 ) ) {
-                adler32.reset();
-                updateAdler32( adler32, chunkData, previousFooterOffset,
-                               footer.blockBoundary.decodedOffset - previousFooterOffset );
-            }
-
-            /* For the first footer in an out-of-sync chunk, the stream may have started before this chunk.
-             * For gzip, its ISIZE tells us whether the stream started exactly at the chunk start. */
-            const auto streamFullyContained =
-                canVerifyNextStream || ( i > 0 )
-                || ( hasCRC32( fileType )
-                     && ( ( chunkDecodedOffset + footer.blockBoundary.decodedOffset ) < ( 1ULL << 32U ) )
-                     && ( footer.blockBoundary.decodedOffset == footer.gzipFooter.uncompressedSize ) );
-
-            if ( streamFullyContained ) {
-                bool verified = false;
-                if ( const auto externalCRC32 = m_deflateStreamCRC32s.find( footerByteOffset );
-                     externalCRC32 != m_deflateStreamCRC32s.end() )
-                {
-                    crc32.verify( externalCRC32->second );
-                    verified = true;
-                }
-                /* An external CRC does not replace a gzip footer CRC if both are present. */
-                if ( hasCRC32( fileType ) ) {
-                    crc32.verify( footer.gzipFooter.crc32 );
-                    verified = true;
-                }
-                if ( verified ) {
-                    verifiedCRC32Count++;
-                }
-                if ( isZlib ) {
-                    adler32.verify( footer.zlibFooter.adler32 );
-                    verifiedAdler32Count++;
-                }
-            }
-
-            previousFooterOffset = footer.blockBoundary.decodedOffset;
-            crc32 = chunkData.crc32s.at( i + 1 );
-            canVerifyNextStream = true;
-        }
-
-        if ( isZlib && !chunkData.footers.empty() ) {
-            adler32.reset();
-            updateAdler32( adler32, chunkData, previousFooterOffset,
-                           chunkData.decodedSizeInBytes - previousFooterOffset );
-        }
-
-        nextCRC32ChunkOffset = chunkEnd;
-        /* After a footer, the trailing stream starts within this chunk and is verifiable in later chunks.
-         * If there was no footer, only a known stream start makes the trailing stream verifiable. */
-        checksumStateValid = canVerifyNextStream;
-
-        m_crc32 = crc32;
-        m_adler32 = adler32;
-        m_verifiedCRC32Count = verifiedCRC32Count;
-        m_verifiedAdler32Count = verifiedAdler32Count;
-        m_nextCRC32ChunkOffset = nextCRC32ChunkOffset;
-        m_checksumStateValid = checksumStateValid;
-        m_lastProcessedChecksumChunkOffset = chunkStart;
-    }
 
 private:
     uint64_t m_chunkSizeInBytes{ 4_Mi };
@@ -1748,8 +1527,6 @@ private:
     bool m_showProfileOnDestruction{ false };
     double m_writeOutputTime{ 0 };
     double m_crc32Time{ 0 };
-    uint64_t m_verifiedCRC32Count{ 0 };
-    uint64_t m_verifiedAdler32Count{ 0 };
 
     size_t const m_fetcherParallelization;
 
@@ -1781,16 +1558,7 @@ private:
     std::vector<NewlineOffset> m_newlineOffsets;
     std::optional<char> m_newlineCharacter;
 
-    CRC32Calculator m_crc32;
-    Adler32Calculator m_adler32;
-    /* Whether the running checksums still cover all data since the last known stream start. */
-    bool m_checksumStateValid{ true };
-    size_t m_lastProcessedChecksumChunkOffset{ std::numeric_limits<size_t>::max() };
-    /* Global decoded offset at which the last seen gzip stream ended. Unknown after seeking into a stream. */
-    std::optional<size_t> m_lastStreamEndDecodedOffset{ 0 };
-    size_t m_lastProcessedISIZEChunkOffset{ std::numeric_limits<size_t>::max() };
-    uint64_t m_nextCRC32ChunkOffset{ 0 };
-    std::unordered_map<size_t, uint32_t> m_deflateStreamCRC32s;
+    ChecksumVerifier m_checksumVerifier;
 
     bool m_indexIsImported{ false };
 };

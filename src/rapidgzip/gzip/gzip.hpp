@@ -30,6 +30,15 @@ enum class FileType
 };
 
 
+/** The integrity checksum carried by a container format's stream footer. */
+enum class ChecksumType
+{
+    NONE,
+    CRC32,
+    ADLER32,
+};
+
+
 [[nodiscard]] inline const char*
 toString( FileType fileType )
 {
@@ -52,8 +61,8 @@ toString( FileType fileType )
 }
 
 
-[[nodiscard]] inline bool
-hasCRC32( FileType fileType )
+[[nodiscard]] constexpr ChecksumType
+checksumType( FileType fileType )
 {
     switch ( fileType )
     {
@@ -62,16 +71,41 @@ hasCRC32( FileType fileType )
         /* > For example, the CRC32 used in Gzip and Bzip2 use the same polynomial,
          * > but Gzip employs reversed bit ordering, while Bzip2 does not. */
     case FileType::DEFLATE:
+        return ChecksumType::NONE;
     case FileType::ZLIB:
-        return false;
+        return ChecksumType::ADLER32;
     case FileType::BGZF:
     case FileType::GZIP:
-        return true;
+        return ChecksumType::CRC32;
     }
 
-    std::stringstream message;
-    message << "Invalid file type: " << static_cast<int>( fileType );
-    throw std::invalid_argument( std::move( message ).str() );
+    throw std::invalid_argument( "Invalid file type!" );
+}
+
+
+[[nodiscard]] constexpr bool
+hasCRC32( FileType fileType )
+{
+    return checksumType( fileType ) == ChecksumType::CRC32;
+}
+
+
+[[nodiscard]] constexpr bool
+hasUncompressedSizeField( FileType fileType )
+{
+    switch ( fileType )
+    {
+    case FileType::GZIP:
+    case FileType::BGZF:
+        return true;
+    case FileType::NONE:
+    case FileType::ZLIB:
+    case FileType::BZIP2:
+    case FileType::DEFLATE:
+        return false;
+    }
+
+    throw std::invalid_argument( "Invalid file type!" );
 }
 
 
