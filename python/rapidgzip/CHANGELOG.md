@@ -1,3 +1,45 @@
+# Version 0.16.3 built on 2026-11-25
+
+## API
+
+ - Default to the smaller gztool index format for exported indexes in the Python API and the CLI. Import
+   auto-detects the format, and `indexed_gzip` or `gztool-with-lines` can still be requested explicitly.
+
+## Fixes
+
+ - Undefine the macOS SDK's `BYTE_SIZE` macro so that including `ParallelGzipReader.hpp` first works on macOS.
+ - Handle overlong gzip header fields without desynchronizing, skip very long zero-terminated strings without
+   aborting, and bound the memory captured for header metadata.
+ - Forward the underlying gzip header error instead of reporting only a generic file-type detection error.
+ - Escape non-printable characters when the analyzer prints gzip header fields.
+ - Require the first gzip index checkpoint to start at offset 0 in `ParallelGzipReader` and write the same gztool
+   checkpoints that are counted.
+ - Compute the zlib window size without overflowing `uint16_t`.
+ - Accept raw DEFLATE streams with seven padding bits and reserve room for two extra literals in a multi-symbol group.
+ - Guard the ISA-L Huffman decoder against invalid code lengths.
+ - Align the gzip Huffman caches and vectorized lookup tables to 64 bytes.
+ - Avoid a deadlock when re-importing an index and allow line gathering without an index in `ParallelGzipReader`.
+ - Handle empty confirmed-offset lists in `GzipBlockFinder` and reject empty block offsets in `BlockMap`.
+ - Harden `SharedFileReader` lifetime and propagate exceptions from the block finder and single-pass reader threads
+   instead of terminating the process.
+ - Avoid a lost reader-thread wakeup in `SinglePassFileReader`.
+ - Release the GIL while joining the Python block finder thread.
+ - Retry interrupted `writeAllToFd` writes and reject zero-length progress.
+ - Skip bytes correctly for null-buffer `BitReader` reads and handle short reads in the `BitStringFinder` moving window.
+ - Reset the cache eviction strategy in `clear()` and avoid an infinite timeout sentinel that `-ffast-math` breaks.
+ - Use binary mode for stdout and stdin on Windows and treat `-` as stdin or stdout in the rapidgzip CLI.
+ - Write rapidgzip counts to stderr when decompressing to stdout.
+ - Fix Python file-object reference leaks, preserve the original exception message, and make `PythonFileReader`
+   construction and close exception-safe.
+ - Report conversion errors and validate the parallelization argument in the rapidgzip Python wrapper.
+ - Propagate buffer acquisition failures from Python file objects.
+ - Support non-seekable Python file objects without `fileno()`, keep caller-owned file descriptors open in
+   `determineFileType`, and do not abort when a `RapidgzipFile` is still open at interpreter shutdown.
+ - Reject file-range unit multiplications that overflow, including on 32-bit targets.
+ - Let `stat`/`fstat` report file sizes above 2 GiB on 32-bit builds.
+ - Disable ISA-L on macOS and fix the MSVC C++20 condition.
+
+
 # Version 0.16.2 built on 2026-11-07
 
 ## Features
