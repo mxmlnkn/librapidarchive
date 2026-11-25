@@ -76,12 +76,12 @@ public:
     resetState( const size_t position )
     {
         m_checksumStateValid = position == 0;
-        m_nextCRC32ChunkOffset = 0;
+        m_nextChunkOffset = 0;
         m_crc32.reset();
         m_adler32.reset();
         m_lastStreamEndDecodedOffset = position == 0 ? std::optional<size_t>( 0 ) : std::nullopt;
-        m_lastProcessedChecksumChunkOffset = std::numeric_limits<size_t>::max();
-        m_lastProcessedISIZEChunkOffset = std::numeric_limits<size_t>::max();
+        m_lastProcessedChecksumChunkOffset = std::numeric_limits<uint64_t>::max();
+        m_lastProcessedSizeChunkOffset = std::numeric_limits<uint64_t>::max();
     }
 
     /**
@@ -91,7 +91,7 @@ public:
     [[nodiscard]] bool
     needsFirstBlockOffset( const ChunkData& chunkData ) const noexcept
     {
-        return enabled() && ( m_nextCRC32ChunkOffset == 0 ) && !chunkData.crc32s.empty()
+        return enabled() && ( m_nextChunkOffset == 0 ) && !chunkData.crc32s.empty()
                && ( m_lastProcessedChecksumChunkOffset != chunkData.encodedOffsetInBits );
     }
 
@@ -124,12 +124,12 @@ public:
         auto crc32 = m_crc32;
         auto adler32 = m_adler32;
         auto checksumStateValid = m_checksumStateValid;
-        auto nextCRC32ChunkOffset = m_nextCRC32ChunkOffset;
+        auto nextChunkOffset = m_nextChunkOffset;
         auto verifiedCRC32Count = m_verifiedCRC32Count;
         auto verifiedAdler32Count = m_verifiedAdler32Count;
 
-        if ( ( nextCRC32ChunkOffset == 0 ) && firstBlockEncodedOffset ) {
-            nextCRC32ChunkOffset = *firstBlockEncodedOffset;
+        if ( ( nextChunkOffset == 0 ) && firstBlockEncodedOffset ) {
+            nextChunkOffset = *firstBlockEncodedOffset;
         }
 
         /* As long as CRC32 is enabled, this should not happen and we filtered above for !enabled(). */
@@ -149,7 +149,7 @@ public:
         }
 
         const auto streamChecksum = checksumType( chunkData.configuration.fileType );
-        const auto isContinuation = checksumStateValid && ( nextCRC32ChunkOffset == chunkStart );
+        const auto isContinuation = checksumStateValid && ( nextChunkOffset == chunkStart );
         /* A chunk at the beginning of the file starts at a known stream start. */
         const auto startsAtStreamStart = isContinuation || ( chunkDecodedOffset == 0 );
 
@@ -224,7 +224,7 @@ public:
                            chunkData.decodedSizeInBytes - previousFooterOffset );
         }
 
-        nextCRC32ChunkOffset = chunkEnd;
+        nextChunkOffset = chunkEnd;
         /* After a footer, the trailing stream starts within this chunk and is verifiable in later chunks.
          * If there was no footer, only a known stream start makes the trailing stream verifiable. */
         checksumStateValid = canVerifyNextStream;
@@ -233,7 +233,7 @@ public:
         m_adler32 = adler32;
         m_verifiedCRC32Count = verifiedCRC32Count;
         m_verifiedAdler32Count = verifiedAdler32Count;
-        m_nextCRC32ChunkOffset = nextCRC32ChunkOffset;
+        m_nextChunkOffset = nextChunkOffset;
         m_checksumStateValid = checksumStateValid;
         m_lastProcessedChecksumChunkOffset = chunkStart;
     }
@@ -262,7 +262,7 @@ private:
                         const size_t     chunkDecodedOffset )
     {
         /* read() may be called multiple times for the same chunk. Process its footers only once. */
-        if ( m_lastProcessedISIZEChunkOffset == chunkData.encodedOffsetInBits ) {
+        if ( m_lastProcessedSizeChunkOffset == chunkData.encodedOffsetInBits ) {
             return;
         }
 
@@ -302,7 +302,7 @@ private:
         }
 
         m_lastStreamEndDecodedOffset = lastStreamEndDecodedOffset;
-        m_lastProcessedISIZEChunkOffset = chunkData.encodedOffsetInBits;
+        m_lastProcessedSizeChunkOffset = chunkData.encodedOffsetInBits;
     }
 
 private:
@@ -313,8 +313,8 @@ private:
     size_t m_lastProcessedChecksumChunkOffset{ std::numeric_limits<size_t>::max() };
     /* Global decoded offset at which the last seen gzip stream ended. Unknown after seeking into a stream. */
     std::optional<size_t> m_lastStreamEndDecodedOffset{ 0 };
-    size_t m_lastProcessedISIZEChunkOffset{ std::numeric_limits<size_t>::max() };
-    uint64_t m_nextCRC32ChunkOffset{ 0 };
+    uint64_t m_lastProcessedSizeChunkOffset{ std::numeric_limits<uint64_t>::max() };
+    uint64_t m_nextChunkOffset{ 0 };
     uint64_t m_verifiedCRC32Count{ 0 };
     uint64_t m_verifiedAdler32Count{ 0 };
     std::unordered_map<size_t, uint32_t> m_deflateStreamCRC32s;
