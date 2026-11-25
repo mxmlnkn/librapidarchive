@@ -200,7 +200,15 @@ getFilePath( cxxopts::ParseResult const& parsedArgs,
 }
 
 
-[[nodiscard]] std::pair<std::string, UniqueFileReader>
+struct InputFileSpecification
+{
+    std::string path;
+    UniqueFileReader file;
+    bool wasSeekable{ false };
+};
+
+
+[[nodiscard]] InputFileSpecification
 parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
 {
     const auto inputFilePathOptional = parseInputPath( parsedArgs );
@@ -210,6 +218,7 @@ parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
     const auto inputFilePath = *inputFilePathOptional;
 
     auto inputFile = openFileOrStdin( inputFilePath );
+    const auto wasSeekable = inputFile->seekable();
     const auto& ioReadMethod = parsedArgs["io-read-method"].as<std::string>();
     if ( ioReadMethod == "sequential" ) {
         inputFile = std::make_unique<SinglePassFileReader>( std::move( inputFile ) );
@@ -219,7 +228,7 @@ parseInputFileSpecification( const cxxopts::ParseResult& parsedArgs )
         inputFile = std::move( sharedFile );
     }
 
-    return { inputFilePath, std::move( inputFile ) };
+    return { inputFilePath, std::move( inputFile ), wasSeekable };
 }
 
 
@@ -268,13 +277,14 @@ struct Arguments
     unsigned int decoderParallelism{ 0 };
     std::optional<std::vector<FileRange> > fileRanges;
 
-    /* Resolved paths. An empty input path means stdin, an empty output path means stdout. */
+    /* Resolved paths. An empty input path means stdin, an empty output path means stdout.
+     * Engaged index paths mean the option was requested. An engaged empty indexSavePath means stdout. */
     std::string inputFilePath;
     std::string outputFilePath;
-    std::string indexLoadPath;
-    std::string indexSavePath;
+    std::optional<std::string> indexSavePath;
 
     UniqueFileReader inputFile;
+    bool inputWasSeekable{ false };
     std::unique_ptr<OutputFile> outputFile;
     std::unique_ptr<OutputFile> stdoutFile;
     UniqueFileReader indexLoadFile;
@@ -329,11 +339,14 @@ parseArguments( Arguments&                  args,
 
     /* Parse file paths. */
 
-    std::tie( args.inputFilePath, args.inputFile ) = parseInputFileSpecification( parsedArgs );
-    if ( !args.inputFile ) {
-        std::cerr << "Could not open input file: " << args.inputFilePath << "!\n";
+    auto input = parseInputFileSpecification( parsedArgs );
+    if ( !input.file ) {
+        std::cerr << "Could not open input file: " << input.path << "!\n";
         return false;
     }
+    args.inputFilePath = std::move( input.path );
+    args.inputFile = std::move( input.file );
+    args.inputWasSeekable = input.wasSeekable;
 
     args.outputFilePath = getFilePath( parsedArgs, "output" );
     if ( !checkOutputFileWritable( args.outputFilePath, args.force ) ) {
@@ -342,25 +355,27 @@ parseArguments( Arguments&                  args,
 
     /* --import-index */
 
-    args.indexLoadPath = parsedArgs.count( "import-index" ) > 0
-                         ? parsedArgs["import-index"].as<std::string>()
-                         : std::string();
-    if ( !args.indexLoadPath.empty() && !fileExists( args.indexLoadPath ) ) {
-        std::cerr << "The index to import was not found: " << args.indexLoadPath << "\n";
-        return 1;
-    }
-    if ( !args.indexLoadPath.empty() && args.indexSavePath.empty() && ( args.decoderParallelism == 1 )
-         && !args.quiet ) {
-        std::cerr << "[Warning] The index only has an effect for parallel decoding and index exporting.\n";
+    if ( parsedArgs.count( "import-index" ) > 0 ) {
+        const auto path = parsedArgs["import-index"].as<std::string>();
+        if ( !fileExists( path ) ) {
+            std::cerr << "The index to import was not found: " << path << "\n";
+            return false;
+        }
+        args.indexLoadFile = std::make_unique<StandardFileReader>( path );
     }
 
     /* --export-index */
 
-    args.indexSavePath = parsedArgs.count( "export-index" ) > 0
-                         ? getFilePath( parsedArgs, "export-index" )
-                         : std::string();
-    if ( !checkOutputFileWritable( args.indexSavePath, args.force ) ) {
-        return false;
+    if ( parsedArgs.count( "export-index" ) > 0 ) {
+        args.indexSavePath = getFilePath( parsedArgs, "export-index" );
+        if ( !checkOutputFileWritable( *args.indexSavePath, args.force ) ) {
+            return false;
+        }
+        args.indexSaveFile.emplace( *args.indexSavePath );
+    }
+
+    if ( args.indexLoadFile && !args.indexSavePath && ( args.decoderParallelism == 1 ) && !args.quiet ) {
+        std::cerr << "[Warning] The index only has an effect for parallel decoding and index exporting.\n";
     }
 
     return true;

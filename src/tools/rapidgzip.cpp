@@ -154,33 +154,24 @@ template<typename ChunkData,
          typename ReadFunctor = std::function<size_t( std::unique_ptr<rapidgzip::ParallelGzipReader<ChunkData> >& )> >
 [[nodiscard]] DecompressErrorCode
 decompressParallel( RapidgzipArguments& args,
-                    UniqueFileReader    inputFile,
                     const ReadFunctor&  readFunctor )
 {
     using Reader = rapidgzip::ParallelGzipReader<ChunkData>;
 
     /* Open all files before the decoder starts so that a sandbox can deny any later path access. */
-    if ( !args.indexLoadPath.empty() ) {
-        args.indexLoadFile = std::make_unique<StandardFileReader>( args.indexLoadPath );
-    }
-    if ( !args.indexSavePath.empty() ) {
-        args.indexSaveFile.emplace( args.indexSavePath );
-    }
-
     if ( args.sandbox ) {
         sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
     }
 
-    auto reader = std::make_unique<Reader>( std::move( inputFile ), args.decoderParallelism, args.chunkSize );
+    auto reader = std::make_unique<Reader>( std::move( args.inputFile ), args.decoderParallelism, args.chunkSize );
 
     const auto gatherLineOffsets =
-        args.gatherLineOffsets
-        || ( !args.indexSavePath.empty() && ( args.indexFormat == IndexFormat::GZTOOL_WITH_LINES ) );
+        args.gatherLineOffsets || ( args.indexSaveFile && ( args.indexFormat == IndexFormat::GZTOOL_WITH_LINES ) );
 
     reader->setStatisticsEnabled( args.verbose );
     reader->setShowProfileOnDestruction( args.verbose );
     reader->setCRC32Enabled( args.crc32Enabled );
-    reader->setKeepIndex( !args.indexSavePath.empty() || !args.indexLoadPath.empty() || args.keepIndex );
+    reader->setKeepIndex( args.indexSaveFile || args.indexLoadFile || args.keepIndex );
     reader->setWindowSparsity( args.windowSparsity );
     reader->setNewlineCharacter( gatherLineOffsets ? std::make_optional( '\n' ) : std::nullopt );
     if ( ( args.indexFormat == IndexFormat::GZTOOL ) || ( args.indexFormat == IndexFormat::GZTOOL_WITH_LINES ) ) {
@@ -188,10 +179,10 @@ decompressParallel( RapidgzipArguments& args,
         reader->setWindowCompressionType( CompressionType::ZLIB );
     }
 
+    const auto hadImportedIndex = static_cast<bool>( args.indexLoadFile );
     if ( args.indexLoadFile ) {
         reader->importIndex( std::move( args.indexLoadFile ) );
-
-        if ( args.verbose && ( !args.indexSavePath.empty() || !args.indexLoadPath.empty() ) ) {
+        if ( args.verbose ) {
             printIndexAnalytics( reader );
         }
     }
@@ -226,7 +217,7 @@ decompressParallel( RapidgzipArguments& args,
         args.indexSaveFile->truncateToWrittenSize();
     }
 
-    if ( args.verbose && args.indexLoadPath.empty() && !args.indexSavePath.empty() ) {
+    if ( args.verbose && !hadImportedIndex && args.indexSaveFile ) {
         printIndexAnalytics( reader );
     }
 
@@ -392,7 +383,7 @@ rapidgzipCLI( int                  argc,
             throw std::invalid_argument( "Invalid index format string: " + indexFormat );
         }
 
-        if ( args.indexSavePath.empty() && !args.quiet ) {
+        if ( !args.indexSaveFile && !args.quiet ) {
             std::cerr << "[Warning] The index format has no effect without --export-index!\n";
         }
     }
@@ -409,7 +400,7 @@ rapidgzipCLI( int                  argc,
 
     /* Check that there is at least one actionable request. */
 
-    if ( !args.decompress && !args.countBytes && !args.countLines && args.indexSavePath.empty() ) {
+    if ( !args.decompress && !args.countBytes && !args.countLines && !args.indexSaveFile ) {
         std::cerr << "No suitable arguments were given. Please refer to the help!\n\n";
         printRapidgzipHelp( options );
         return 1;
@@ -510,13 +501,13 @@ rapidgzipCLI( int                  argc,
 
     auto errorCode = DecompressErrorCode::SUCCESS;
     const auto hasOutputFiles = ( outputFileDescriptor != -1 ) || ( stdoutFileDescriptor != -1 );
-    if ( args.indexSavePath.empty() && args.countBytes && !args.countLines && !args.decompress && !hasOutputFiles ) {
+    if ( !args.indexSaveFile && args.countBytes && !args.countLines && !args.decompress && !hasOutputFiles ) {
         /* Need to do nothing with the chunks because decompressParallel returns the decompressed size.
          * Note that we use rapidgzip::ChunkDataCounter to speed up decompression. Therefore an index
          * will not be created and there also will be no checksum verification! */
         args.crc32Enabled = false;
         errorCode = decompressParallel<rapidgzip::ChunkDataCounter>(
-            args, std::move( args.inputFile ), [&totalBytesRead] ( const auto& reader ) {
+            args, [&totalBytesRead] ( const auto& reader ) {
                 totalBytesRead = reader->seek( 0, SEEK_END );
             } );
     } else {
@@ -594,7 +585,7 @@ rapidgzipCLI( int                  argc,
             };
 
         errorCode = decompressParallel<rapidgzip::ChunkData>(
-            args, std::move( args.inputFile ), [&] ( const auto& reader ) {
+            args, [&] ( const auto& reader ) {
                 if ( !args.fileRanges ) {
                     if ( !hasOutputFiles && args.countLines && !reader->newlineOffsets().empty() ) {
                         const auto& newlineOffset = reader->newlineOffsets().back();

@@ -219,7 +219,6 @@ ibzip2CLI( int argc, char const* const* argv )
     /* Parse action arguments. */
 
     const auto listCompressedOffsets = parsedArgs.count( "list-compressed-offsets" ) > 0;
-    const auto exportIndexRequested = parsedArgs.count( "export-index" ) > 0;
 
     if ( args.fileRanges ) {
         for ( const auto& range : *args.fileRanges ) {
@@ -232,7 +231,7 @@ ibzip2CLI( int argc, char const* const* argv )
 
     const auto decode = !compress
                         && ( args.decompress || args.test || args.countBytes || args.countLines
-                             || args.fileRanges.has_value() || exportIndexRequested );
+                             || args.fileRanges || args.indexSavePath );
     /* --test only implies discarding the result when no explicit output was requested. With -c or -o, the
      * data is still written while it is verified, matching rapidgzip and the usual CLI expectation.
      * Do not special-case /dev/null: the write path is intentionally kept identical to any other output so
@@ -280,11 +279,6 @@ ibzip2CLI( int argc, char const* const* argv )
         }
 
     #ifdef LIBRAPIDARCHIVE_WITH_BZIP2_COMPRESSION
-        auto inputFile = openFileOrStdin( args.inputFilePath );
-        if ( !inputFile ) {
-            std::cerr << "Could not open input file: " << args.inputFilePath << "!\n";
-            return 1;
-        }
         args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
         const auto outputFileDescriptor = args.outputFile->fd();
 
@@ -299,8 +293,8 @@ ibzip2CLI( int argc, char const* const* argv )
             std::cerr << " with " << args.decoderParallelism << " worker(s), level " << level << "\n";
         }
 
-        if ( exportIndexRequested ) {
-            args.indexSaveFile.emplace( args.indexSavePath, args.outputFile->writingToStdout() );
+        if ( args.indexSavePath ) {
+            args.indexSaveFile.emplace( *args.indexSavePath, args.outputFile->writingToStdout() );
         }
         const auto writeBlockOffset =
             [&args] ( const uint64_t compressedOffset, const uint64_t decodedOffset )
@@ -311,8 +305,9 @@ ibzip2CLI( int argc, char const* const* argv )
                     compressedOffset, decodedOffset );
             };
         const std::function<void( uint64_t, uint64_t )> blockOffsetCallback =
-            args.indexSaveFile ? std::function<void( uint64_t, uint64_t )>( writeBlockOffset )
-                            : std::function<void( uint64_t, uint64_t )>();
+            args.indexSaveFile
+            ? std::function<void( uint64_t, uint64_t )>( writeBlockOffset )
+            : std::function<void( uint64_t, uint64_t )>();
 
         if ( args.sandbox ) {
             rapidgzip::sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
@@ -321,7 +316,7 @@ ibzip2CLI( int argc, char const* const* argv )
         try {
             const auto tCompressionStart = now();
             const auto result = indexed_bzip2::compressBzip2Parallel(
-                *inputFile, outputFileDescriptor, level, args.decoderParallelism, blockOffsetCallback );
+                *args.inputFile, outputFileDescriptor, level, args.decoderParallelism, blockOffsetCallback );
             const auto compressionDuration = duration( tCompressionStart );
             if ( args.indexSaveFile ) {
                 args.indexSaveFile->truncateToWrittenSize();
@@ -353,8 +348,6 @@ ibzip2CLI( int argc, char const* const* argv )
                       << args.decoderParallelism << " threads\n";
         }
 
-        args.inputFile = openFileOrStdin( args.inputFilePath );
-
         if ( writeOutput ) {
             args.outputFile = std::make_unique<OutputFile>( args.outputFilePath );
         }
@@ -364,17 +357,13 @@ ibzip2CLI( int argc, char const* const* argv )
         auto& out = writeToStdErr ? std::cerr : std::cout;
 
         std::optional<OutputFile> compressedOffsetsFile;
-        if ( exportIndexRequested ) {
-            args.indexSaveFile.emplace( args.indexSavePath, writeToStdErr );
+        if ( args.indexSavePath ) {
+            args.indexSaveFile.emplace( *args.indexSavePath, writeToStdErr );
         }
         if ( listCompressedOffsets ) {
             compressedOffsetsFile.emplace( compressedOffsetsFilePath, writeToStdErr );
         }
         const auto offsetOutputRequested = args.indexSaveFile.has_value() || compressedOffsetsFile.has_value();
-
-        if ( !args.indexLoadPath.empty() ) {
-            args.indexLoadFile = std::make_unique<StandardFileReader>( args.indexLoadPath );
-        }
 
         if ( args.sandbox ) {
             rapidgzip::sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
@@ -548,17 +537,12 @@ ibzip2CLI( int argc, char const* const* argv )
         /* Open the output before starting any finder threads so that a sandbox can deny later path access. */
         OutputFile output( compressedOffsetsFilePath );
 
-        auto inputFile = openFileOrStdin( args.inputFilePath );
-        if ( !inputFile ) {
-            std::cerr << "Could not open input file: " << args.inputFilePath << "!\n";
-            return 1;
-        }
-        if ( !inputFile->seekable() ) {
+        if ( !args.inputWasSeekable ) {
             std::cerr << "Listing compressed offsets requires seekable input. "
                          "Spool non-seekable input to a file first.\n";
             return 1;
         }
-        auto sharedInputFile = ensureSharedFileReader( std::move( inputFile ) );
+        auto sharedInputFile = ensureSharedFileReader( std::move( args.inputFile ) );
 
         if ( args.sandbox ) {
             sandbox::installIfEnabled( { {}, args.verbose, args.quiet } );
