@@ -158,6 +158,13 @@ def createStripedCompressedFile(sizeInBytes, compressionLevel, encoder, sequence
     return writeCompressedFile(data, compressionLevel=compressionLevel, encoder=encoder)
 
 
+def testArtifactName(parameters):
+    return (
+        f"failed-{parameters.size}-{parameters.encoder}-{parameters.compressionLevel}-"
+        f"{parameters.pattern}-{parameters.patternSize}-{parameters.parallelization}-{parameters.extension}"
+    ).replace("None", "none")
+
+
 def storeFiles(rawFile, compressedFile, name, compressedExtension):
     if rawFile:
         # Copy from the open file object because Windows locks named temporary files while they are open.
@@ -205,7 +212,7 @@ def testDecompression(parameters):
             checkDecompression(rawFile, compressedFile, CompressedFileReader(compressedFile.name), bufferSize)
         except Exception as e:
             print("Test for", parameters, "and buffer size", bufferSize, "failed")
-            storeFiles(rawFile, compressedFile, str(parameters), parameters.extension)
+            storeFiles(rawFile, compressedFile, testArtifactName(parameters), parameters.extension)
             raise e
 
     if parameters.size > 0:
@@ -219,7 +226,7 @@ def testDecompression(parameters):
                 sb.read(seekPos)
                 print("    Char when doing naive seek:", sb.read(1).hex())
 
-                storeFiles(rawFile, compressedFile, str(parameters), parameters.extension)
+                storeFiles(rawFile, compressedFile, testArtifactName(parameters), parameters.extension)
                 raise e
 
         index = io.BytesIO()
@@ -245,7 +252,7 @@ def testDecompression(parameters):
                 print("    Char when doing naive seek:", sb.read(1).hex())
                 print("    index.size:", index.seek(0, io.SEEK_END))
 
-                storeFiles(rawFile, compressedFile, str(parameters), parameters.extension)
+                storeFiles(rawFile, compressedFile, testArtifactName(parameters), parameters.extension)
                 raise e
 
         decompressedFile.close()
