@@ -102,47 +102,24 @@ public:
         return Error::NONE;
     }
 
+    /**
+     * Hot-path variant of @ref decode that returns @ref INVALID_SYMBOL instead of an @ref std::optional.
+     * @note GCC 14 and 16 compile the std::optional return in the hot literal loop about 2x slower than Clang!
+     */
     template<typename BitReader>
-    [[nodiscard]] forceinline std::optional<Symbol>
-    decode( BitReader& bitReader ) const
+    [[nodiscard]] forceinline uint32_t
+    decodePacked( BitReader& bitReader ) const
     {
         /* An all-zero alphabet has no symbols and m_lutBitsCount is zero in that case. Peeking zero bits would
          * assert in the BitReader. */
         if ( UNLIKELY( m_lutBitsCount == 0 ) ) [[unlikely]] {
-            return std::nullopt;
+            return INVALID_SYMBOL;
         }
 
         try {
             /* Use the compile-time peek when the full LUT is in use so the index mask and size become
              * constants. m_lutBitsCount only differs from LUT_BITS_COUNT when the alphabet's maximum code
              * length is smaller than the LUT (then peeking LUT_BITS_COUNT bits may read past valid codes). */
-            const auto index = LUT_BITS_COUNT == m_lutBitsCount
-                               ? static_cast<HuffmanCode>( bitReader.template peek<LUT_BITS_COUNT>() )
-                               : static_cast<HuffmanCode>( bitReader.peek( m_lutBitsCount ) );
-            const auto entry = m_codeCache[index];
-            const auto length = static_cast<BitCount>( entry >> ENTRY_LENGTH_SHIFT );
-            if ( length == 0 ) {
-                return decodeLong( bitReader );
-            }
-            bitReader.seekAfterPeek( length );
-            return static_cast<Symbol>( entry & SYMBOL_MASK );
-        } catch ( const EndOfFileReached& ) {
-            /* Should only happen at the end of the file and probably not even there
-             * because the bzip2 footer (EOS block) should be longer than the peek length. */
-            return BaseType::decode( bitReader );
-        }
-    }
-
-    /** Hot-path variant of @ref decode that returns @ref INVALID_SYMBOL instead of an @ref std::optional. */
-    template<typename BitReader>
-    [[nodiscard]] forceinline uint32_t
-    decodePacked( BitReader& bitReader ) const
-    {
-        if ( UNLIKELY( m_lutBitsCount == 0 ) ) [[unlikely]] {
-            return INVALID_SYMBOL;
-        }
-
-        try {
             const auto index = LUT_BITS_COUNT == m_lutBitsCount
                                ? static_cast<HuffmanCode>( bitReader.template peek<LUT_BITS_COUNT>() )
                                : static_cast<HuffmanCode>( bitReader.peek( m_lutBitsCount ) );
@@ -155,6 +132,8 @@ public:
             bitReader.seekAfterPeek( length );
             return entry & SYMBOL_MASK;
         } catch ( const EndOfFileReached& ) {
+            /* Should only happen at the end of the file and probably not even there
+             * because the bzip2 footer (EOS block) should be longer than the peek length. */
             const auto result = BaseType::decode( bitReader );
             return result ? static_cast<uint32_t>( *result ) : INVALID_SYMBOL;
         }

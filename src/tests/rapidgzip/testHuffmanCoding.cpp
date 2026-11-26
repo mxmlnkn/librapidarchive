@@ -11,6 +11,7 @@
 #include <filereader/Buffered.hpp>
 #include <filereader/BufferView.hpp>
 #include <rapidgzip/gzip/definitions.hpp>
+#include <rapidgzip/gzip/deflate.hpp>
 #include <huffman/HuffmanCodingLinearSearch.hpp>
 #include <huffman/HuffmanCodingShortBitsCached.hpp>
 #include <huffman/HuffmanCodingSymbolsPerLength.hpp>
@@ -159,7 +160,8 @@ testEmptyAlphabet()
 
     const std::vector<char> encoded = { 0 };
     gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( encoded ) );
-    REQUIRE( !coding.decode( bitReader ).has_value() );
+    REQUIRE_EQUAL( deflate::decodePackedDetail::decodePacked( coding, bitReader ),
+                   std::numeric_limits<uint32_t>::max() );
 }
 
 

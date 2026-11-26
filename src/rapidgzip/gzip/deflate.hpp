@@ -1574,6 +1574,29 @@ Block<ENABLE_STATISTICS>::readInternalUncompressed( gzip::BitReader& bitReader,
 }
 
 
+namespace decodePackedDetail
+{
+template<typename T, typename = void>
+struct HasDecodePacked : std::false_type {};
+
+template<typename T>
+struct HasDecodePacked<T, std::void_t<decltype( std::declval<const T&>().decodePacked(
+    std::declval<gzip::BitReader&>() ) )>> : std::true_type {};
+
+template<typename HuffmanCoding>
+[[nodiscard]] forceinline uint32_t
+decodePacked( const HuffmanCoding& coding, gzip::BitReader& bitReader )
+{
+    if constexpr ( HasDecodePacked<HuffmanCoding>::value ) {
+        return coding.decodePacked( bitReader );
+    } else {
+        const auto decoded = coding.decode( bitReader );
+        return decoded ? static_cast<uint32_t>( *decoded ) : std::numeric_limits<uint32_t>::max();
+    }
+}
+}  // namespace decodePackedDetail
+
+
 template<bool ENABLE_STATISTICS>
 template<typename Window,
          typename HuffmanCoding>
@@ -1594,11 +1617,10 @@ Block<ENABLE_STATISTICS>::readInternalCompressed( gzip::BitReader&     bitReader
     size_t nBytesRead{ 0 };
     for ( nBytesRead = 0; nBytesRead < nMaxToDecode; )
     {
-        const auto decoded = coding.decode( bitReader );
-        if ( !decoded ) {
+        const auto code = decodePackedDetail::decodePacked( coding, bitReader );
+        if ( UNLIKELY( code == std::numeric_limits<uint32_t>::max() ) ) [[unlikely]] {
             return { nBytesRead, Error::INVALID_HUFFMAN_CODE };
         }
-        auto code = *decoded;
 
         if ( code <= 255 ) {
             if constexpr ( ENABLE_STATISTICS ) {

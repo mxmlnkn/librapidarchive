@@ -12,6 +12,7 @@
 #include <huffman/HuffmanCodingShortBitsCached.hpp>
 #include <huffman/HuffmanCodingSymbolsPerLength.hpp>
 #include <rapidgzip/gzip/definitions.hpp>
+#include <rapidgzip/gzip/deflate.hpp>
 #include <rapidgzip/huffman/HuffmanCodingDoubleLiteralCached.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCached.hpp>
 #include <rapidgzip/huffman/HuffmanCodingReversedBitsCachedCompressed.hpp>
@@ -19,9 +20,8 @@
 #include <rapidgzip/huffman/HuffmanCodingReversedCodesPerLength.hpp>
 
 
-using namespace rapidgzip;
-
-
+namespace rapidgzip
+{
 struct Result
 {
     std::string name;
@@ -63,8 +63,8 @@ benchmarkHuffmanCoding( const std::vector<typename HuffmanCoding::BitCount>& cod
         while ( true )
         {
             try {
-                const auto symbol = coding.decode( bitReader );
-                if ( !symbol ) {
+                const auto symbol = deflate::decodePackedDetail::decodePacked( coding, bitReader );
+                if ( symbol == std::numeric_limits<uint32_t>::max() ) {
                     break;
                 }
                 ++count;
@@ -310,11 +310,14 @@ benchmarkHuffmanCodingsWithData( size_t encodedSize )
         }
     }
 }
+}  // namespace rapidgzip
 
 
 int
 main()
 {
+    using namespace rapidgzip;
+
     for ( const auto size : { 4_Ki, 32_Ki, 128_Ki } ) {
         benchmarkHuffmanCodingsWithData( size );
     }
