@@ -511,6 +511,21 @@ public:
         uint64_t copies{ 0 };
     } symbolTypes;
 
+    /**
+     * Back-reference copy path counters for the 16-bit marker window. Only the marker window can copy
+     * unresolved symbols, so these counters describe exactly the extra work that the marker path costs over
+     * the resolved uint8_t window path.
+     */
+    struct {
+        uint64_t disjointMemcpy{ 0 };
+        uint64_t repeatedMemcpy{ 0 };
+        uint64_t distanceOneFill{ 0 };
+        uint64_t perSymbol{ 0 };
+        uint64_t overlapping{ 0 };
+        uint64_t wrapping{ 0 };
+        std::array<uint64_t, 8> lengthHistogram{};
+    } markerBackreferences;
+
     /* These are cumulative counters but they can be manually reset before calls to readHeader. */
     struct {
         double readDynamicHeader{ 0 };
@@ -538,17 +553,27 @@ public:
 
 
 /**
- * @param data The freshly copied symbol range. Must not be zero-length.
- * @return Number of symbols after the last marker. Set to the distance inside @p data
- *         when it contains a marker, or @p distanceToLastMarkerByte increased by @p data.size() otherwise.
+ * Update @p distanceToLastMarkerByte after copying @p copied marker symbols.
+ *
+ * @param copied Freshly copied marker symbols. Must not be zero-length.
+ * @param distance Back-reference distance.
+ * @param[in,out] distanceToLastMarkerByte Number of symbols after the last marker.
  */
-[[nodiscard]] inline size_t
-computeDistanceToLastMarker( const VectorView<uint16_t> data,
-                             const size_t               distanceToLastMarkerByte )
+forceinline void
+updateDistanceToLastMarker( const VectorView<uint16_t> copied,
+                            const uint16_t             distance,
+                            size_t&                    distanceToLastMarkerByte )
 {
+    /* If the source starts after the last marker, the copied range cannot contain one. */
+    if ( distance < distanceToLastMarkerByte ) {
+        distanceToLastMarkerByte += copied.size();
+        return;
+    }
+
     /* Matches into the unknown window usually end in a marker, which the scalar check finds immediately. */
-    if ( data[data.size() - 1] > std::numeric_limits<uint8_t>::max() ) {
-        return 0;
+    if ( copied[copied.size() - 1] > std::numeric_limits<uint8_t>::max() ) {
+        distanceToLastMarkerByte = 0;
+        return;
     }
 
     /* Only the distance to the last marker is needed, so scan 64-bit words from the end and inspect the
@@ -556,10 +581,10 @@ computeDistanceToLastMarker( const VectorView<uint16_t> data,
      * 16-bit lane. Do not use loadUnaligned here because it interprets the bytes as a little-endian stream,
      * while the window is a host-order uint16_t array. On big-endian, the mask would select the low bytes. */
     constexpr auto HIGH_BYTE_MASK = 0xFF00FF00FF00FF00ULL;
-    size_t remaining = data.size() - 1;
+    size_t remaining = copied.size() - 1;
     for ( ; remaining >= 4; remaining -= 4 ) {
         uint64_t word;
-        std::memcpy( &word, data.data() + remaining - 4, sizeof( word ) );
+        std::memcpy( &word, copied.data() + remaining - 4, sizeof( word ) );
         if ( ( word & HIGH_BYTE_MASK ) != 0U ) {
             break;
         }
@@ -567,11 +592,12 @@ computeDistanceToLastMarker( const VectorView<uint16_t> data,
     /* After skipping over chunks of 4x16-bit symbols, all without high bits set,
      * now analyze the tail or the match with high bits set. */
     for ( ; remaining > 0; --remaining ) {
-        if ( data[remaining - 1] > std::numeric_limits<uint8_t>::max() ) {
-            return data.size() - remaining;
+        if ( copied[remaining - 1] > std::numeric_limits<uint8_t>::max() ) {
+            distanceToLastMarkerByte = copied.size() - remaining;
+            return;
         }
     }
-    return distanceToLastMarkerByte + data.size();
+    distanceToLastMarkerByte += copied.size();
 }
 
 
@@ -785,11 +811,6 @@ private:
     forceinline void
     appendToWindow( Window&                     window,
                     typename Window::value_type decodedSymbol );
-
-    template<typename Window>
-    forceinline void
-    appendToWindowUnsafe( Window&                     window,
-                          typename Window::value_type decodedSymbol );
 
     template<typename Window>
     forceinline void
@@ -1402,27 +1423,6 @@ Block<ENABLE_STATISTICS>::appendToWindow( Window&                     window,
 template<bool ENABLE_STATISTICS>
 template<typename Window>
 inline void
-Block<ENABLE_STATISTICS>::appendToWindowUnsafe( Window&                     window,
-                                                typename Window::value_type decodedSymbol )
-{
-    constexpr bool containsMarkerBytes = std::is_same_v<std::decay_t<typename Window::value_type>, uint16_t>;
-
-    if constexpr ( containsMarkerBytes ) {
-        if ( decodedSymbol > std::numeric_limits<uint8_t>::max() ) {
-            m_distanceToLastMarkerByte = 0;
-        } else {
-            ++m_distanceToLastMarkerByte;
-        }
-    }
-
-    window[m_windowPosition] = decodedSymbol;
-    m_windowPosition++;
-}
-
-
-template<bool ENABLE_STATISTICS>
-template<typename Window>
-inline void
 Block<ENABLE_STATISTICS>::resolveBackreference( Window&        window,
                                                 const uint16_t distance,
                                                 const uint16_t length,
@@ -1442,6 +1442,16 @@ Block<ENABLE_STATISTICS>::resolveBackreference( Window&        window,
     }
 
     constexpr bool containsMarkerBytes = std::is_same_v<std::decay_t<decltype( *window.data() ) >, uint16_t>;
+    constexpr bool collectMarkerStatistics = containsMarkerBytes && ENABLE_STATISTICS;
+    /* Count each marker back-reference once; the path-specific counters below split by copy strategy. */
+    if constexpr ( collectMarkerStatistics ) {
+        static constexpr std::array<size_t, 7> UPPER_BOUNDS{ 4, 8, 16, 32, 64, 128, 258 };
+        size_t bucket{ 0 };
+        while ( ( bucket < UPPER_BOUNDS.size() ) && ( length > UPPER_BOUNDS[bucket] ) ) {
+            ++bucket;
+        }
+        ++markerBackreferences.lengthHistogram[bucket];
+    }
 
     const auto offset = ( m_windowPosition + window.size() - distance ) % window.size();
     const auto nToCopyPerRepeat = std::min( distance, length );
@@ -1449,6 +1459,28 @@ Block<ENABLE_STATISTICS>::resolveBackreference( Window&        window,
     /* Note: NOT "<= window.size()" but only "<" because for equality I would have to
      *       compute modulo window.size() instead of simply: m_windowPosition += length. */
     if ( LIKELY( m_windowPosition + length < window.size() ) ) [[likely]] {
+        if ( nToCopyPerRepeat == 1 ) {
+            /* Distance 1: every copied symbol is the source symbol. fill_n lowers to memset for byte windows. */
+            const auto copiedSymbol = window[offset];
+            std::fill_n( &window[m_windowPosition], length, copiedSymbol );
+
+            if constexpr ( collectMarkerStatistics ) {
+                ++markerBackreferences.distanceOneFill;
+                ++markerBackreferences.overlapping;
+            }
+
+            if constexpr ( containsMarkerBytes ) {
+                /* Every copied symbol is the same, so the last marker is the last copy for a marker source. */
+                if ( copiedSymbol > std::numeric_limits<uint8_t>::max() ) {
+                    m_distanceToLastMarkerByte = 0;
+                } else {
+                    m_distanceToLastMarkerByte += length;
+                }
+            }
+            m_windowPosition += length;
+            return;
+        }
+
         /**
          * Window is a circular buffer of size W = window.size(), linearized at 0.
          * Let P = m_windowPosition, L = length, D = distance, offset O = ( P + W - D ) % W, and S/D mark the
@@ -1525,38 +1557,55 @@ Block<ENABLE_STATISTICS>::resolveBackreference( Window&        window,
                 std::memcpy( &window[m_windowPosition], &window[offset], length * sizeof( window.front() ) );
             }
 
-            m_windowPosition += length;
+            if constexpr ( collectMarkerStatistics ) {
+                ++markerBackreferences.disjointMemcpy;
+            }
+        } else if ( offset + nToCopyPerRepeat <= m_windowPosition ) {
+            auto* const destination = &window[m_windowPosition];
+            std::memcpy( destination, &window[offset], nToCopyPerRepeat * sizeof( window.front() ) );
+            for ( size_t written = nToCopyPerRepeat; written < length; ) {
+                /* Copy at most the already written prefix so that source and destination are disjoint. */
+                const auto chunk = std::min( written, length - written );
+                std::memcpy( destination + written, destination, chunk * sizeof( window.front() ) );
+                written += chunk;
+            }
 
-            if constexpr ( containsMarkerBytes ) {
-                /* We only need to find the last marker byte when we have copied from behind the last known marker. */
-                if ( distance >= m_distanceToLastMarkerByte ) {
-                    m_distanceToLastMarkerByte = computeDistanceToLastMarker(
-                        { &window[m_windowPosition - length], length }, m_distanceToLastMarkerByte );
-                } else {
-                    m_distanceToLastMarkerByte += length;
+            if constexpr ( collectMarkerStatistics ) {
+                ++markerBackreferences.repeatedMemcpy;
+                ++markerBackreferences.overlapping;
+            }
+        } else {
+            /* The first source period wraps the window end or reaches into the destination. Fall back to
+             * the per-symbol modulo loop, which also handles a wrapping source index. */
+            if constexpr ( collectMarkerStatistics ) {
+                ++markerBackreferences.perSymbol;
+                if ( !rangesAreDisjoint ) {
+                    ++markerBackreferences.overlapping;
                 }
             }
-            return;
-        }
 
-        if constexpr ( !containsMarkerBytes ) {
-            if ( UNLIKELY( nToCopyPerRepeat == 1 ) ) [[unlikely]] {
-                std::memset( &window[m_windowPosition], window[offset], length );
-                m_windowPosition += length;
-                return;
+            for ( size_t nCopied = 0; nCopied < length; ) {
+                for ( size_t position = offset;
+                      ( position < offset + nToCopyPerRepeat ) && ( nCopied < length );
+                      ++position, ++nCopied )
+                {
+                    window[m_windowPosition + nCopied] = window[position % window.size()];
+                }
             }
         }
 
-        for ( size_t nCopied = 0; nCopied < length; ) {
-            for ( size_t position = offset;
-                  ( position < offset + nToCopyPerRepeat ) && ( nCopied < length );
-                  ++position, ++nCopied )
-            {
-                const auto copiedSymbol = window[position % window.size()];
-                appendToWindowUnsafe( window, copiedSymbol );
-            }
+        /* The repeated-copy and per-symbol paths share the marker-distance update. The distance-1
+         * fill updates it directly because all copied symbols are identical. */
+        if constexpr ( containsMarkerBytes ) {
+            updateDistanceToLastMarker( { &window[m_windowPosition], length }, distance, m_distanceToLastMarkerByte );
         }
+        m_windowPosition += length;
         return;
+    }
+
+    if constexpr ( collectMarkerStatistics ) {
+        ++markerBackreferences.perSymbol;
+        ++markerBackreferences.wrapping;
     }
 
     for ( size_t nCopied = 0; nCopied < length; ) {

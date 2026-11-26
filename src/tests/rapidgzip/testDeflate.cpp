@@ -349,6 +349,216 @@ testInvalidDeflateErrors()
 }
 
 
+
+namespace
+{
+/**
+ * Minimal LSB-first deflate bit writer. Huffman codes are transmitted most-significant bit first, extra bits
+ * and header fields least-significant bit first.
+ */
+class DeflateBitWriter
+{
+public:
+    void
+    writeBits( uint32_t value,
+               uint8_t  count )
+    {
+        m_bitBuffer |= value << m_bitCount;
+        m_bitCount += count;
+        while ( m_bitCount >= 8 ) {
+            m_data.push_back( static_cast<uint8_t>( m_bitBuffer & 0xFFU ) );
+            m_bitBuffer >>= 8U;
+            m_bitCount -= 8;
+        }
+    }
+
+    void
+    writeCode( uint32_t code,
+               uint8_t  count )
+    {
+        uint32_t reversed{ 0 };
+        for ( uint8_t i = 0; i < count; ++i ) {
+            reversed |= ( ( code >> ( count - 1 - i ) ) & 1U ) << i;
+        }
+        writeBits( reversed, count );
+    }
+
+    [[nodiscard]] std::vector<uint8_t>
+    finish()
+    {
+        if ( m_bitCount > 0 ) {
+            m_data.push_back( static_cast<uint8_t>( m_bitBuffer & 0xFFU ) );
+            m_bitBuffer = 0;
+            m_bitCount = 0;
+        }
+        return m_data;
+    }
+
+private:
+    std::vector<uint8_t> m_data;
+    uint32_t m_bitBuffer{ 0 };
+    uint8_t m_bitCount{ 0 };
+};
+
+
+void
+writeFixedLiteralOrLength( DeflateBitWriter& writer,
+                           const uint16_t    symbol )
+{
+    if ( symbol <= 143 ) {
+        writer.writeCode( 0x30U + symbol, 8 );
+    } else if ( symbol <= 255 ) {
+        writer.writeCode( 0x190U + ( symbol - 144 ), 9 );
+    } else if ( symbol <= 279 ) {
+        writer.writeCode( symbol - 256, 7 );
+    } else {
+        writer.writeCode( 0xC0U + ( symbol - 280 ), 8 );
+    }
+}
+
+
+void
+writeFixedDistance( DeflateBitWriter& writer,
+                    const uint16_t    symbol,
+                    const uint32_t    extraBits,
+                    const uint8_t     extraBitCount )
+{
+    writer.writeCode( symbol, 5 );
+    if ( extraBitCount > 0 ) {
+        writer.writeBits( extraBits, extraBitCount );
+    }
+}
+}  // namespace
+
+
+/**
+ * Decode a fixed-Huffman block that immediately references the unknown window and contains overlapping
+ * matches (distance < length), a distance-1 match, and a short overlapping match. Starting with a fresh Block
+ * makes those references markers. The marker values must survive the copy paths unchanged and must still map
+ * through the window to the referenced bytes.
+ */
+void
+testMarkerBackreferenceCopies()
+{
+    DeflateBitWriter writer;
+    writer.writeBits( 1, 1 );  /* BFINAL */
+    writer.writeBits( 1, 2 );  /* BTYPE = fixed Huffman */
+
+    /* 258 symbols from the unknown window at distance 1000. The source and destination do not overlap,
+     * so this takes the disjoint memcpy path and the markers stay unchanged. */
+    writeFixedLiteralOrLength( writer, 285 );
+    writeFixedDistance( writer, 19, 231, 8 );
+
+    /* Distance 1: the first symbol comes from an unknown window and is repeated by the fill path. */
+    writeFixedLiteralOrLength( writer, 285 );
+    writeFixedDistance( writer, 0, 0, 0 );
+
+    /* Overlapping match with distance 3. */
+    writeFixedLiteralOrLength( writer, 285 );
+    writeFixedDistance( writer, 2, 0, 0 );
+
+    /* A literal followed by a match whose period contains a marker and a literal. */
+    writeFixedLiteralOrLength( writer, 'B' );
+    writeFixedLiteralOrLength( writer, 285 );
+    writeFixedDistance( writer, 2, 0, 0 );
+
+    /* Short overlapping match with distance 2. */
+    writeFixedLiteralOrLength( writer, 264 );  /* length 10 */
+    writeFixedDistance( writer, 1, 0, 0 );
+
+    writeFixedLiteralOrLength( writer, 256 );  /* end of block */
+
+    constexpr size_t EXPECTED_SIZE = 3 * 258 + 1 + 258 + 10;
+    static constexpr size_t DISTANCE_1000_MARKER = size_t( 2 ) * deflate::MAX_WINDOW_SIZE - 1000;
+
+    auto compressed = writer.finish();
+    /* The grouped Huffman decoder peeks ahead, so keep enough trailing bytes for it to finish the group. */
+    compressed.insert( compressed.end(), 8, 0 );
+    gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( compressed ) );
+    auto block = std::make_unique<deflate::Block<true> >();
+    REQUIRE( block->readHeader( bitReader ) == Error::NONE );
+    const auto [view, error] = block->read( bitReader, EXPECTED_SIZE + deflate::MAX_RUN_LENGTH );
+    REQUIRE( error == Error::NONE );
+    REQUIRE( block->eob() );
+    REQUIRE_EQUAL( view.size(), EXPECTED_SIZE );
+
+    /* Pin the exercised copy paths so that a future change cannot silently fall back to the per-symbol loop. */
+    REQUIRE_EQUAL( block->markerBackreferences.disjointMemcpy, 1U );
+    REQUIRE_EQUAL( block->markerBackreferences.distanceOneFill, 1U );
+    REQUIRE_EQUAL( block->markerBackreferences.repeatedMemcpy, 3U );
+    REQUIRE_EQUAL( block->markerBackreferences.perSymbol, 0U );
+    REQUIRE_EQUAL( view.dataWithMarkersSize(), EXPECTED_SIZE );
+
+    std::vector<uint16_t> symbols;
+    for ( const auto& buffer : view.dataWithMarkers ) {
+        symbols.insert( symbols.end(), buffer.begin(), buffer.end() );
+    }
+    REQUIRE_EQUAL( symbols.size(), EXPECTED_SIZE );
+
+    /* The first 258 symbols are consecutive markers from the unknown window. */
+    for ( size_t i = 0; i < 258; ++i ) {
+        if ( symbols[i] != DISTANCE_1000_MARKER + i ) {
+            std::cerr << "Unexpected marker at " << i << ": " << symbols[i] << "\n";
+            REQUIRE( symbols[i] == DISTANCE_1000_MARKER + i );
+        }
+    }
+    const auto firstMarker = symbols.front();
+    const auto markerAfterDistanceOne = symbols[258];
+    for ( size_t i = 258; i < 774; ++i ) {
+        REQUIRE( symbols[i] == markerAfterDistanceOne );
+    }
+    REQUIRE( symbols[774] == 'B' );
+    for ( size_t i = 775; i < 1033; ++i ) {
+        const auto expected = ( i - 775 ) % 3 == 2 ? uint16_t( 'B' ) : markerAfterDistanceOne;
+        REQUIRE( symbols[i] == expected );
+    }
+    for ( size_t i = 1033; i < EXPECTED_SIZE; ++i ) {
+        const auto expected = ( i - 1033 ) % 2 == 1 ? uint16_t( 'B' ) : markerAfterDistanceOne;
+        REQUIRE( symbols[i] == expected );
+    }
+
+    /* The marker values must still resolve through the window to the referenced bytes. */
+    std::vector<uint8_t> window( deflate::MAX_WINDOW_SIZE );
+    for ( size_t i = 0; i < window.size(); ++i ) {
+        window[i] = static_cast<uint8_t>( ( i * 7 + 3 ) & 0xFFU );
+    }
+    const auto expectedByte =
+        [&window] ( const uint16_t symbol )
+        {
+            return symbol < 256 ? static_cast<uint8_t>( symbol ) : window[symbol - deflate::MAX_WINDOW_SIZE];
+        };
+    std::transform( symbols.begin(), symbols.end(), symbols.begin(),
+                    deflate::MapMarkers<true>( window ) );
+    for ( size_t i = 0; i < symbols.size(); ++i ) {
+        const auto expected =
+            [&] () {
+                /* Recomputed from the marker sequence asserted above. */
+                if ( i < 258 ) {
+                    return window[firstMarker - deflate::MAX_WINDOW_SIZE + i];
+                }
+                if ( i < 774 ) {
+                    return expectedByte( markerAfterDistanceOne );
+                }
+                if ( i == 774 ) {
+                    return uint8_t( 'B' );
+                }
+                if ( i < 1033 ) {
+                    return ( i - 775 ) % 3 == 2
+                           ? uint8_t( 'B' )
+                           : window[markerAfterDistanceOne - deflate::MAX_WINDOW_SIZE];
+                }
+                return ( i - 1033 ) % 2 == 1
+                       ? uint8_t( 'B' )
+                       : window[markerAfterDistanceOne - deflate::MAX_WINDOW_SIZE];
+            }();
+        if ( symbols[i] != expected ) {
+            std::cerr << "Unexpected mapped byte at " << i << ": " << int( symbols[i] ) << "\n";
+            REQUIRE( symbols[i] == expected );
+        }
+    }
+}
+
+
 int
 main()
 {
@@ -360,6 +570,7 @@ main()
     testInvalidFixedHuffmanLengthSymbols();
     testInvalidDynamicHuffmanCodeCount();
     testInvalidDeflateErrors();
+    testMarkerBackreferenceCopies();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
