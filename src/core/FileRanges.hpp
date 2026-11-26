@@ -116,6 +116,19 @@ readNumber( const char* const first,
 }
 
 
+[[nodiscard]] inline uint64_t
+parseByteSize( const std::string& value )
+{
+    uint64_t byteSize{ 0 };
+    bool offsetIsLine{ false };
+    auto* const readEnd = readNumber( value.data(), value.data() + value.size(), byteSize, offsetIsLine );
+    if ( offsetIsLine || ( readEnd != value.data() + value.size() ) ) {
+        throw std::invalid_argument( "Cannot parse size: " + value );
+    }
+    return byteSize;
+}
+
+
 [[nodiscard]] inline std::vector<FileRange>
 parseFileRanges( const std::string_view expression )
 {
