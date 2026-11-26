@@ -538,6 +538,44 @@ public:
 
 
 /**
+ * @param data The freshly copied symbol range. Must not be zero-length.
+ * @return Number of symbols after the last marker. Set to the distance inside @p data
+ *         when it contains a marker, or @p distanceToLastMarkerByte increased by @p data.size() otherwise.
+ */
+[[nodiscard]] inline size_t
+computeDistanceToLastMarker( const VectorView<uint16_t> data,
+                             const size_t               distanceToLastMarkerByte )
+{
+    /* Matches into the unknown window usually end in a marker, which the scalar check finds immediately. */
+    if ( data[data.size() - 1] > std::numeric_limits<uint8_t>::max() ) {
+        return 0;
+    }
+
+    /* Only the distance to the last marker is needed, so scan 64-bit words from the end and inspect the
+     * individual symbols only for the one word that contains a marker. The mask checks the high byte of each
+     * 16-bit lane. Do not use loadUnaligned here because it interprets the bytes as a little-endian stream,
+     * while the window is a host-order uint16_t array. On big-endian, the mask would select the low bytes. */
+    constexpr auto HIGH_BYTE_MASK = 0xFF00FF00FF00FF00ULL;
+    size_t remaining = data.size() - 1;
+    for ( ; remaining >= 4; remaining -= 4 ) {
+        uint64_t word;
+        std::memcpy( &word, data.data() + remaining - 4, sizeof( word ) );
+        if ( ( word & HIGH_BYTE_MASK ) != 0U ) {
+            break;
+        }
+    }
+    /* After skipping over chunks of 4x16-bit symbols, all without high bits set,
+     * now analyze the tail or the match with high bits set. */
+    for ( ; remaining > 0; --remaining ) {
+        if ( data[remaining - 1] > std::numeric_limits<uint8_t>::max() ) {
+            return data.size() - remaining;
+        }
+    }
+    return distanceToLastMarkerByte + data.size();
+}
+
+
+/**
  * @todo Silesia is ~70% slower when writing back and calculating CRC32.
  * When only writing the result and not calculating CRC32, then it is ~60% slower.
  * Both, LZ77 back-references and CRC32 calculation can still be improved upon by a lot, I think.
@@ -1492,16 +1530,11 @@ Block<ENABLE_STATISTICS>::resolveBackreference( Window&        window,
             if constexpr ( containsMarkerBytes ) {
                 /* We only need to find the last marker byte when we have copied from behind the last known marker. */
                 if ( distance >= m_distanceToLastMarkerByte ) {
-                    size_t distanceToLastMarkerByte{ 0 };
-                    for ( ; distanceToLastMarkerByte < length; ++distanceToLastMarkerByte ) {
-                        if ( window[m_windowPosition - 1 - distanceToLastMarkerByte]
-                             > std::numeric_limits<uint8_t>::max() ) {
-                            m_distanceToLastMarkerByte = distanceToLastMarkerByte;
-                            return;
-                        }
-                    }
+                    m_distanceToLastMarkerByte = computeDistanceToLastMarker(
+                        { &window[m_windowPosition - length], length }, m_distanceToLastMarkerByte );
+                } else {
+                    m_distanceToLastMarkerByte += length;
                 }
-                m_distanceToLastMarkerByte += length;
             }
             return;
         }
