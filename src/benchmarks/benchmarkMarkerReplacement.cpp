@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <core/common.hpp>
+#include <rapidgzip/DecodedData.hpp>
 
 
 using namespace rapidgzip;
@@ -296,6 +297,40 @@ createRandomWindow( std::size_t bufferSize )
 }
 
 
+void
+benchmarkApplyWindowStrategies( const std::vector<std::uint16_t>& buffer,
+                                const std::vector<std::uint8_t>&  window )
+{
+    std::cout << "\n[applyWindow strategies] branchy MapMarkers -> 64 KiB LUT:\n";
+    for ( const auto size : { 1_Ki, 2_Ki, 3_Ki, 4_Ki, 6_Ki, 8_Ki, 10_Ki, 12_Ki, 14_Ki, 16_Ki,
+                                20_Ki, 24_Ki, 28_Ki, 32_Ki, 64_Ki, 128_Ki, 256_Ki } ) {
+        const std::vector<std::uint16_t> input( buffer.begin(), buffer.begin() + size );
+        rapidgzip::deflate::DecodedDataView view;
+        view.dataWithMarkers[0] = rapidgzip::VectorView<std::uint16_t>( input.data(), input.size() );
+
+        double mapTime = std::numeric_limits<double>::infinity();
+        double lutTime = std::numeric_limits<double>::infinity();
+        for ( int r = 0; r < 20; ++r ) {
+            rapidgzip::deflate::DecodedData data;
+            data.append( view );
+            const auto t0 = now();
+            data.applyWindow( { window.data(), window.size() },
+                              std::numeric_limits<size_t>::max() );
+            mapTime = std::min( mapTime, duration( t0, now() ) );
+        }
+        for ( int r = 0; r < 20; ++r ) {
+            rapidgzip::deflate::DecodedData data;
+            data.append( view );
+            const auto t0 = now();
+            data.applyWindow( { window.data(), window.size() }, 0 );
+            lutTime = std::min( lutTime, duration( t0, now() ) );
+        }
+        std::cout << "  " << size / 1024 << "K: " << mapTime * 1e6 << " us -> "
+                  << lutTime * 1e6 << " us (" << lutTime / mapTime << "x)\n";
+    }
+}
+
+
 int
 main()
 {
@@ -327,6 +362,8 @@ main()
     measureByteComparison( bufferAlternativeFormat, window, onlyCompactBufferWithIntermediarySwap );
     std::cout << "[onlyCompactBufferInPlaceCopy] ";
     measureByteComparison( bufferAlternativeFormat, window, onlyCompactBufferInPlaceCopy );
+
+    benchmarkApplyWindowStrategies( buffer, window );
 
     return 0;
 }

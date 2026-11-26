@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <numeric>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -162,10 +163,40 @@ public:
 
     /**
      * Replaces all 16-bit wide marker symbols by looking up the referenced 8-bit symbols in @p window.
+     *
+     * The branchy MapMarkers path avoids building the 64 KiB LUT, which is only worthwhile for small replacements.
+     * benchmarkMarkerReplacement, 32 KiB window, run-structured ~50% marker data, minimum of 20 runs,
+     * Ryzen 7 PRO 8840U (branchy MapMarkers -> full-window LUT):
+     * @verbatim
+     *   Clang 22:
+     *     4K:   1.86 ->  2.46 us (1.32x)
+     *     8K:   3.69 ->  4.21 us (1.14x)
+     *     16K:  7.43 ->  7.68 us (1.03x)
+     *     20K:  9.42 ->  9.40 us (1.00x)
+     *     24K: 11.60 -> 11.12 us (0.96x)
+     *     32K: 15.80 -> 14.59 us (0.92x)
+     *   GCC 16:
+     *     4K:   1.82 ->  2.50 us (1.37x)
+     *     8K:   3.56 ->  4.21 us (1.18x)
+     *     16K:  7.04 ->  7.67 us (1.09x)
+     *     20K:  9.07 ->  9.41 us (1.04x)
+     *     24K: 10.96 -> 11.16 us (1.02x)
+     *     32K: 17.62 -> 14.58 us (0.83x)
+     * @endverbatim
+     * The automatic marker resolution in Block::read cannot happen before MAX_WINDOW_SIZE bytes have been decoded,
+     * so production marker vectors are normally at least 32 KiB. Shorter vectors are tails or synthetic inputs.
+     * 32K is therefore the natural lower bound, and the exact crossover below it is mostly irrelevant.
+     * Clang unrolls the LUT loop four times; GCC keeps it scalar. The crossover moves with the compiler/CPU
+     * (a slower branchy path crossed near 6K on Clang 20). Keep 32K as the conservative default for the
+     * compiler matrix. The parameter allows per-target tuning.
+     *
+     * @param minimumReplacementSizeForBranchlessLUT Replacement sizes at or above this use the 64 KiB LUT
+     *        instead of the branchy MapMarkers path. Exposed so that benchmarks can vary the threshold.
      * @note Probably should not be called internally because it is allowed to be shadowed by a child class method.
      */
     void
-    applyWindow( WindowView const& window );
+    applyWindow( WindowView const& window,
+                 size_t const      minimumReplacementSizeForBranchlessLUT = 32_Ki );
 
     /**
      * Returns the last 32 KiB decoded bytes. This can be called after decoding a block has finished
@@ -303,22 +334,30 @@ DecodedData::countMarkerSymbols() const
 
 
 inline void
-DecodedData::applyWindow( WindowView const& window )
+DecodedData::applyWindow( WindowView const& window,
+                          const size_t      minimumReplacementSizeForBranchlessLUT )
 {
-    const auto markerCount = dataWithMarkersSize();
-    if ( markerCount == 0 ) {
+    const auto replacementSize = dataWithMarkersSize();
+    if ( replacementSize == 0 ) {
         dataWithMarkers.clear();
         return;
     }
 
-    /* Because of the overhead of copying the window, avoid it for small replacements. */
-    if ( markerCount >= 128_Ki ) {
-        const std::array<uint8_t, 64_Ki> fullWindow =
+    if ( replacementSize >= minimumReplacementSizeForBranchlessLUT ) {
+        const auto fullWindow =
             [&window] () noexcept
             {
-                std::array<uint8_t, 64_Ki> result{};
-                std::iota( result.begin(), result.begin() + 256, 0 );
+                /* Do not zero-initialize additionally with {}. It cannot be made constexpr anyway. */
+                std::array<uint8_t, 64_Ki> result;
+                std::iota( result.begin(), result.begin() + 256U, 0 );
+                if constexpr ( MAX_WINDOW_SIZE > 256U ) {
+                    std::memset( result.data() + 256U, 0, MAX_WINDOW_SIZE - 256U );
+                }
                 std::copy( window.begin(), window.end(), result.begin() + MAX_WINDOW_SIZE );
+                if ( window.size() < MAX_WINDOW_SIZE ) {
+                    std::memset( result.data() + MAX_WINDOW_SIZE + window.size(),
+                                 0, MAX_WINDOW_SIZE - window.size() );
+                }
                 return result;
             }();
 
