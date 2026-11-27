@@ -85,6 +85,11 @@ add_executable(benchmarkCustomInflate)
 target_sources(benchmarkCustomInflate PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkCustomInflate.cpp)
 target_link_libraries(benchmarkCustomInflate PRIVATE librapidgzip)
 
+add_executable(benchmarkStoredBlocks)
+target_sources(benchmarkStoredBlocks PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkStoredBlocks.cpp)
+target_link_libraries(benchmarkStoredBlocks PRIVATE librapidgzip)
+
+
 add_executable(benchmarkGzipBlockFinder)
 target_sources(benchmarkGzipBlockFinder PRIVATE ${CMAKE_CURRENT_LIST_DIR}/benchmarkGzipBlockFinder.cpp)
 target_link_libraries(benchmarkGzipBlockFinder PRIVATE cxxopts librapidgzip libblockfinder zlibstatic)
