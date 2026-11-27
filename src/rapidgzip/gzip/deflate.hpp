@@ -712,9 +712,14 @@ public:
      * a new deflate::Block object on the next block and then set the initial window before decoding with the
      * data from the last read calls whose markers will have to be replaced.
      * This method does not much more but has to account for wrap-around, too.
+     *
+     * @param validCountOverride Overrides how many of the most recent decoded bytes are copied. The stored-block fast
+     *        path in @ref read uses this to retain only the recent marker-free suffix without spoofing
+     *        @ref m_decodedBytes.
      */
     void
-    setInitialWindow( VectorView<uint8_t> const& initialWindow = {} );
+    setInitialWindow( VectorView<uint8_t> const& initialWindow = {},
+                      std::optional<size_t>      validCountOverride = {} );
 
     [[nodiscard]] constexpr bool
     isValid() const noexcept
@@ -811,6 +816,16 @@ private:
     forceinline void
     appendToWindow( Window&                     window,
                     typename Window::value_type decodedSymbol );
+
+    /**
+     * Appends stored-block bytes, which are always literals. For the 16-bit marker window this widens the
+     * bytes and updates the marker distance once instead of per byte.
+     */
+    template<typename Window>
+    forceinline void
+    appendLiteralRun( Window&        window,
+                      const uint8_t* data,
+                      size_t         size );
 
     template<typename Window>
     forceinline void
@@ -1313,37 +1328,46 @@ Block<ENABLE_STATISTICS>::read( gzip::BitReader& bitReader,
     const auto window = getWindow();
 
     if ( m_compressionType == CompressionType::UNCOMPRESSED ) {
+        /* Debug-only switches that disable the stored-block fast paths one at a time to exercise the fallback
+         * in @ref readInternalUncompressed. The production defaults keep all three branches. */
+    #if defined( RAPIDGZIP_DISABLE_STORED_BLOCK_ALL ) || defined( RAPIDGZIP_DISABLE_STORED_BLOCK_LARGE )
+        constexpr bool disableStoredBlockLargePath = true;
+    #else
+        constexpr bool disableStoredBlockLargePath = false;
+    #endif
+    #if defined( RAPIDGZIP_DISABLE_STORED_BLOCK_ALL ) || defined( RAPIDGZIP_DISABLE_STORED_BLOCK_MARKER )
+        constexpr bool disableStoredBlockMarkerPath = true;
+    #else
+        constexpr bool disableStoredBlockMarkerPath = false;
+    #endif
+    #if defined( RAPIDGZIP_DISABLE_STORED_BLOCK_ALL ) || defined( RAPIDGZIP_DISABLE_STORED_BLOCK_NOMARKER )
+        constexpr bool disableStoredBlockNoMarkerPath = true;
+    #else
+        constexpr bool disableStoredBlockNoMarkerPath = false;
+    #endif
+
         std::optional<size_t> nBytesRead;
-        if ( m_uncompressedSize >= MAX_WINDOW_SIZE ) {
+        if ( !disableStoredBlockLargePath && ( m_uncompressedSize >= MAX_WINDOW_SIZE ) ) {
             /* Special case for uncompressed blocks larger or equal than the window size.
              * Because, in this case, we can simply copy the uncompressed block to the beginning of the window
              * without worrying about wrap-around and also now we know that there are no markers remaining! */
             m_windowPosition = m_uncompressedSize;
             nBytesRead = bitReader.read( reinterpret_cast<char*>( window.data() ), m_uncompressedSize );
-        } else if ( m_containsMarkerBytes && ( m_distanceToLastMarkerByte + m_uncompressedSize >= MAX_WINDOW_SIZE ) ) {
+        } else if ( !disableStoredBlockMarkerPath
+                    && ( m_uncompressedSize < MAX_WINDOW_SIZE )
+                    && m_containsMarkerBytes
+                    && ( m_distanceToLastMarkerByte + m_uncompressedSize >= MAX_WINDOW_SIZE ) ) {
             /* Special case for when the new uncompressed data plus some fully-decoded data from the window buffer
-             * together exceed the maximum backreference distance. */
+             * together exceed the maximum backreference distance. The newest MAX_WINDOW_SIZE - size bytes are
+             * marker-free by the condition above. Place them at the upper end of the physical window and zero the
+             * prefix, read the stored block at position 0, and expose only [0, nBytesRead) to the caller. */
             assert( m_distanceToLastMarkerByte <= m_decodedBytes );
 
-            /* Copy and at the same time downcast enough data for the window from the 16-bit element buffer. */
-            std::vector<uint8_t> remainingData( MAX_WINDOW_SIZE - m_uncompressedSize );
-            size_t downcastedSize{ 0 };
-            for ( const auto buffer : lastBuffers( m_window16, m_windowPosition, remainingData.size() ) ) {
-                if ( std::any_of( buffer.begin(), buffer.end(), [] ( const auto symbol ) { return symbol > 255; } ) ) {
-                    throw std::logic_error( "Encountered marker byte even though there shouldn't be one!" );
-                }
-
-                std::transform( buffer.begin(), buffer.end(), remainingData.data() + downcastedSize,
-                                [] ( const auto symbol ) { return static_cast<uint8_t>( symbol ); } );
-                downcastedSize += buffer.size();
-            }
-
-            m_windowPosition = MAX_WINDOW_SIZE;
-
-            std::memcpy( window.data(), remainingData.data(), remainingData.size() );
-            nBytesRead = bitReader.read( reinterpret_cast<char*>( window.data() + remainingData.size() ),
-                                         m_uncompressedSize );
-        } else if ( !m_containsMarkerBytes ) {
+            setInitialWindow( {}, MAX_WINDOW_SIZE - m_uncompressedSize );
+            m_windowPosition = 0;
+            nBytesRead = bitReader.read( reinterpret_cast<char*>( window.data() ), m_uncompressedSize );
+            m_windowPosition = *nBytesRead;
+        } else if ( !disableStoredBlockNoMarkerPath && !m_containsMarkerBytes ) {
             /* When there are no markers, it means we can simply memcpy into the uint8_t window.
              * This speeds things up from ~400 MB/s to ~ 6 GB/s compared to calling appendToWindow for each byte!
              * We can use @ref lastBuffers, which are also returned, to determine where to copy to. */
@@ -1417,6 +1441,41 @@ Block<ENABLE_STATISTICS>::appendToWindow( Window&                     window,
     window[m_windowPosition] = decodedSymbol;
     m_windowPosition++;
     m_windowPosition %= window.size();
+}
+
+
+template<bool ENABLE_STATISTICS>
+template<typename Window>
+inline void
+Block<ENABLE_STATISTICS>::appendLiteralRun( Window&        window,
+                                            const uint8_t* data,
+                                            size_t         size )
+{
+    constexpr bool containsMarkerBytes = std::is_same_v<std::decay_t<typename Window::value_type>, uint16_t>;
+
+    /* One chunk is at most 64 B and the window is much larger, so it can wrap at most once. */
+    const auto firstCount = std::min( size, window.size() - m_windowPosition );
+    const auto remainingCount = size - firstCount;
+
+    if constexpr ( containsMarkerBytes ) {
+        for ( size_t i = 0; i < firstCount; ++i ) {
+            window[m_windowPosition + i] = static_cast<uint16_t>( data[i] );
+        }
+        for ( size_t i = 0; i < remainingCount; ++i ) {
+            window[i] = static_cast<uint16_t>( data[firstCount + i] );
+        }
+    } else {
+        std::memcpy( window.data() + m_windowPosition, data, firstCount );
+        if ( remainingCount > 0 ) {
+            std::memcpy( window.data(), data + firstCount, remainingCount );
+        }
+    }
+
+    m_windowPosition = ( m_windowPosition + size ) % window.size();
+    if constexpr ( containsMarkerBytes ) {
+        /* Stored-block bytes are literals, so the whole run is marker-free. */
+        m_distanceToLastMarkerByte += size;
+    }
 }
 
 
@@ -1671,32 +1730,28 @@ Block<ENABLE_STATISTICS>::readInternalUncompressed( gzip::BitReader& bitReader,
                                                     Window&          window )
 {
     /**
+     * Fallback for stored blocks whose preceding marker window still contains markers in the back-reference
+     * range. This is intentionally separate from the three fast paths in @ref Block::read:
+     *  1. blocks with size >= MAX_WINDOW_SIZE read directly at window position 0,
+     *  2. marker windows with m_distanceToLastMarkerByte + size >= MAX_WINDOW_SIZE retain the recent
+     *     marker-free suffix at the upper end of the physical window and read at position 0,
+     *  3. marker-free windows copy through the wrap-aware @ref lastBuffers.
+     *
      * Because the non-compressed deflate block size is 16-bit, the uncompressed data is limited to 65535 B!
      * The buffer can hold MAX_WINDOW_SIZE 16-bit values (for markers) or twice the amount of decoded bytes.
      * Therefore, this routine is safe to call in respect of "buffer overflows" before returning the view to
      * the buffer.
      *
-     * Timings for different buffer sizes in MB/s for 2GiB-random.gz:
-     * @verbatim
-     *    8 B : 398.55  411.779 409.841
-     *   16 B : 386.543 385.621 385.567
-     *   32 B : 412.783 407.354 402.352 402.129
-     *   64 B : 397.71  412.952 413.265 416.339
-     *  128 B : 379.629 380.691 387.439 377.22
-     *  256 B : 380.17  389.722 387.635 405.699
-     *  512 B : 382.466 379.642 390.317 381.801
-     * 1024 B : 384.92  386.544 381.748 388.71
-     * 2048 B : 378.362 394.002 391.357 389.728
-     * 4096 B : 380.87  379.09  386.711 395.955
-     * @endverbatim
+     * Stored-block bytes are literals, so they can be written directly. For the 16-bit marker window this
+     * widens each byte and bumps the marker distance once per chunk instead of going through appendToWindow.
+     * The 64 B chunk is one cache line; direct writes make the buffer size much less important than in the
+     * former per-byte append loop, so the old 8 B..4096 B sweep no longer applies.
      */
     uint32_t totalBytesRead{ 0 };
     std::array<uint8_t, 64> buffer{};
     for ( ; totalBytesRead + buffer.size() <= m_uncompressedSize; totalBytesRead += buffer.size() ) {
         const auto nBytesRead = bitReader.read( reinterpret_cast<char*>( buffer.data() ), buffer.size() );
-        for ( size_t i = 0; i < nBytesRead; ++i ) {
-            appendToWindow( window, buffer[i] );
-        }
+        appendLiteralRun( window, buffer.data(), nBytesRead );
         /* A short read means the file ended before the declared stored block size was read. This check is necessary
          * because bitReader.read will not throw EndOfFileReached and this loop would hang when incrementing by
          * nBytesRead or, as it is now, we would increment the loop counter by more than we actually read. */
@@ -1708,7 +1763,8 @@ Block<ENABLE_STATISTICS>::readInternalUncompressed( gzip::BitReader& bitReader,
     }
     for ( ; totalBytesRead < m_uncompressedSize; ++totalBytesRead ) {
         try {
-            appendToWindow( window, static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() ) );
+            const auto byte = static_cast<uint8_t>( bitReader.read<BYTE_SIZE>() );
+            appendLiteralRun( window, &byte, 1 );
         } catch ( const EndOfFileReached& ) {
             m_atEndOfBlock = true;
             m_decodedBytes += totalBytesRead;
@@ -1979,7 +2035,8 @@ Block<ENABLE_STATISTICS>::readInternalCompressedSpecialized
 
 template<bool ENABLE_STATISTICS>
 void
-Block<ENABLE_STATISTICS>::setInitialWindow( VectorView<uint8_t> const& initialWindow )
+Block<ENABLE_STATISTICS>::setInitialWindow( VectorView<uint8_t> const& initialWindow,
+                                            std::optional<size_t>      validCountOverride )
 {
     if ( !m_containsMarkerBytes ) {
         return;
@@ -2001,11 +2058,11 @@ Block<ENABLE_STATISTICS>::setInitialWindow( VectorView<uint8_t> const& initialWi
     /**
      * Conflate the ring into decoded-byte order in one pass. Starting at m_windowPosition, the first
      * N - decoded positions are ahead of the write cursor and therefore still contain markers.
-     * The last min(m_decodedBytes, N) entries are the decoded bytes. Doing the marker replacement and
+     * The last min(validCount, N) entries are the decoded bytes. Doing the marker replacement and
      * the 16-to-8-bit narrowing together avoids a separate zero fill and a full extra pass over the ring.
      */
     constexpr auto WINDOW_SIZE = decltype( m_window16 )().size();
-    const auto validCount = std::min( m_decodedBytes, WINDOW_SIZE );
+    const auto validCount = std::min( validCountOverride.value_or( m_decodedBytes ), WINDOW_SIZE );
     const auto invalidCount = WINDOW_SIZE - validCount;
 
     /* The byte view of m_window aliases the 16-bit ring, and the wrapped order means the destination overlaps
