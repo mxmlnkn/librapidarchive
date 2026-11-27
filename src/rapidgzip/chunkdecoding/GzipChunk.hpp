@@ -747,12 +747,15 @@ public:
                 return std::nullopt;
             };
 
+        size_t falsePositiveCount{ 0 };
+
         /* First simply try to decode at the current position to avoid expensive block finders in the case
          * that for some reason the @ref blockOffset guess was perfect. Note that this has to be added as
          * a separate stop condition for decoding the previous block! */
         if ( auto result = tryToDecode( { blockOffset, blockOffset } ); result ) {
             return *std::move( result );
         }
+        ++falsePositiveCount;
 
         /**
          * Performance when looking for dynamic and uncompressed blocks:
@@ -816,7 +819,6 @@ public:
          */
         const auto tBlockFinderStart = now();
         static constexpr auto CHUNK_SIZE = 8_Ki * BYTE_SIZE;
-        size_t falsePositiveCount{ 0 };
         for ( auto chunkBegin = blockOffset; chunkBegin < untilOffset; chunkBegin += CHUNK_SIZE ) {
             /* Only look in the first 512 KiB of data. If nothing can be found there, then something is likely
              * to be wrong with the file and looking in the rest will also likely fail. And looking in the whole

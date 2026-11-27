@@ -140,7 +140,7 @@ public:
             std::stringstream out;
             out << std::boolalpha;
             out << "[GzipChunkFetcher::GzipChunkFetcher] First block access statistics:\n";
-            out << "    Number of false positives                : " << m_statistics.falsePositiveCount << "\n";
+            out << "    Speculative decode failures              : " << m_statistics.falsePositiveCount << "\n";
             out << "    Time spent in block finder               : " << m_statistics.blockFinderDuration << " s\n";
             out << "    Time spent decoding with custom inflate  : " << m_statistics.decodeDuration << " s\n";
             out << "    Time spent decoding with inflate wrapper : " << m_statistics.decodeDurationInflateWrapper
