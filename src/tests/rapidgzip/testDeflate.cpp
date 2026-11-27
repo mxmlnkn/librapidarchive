@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -383,6 +384,14 @@ public:
         writeBits( reversed, count );
     }
 
+    void
+    alignToByte()
+    {
+        if ( ( m_bitCount % 8 ) != 0 ) {
+            writeBits( 0, static_cast<uint8_t>( 8 - ( m_bitCount % 8 ) ) );
+        }
+    }
+
     [[nodiscard]] std::vector<uint8_t>
     finish()
     {
@@ -426,6 +435,23 @@ writeFixedDistance( DeflateBitWriter& writer,
     writer.writeCode( symbol, 5 );
     if ( extraBitCount > 0 ) {
         writer.writeBits( extraBits, extraBitCount );
+    }
+}
+
+
+void
+writeStoredBlock( DeflateBitWriter&           writer,
+                  const std::vector<uint8_t>& data,
+                  const bool                  isFinal )
+{
+    writer.writeBits( isFinal ? 1U : 0U, 1 );
+    writer.writeBits( 0, 2 );  /* BTYPE = stored */
+    writer.alignToByte();
+    const auto size = static_cast<uint16_t>( data.size() );
+    writer.writeBits( size, 16 );
+    writer.writeBits( static_cast<uint16_t>( ~size ), 16 );
+    for ( const auto byte : data ) {
+        writer.writeBits( byte, 8 );
     }
 }
 }  // namespace
@@ -559,6 +585,145 @@ testMarkerBackreferenceCopies()
 }
 
 
+/**
+ * Cover the three stored-block fast paths in Block::read and the readInternalUncompressed fallback. The
+ * marker case also appends a back-reference at distance MAX_WINDOW_SIZE to verify that the recent suffix and
+ * the stored block are concatenated in the correct order for the following block, which a fallback-only run
+ * also has to satisfy.
+ */
+void
+testStoredBlockFastPaths()
+{
+    const auto makePayload =
+        [] ( const size_t size )
+        {
+            std::vector<uint8_t> result( size );
+            for ( size_t i = 0; i < size; ++i ) {
+                result[i] = static_cast<uint8_t>( ( i * 131U + 7U ) & 0xFFU );
+            }
+            return result;
+        };
+
+    const auto readBlock =
+        [] ( gzip::BitReader& bitReader, deflate::Block<false>& block, const bool allowMarkers = false )
+        {
+            const auto headerError = block.readHeader( bitReader );
+            REQUIRE( headerError == Error::NONE );
+            std::vector<uint8_t> bytes;
+            while ( !block.eob() ) {
+                const auto [view, error] = block.read( bitReader, std::numeric_limits<size_t>::max() );
+                REQUIRE( error == Error::NONE );
+                for ( const auto& buffer : view.data ) {
+                    bytes.insert( bytes.end(), buffer.begin(), buffer.end() );
+                }
+                for ( const auto& buffer : view.dataWithMarkers ) {
+                    for ( const auto symbol : buffer ) {
+                        if ( symbol > 255U ) {
+                            REQUIRE( allowMarkers );
+                            bytes.push_back( 0 );
+                        } else {
+                            bytes.push_back( static_cast<uint8_t>( symbol ) );
+                        }
+                    }
+                }
+            }
+            return bytes;
+        };
+
+    /* Size >= MAX_WINDOW_SIZE reads the whole block at window position 0. */
+    {
+        const auto payload = makePayload( 65535 );
+        DeflateBitWriter writer;
+        writeStoredBlock( writer, payload, true );
+        auto compressed = writer.finish();
+        compressed.insert( compressed.end(), 8, 0 );
+
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( compressed ) );
+        deflate::Block<false> block;
+        REQUIRE( readBlock( bitReader, block ) == payload );
+    }
+
+    /* A marker window whose marker-free suffix plus the stored block exceeds MAX_WINDOW_SIZE. */
+    {
+        constexpr size_t recentCount = 5000;
+        constexpr size_t storedSize = 30000;
+        constexpr size_t retainedCount = deflate::MAX_WINDOW_SIZE - storedSize;
+
+        std::vector<uint8_t> recent( recentCount );
+        for ( size_t i = 0; i < recent.size(); ++i ) {
+            recent[i] = static_cast<uint8_t>( 'A' + ( i % 26 ) );
+        }
+        const auto payload = makePayload( storedSize );
+
+        DeflateBitWriter writer;
+        writer.writeBits( 0, 1 );  /* BFINAL */
+        writer.writeBits( 1, 2 );  /* BTYPE = fixed Huffman */
+        writeFixedLiteralOrLength( writer, 285 );  /* a 258 B match into the unknown window -> markers */
+        writeFixedDistance( writer, 0, 0, 0 );     /* distance 1 */
+        for ( const auto byte : recent ) {
+            writeFixedLiteralOrLength( writer, byte );
+        }
+        writeFixedLiteralOrLength( writer, 256 );  /* end of block */
+        writeStoredBlock( writer, payload, false );
+
+        /* Reference the oldest retained byte of the recent suffix from the end of the stored block. */
+        writer.writeBits( 1, 1 );  /* BFINAL */
+        writer.writeBits( 1, 2 );  /* BTYPE = fixed Huffman */
+        writeFixedLiteralOrLength( writer, 285 );       /* length 258 */
+        writeFixedDistance( writer, 29, 8191, 13 );     /* distance 32768 */
+        writeFixedLiteralOrLength( writer, 256 );       /* end of block */
+
+        auto compressed = writer.finish();
+        compressed.insert( compressed.end(), 8, 0 );
+
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( compressed ) );
+        deflate::Block<false> block;
+        REQUIRE_EQUAL( readBlock( bitReader, block, true ).size(), 258U + recentCount );
+        REQUIRE( readBlock( bitReader, block ) == payload );
+
+        const std::vector<uint8_t> expected( recent.begin() + ( recentCount - retainedCount ),
+                                             recent.begin() + ( recentCount - retainedCount + 258 ) );
+        REQUIRE( readBlock( bitReader, block ) == expected );
+    }
+
+    /* A small stored block after a marker window with a short marker distance uses the fallback. */
+    {
+        const auto payload = makePayload( 30000 );
+        DeflateBitWriter writer;
+        writer.writeBits( 0, 1 );
+        writer.writeBits( 1, 2 );
+        writeFixedLiteralOrLength( writer, 285 );
+        writeFixedDistance( writer, 0, 0, 0 );
+        writeFixedLiteralOrLength( writer, 256 );
+        writeStoredBlock( writer, payload, true );
+
+        auto compressed = writer.finish();
+        compressed.insert( compressed.end(), 8, 0 );
+
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( compressed ) );
+        deflate::Block<false> block;
+        REQUIRE_EQUAL( readBlock( bitReader, block, true ).size(), 258U );
+        REQUIRE( readBlock( bitReader, block ) == payload );
+    }
+
+    /* A real initial window is marker-free and takes the wrap-aware copy path. */
+    {
+        const auto payload = makePayload( 30000 );
+        const auto initialWindow = makePayload( deflate::MAX_WINDOW_SIZE );
+        DeflateBitWriter writer;
+        writeStoredBlock( writer, payload, true );
+
+        auto compressed = writer.finish();
+        compressed.insert( compressed.end(), 8, 0 );
+
+        gzip::BitReader bitReader( std::make_unique<BufferViewFileReader>( compressed ) );
+        deflate::Block<false> block;
+        block.setInitialWindow( { initialWindow.data(), initialWindow.size() } );
+        REQUIRE( readBlock( bitReader, block ) == payload );
+    }
+}
+
+
 int
 main()
 {
@@ -571,6 +736,7 @@ main()
     testInvalidDynamicHuffmanCodeCount();
     testInvalidDeflateErrors();
     testMarkerBackreferenceCopies();
+    testStoredBlockFastPaths();
 
     std::cout << "Tests successful: " << ( gnTests - gnTestErrors ) << " / " << gnTests << "\n";
 
