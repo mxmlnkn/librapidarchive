@@ -16,6 +16,7 @@
 #include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,7 @@ struct Arguments
     std::string fileName{};
     size_t parallelization{ 1 };
     uint64_t chunkSize{ 4_Mi };
+    std::optional<uint64_t> maxDecompressedChunkSize;
     size_t iterations{ 3 };
     bool verifyChecksum{ true };
     bool sequential{ false };
@@ -70,6 +72,9 @@ decompressParallel( const Arguments& arguments )
 {
     ParallelGzipReader reader( std::make_unique<StandardFileReader>( arguments.fileName ),
                                arguments.parallelization, arguments.chunkSize );
+    if ( arguments.maxDecompressedChunkSize ) {
+        reader.setMaxDecompressedChunkSize( *arguments.maxDecompressedChunkSize );
+    }
     reader.setCRC32Enabled( arguments.verifyChecksum );
     reader.setWindowSparsity( arguments.windowSparsity );
     if ( !arguments.windowCompression ) {
@@ -101,9 +106,9 @@ main( int    argc,
       char** argv )
 {
     if ( argc < 2 ) {
-        std::cerr << "Usage: " << argv[0] << " <file.gz> [-p N] [-c BYTES] [-i N] [--no-crc] [--sequential]"
-                  << " [--stats] [--no-sparsity] [--no-window-compression] [--no-keep-index]"
-                  << " [--discard-output]\n";
+        std::cerr << "Usage: " << argv[0] << " <file.gz> [-p N] [-c BYTES] [-i N] [--max-decompressed-chunk-size BYTES]"
+                  << " [--no-crc] [--sequential] [--stats] [--no-sparsity] [--no-window-compression]"
+                  << " [--no-keep-index] [--discard-output]\n";
         return 1;
     }
 
@@ -118,6 +123,8 @@ main( int    argc,
             arguments.parallelization = std::stoull( argv[++i] );
         } else if ( ( argument == "-c" ) && ( i + 1 < argc ) ) {
             arguments.chunkSize = parseByteSize( argv[++i] );
+        } else if ( ( argument == "--max-decompressed-chunk-size" ) && ( i + 1 < argc ) ) {
+            arguments.maxDecompressedChunkSize = parseByteSize( argv[++i] );
         } else if ( ( argument == "-i" ) && ( i + 1 < argc ) ) {
             arguments.iterations = std::stoull( argv[++i] );
         } else if ( argument == "--no-crc" ) {

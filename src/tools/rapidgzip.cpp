@@ -19,6 +19,7 @@
 
 #include <core/AffinityHelpers.hpp>
 #include <core/common.hpp>
+#include <core/FileRanges.hpp>
 #include <core/FileUtils.hpp>
 #include <core/Statistics.hpp>
 #include <rapidgzip/gzip/AnalyzeFeatures.hpp>
@@ -35,6 +36,7 @@ struct RapidgzipArguments :
     public Arguments
 {
     size_t chunkSize{ 4_Mi };
+    std::optional<uint64_t> maxDecompressedChunkSize;
 
     bool keepIndex{ false };
     bool windowSparsity{ true };
@@ -161,6 +163,9 @@ decompressParallel( RapidgzipArguments& args,
 
     reader->setStatisticsEnabled( args.verbose );
     reader->setShowProfileOnDestruction( args.verbose );
+    if ( args.maxDecompressedChunkSize ) {
+        reader->setMaxDecompressedChunkSize( *args.maxDecompressedChunkSize );
+    }
     reader->setCRC32Enabled( args.crc32Enabled );
     reader->setKeepIndex( args.indexSaveFile || args.indexLoadFile || args.keepIndex );
     reader->setWindowSparsity( args.windowSparsity );
@@ -234,6 +239,10 @@ rapidgzipCLI( int                  argc,
     options.add_options( "Advanced" )
     ( "chunk-size", "The chunk size decoded by the parallel workers in KiB.",
       cxxopts::value<unsigned int>()->default_value( "4096" ) )
+    ( "max-decompressed-chunk-size",
+      "Stop decoding a chunk preemptively when it decompresses to more than this many bytes. Defaults to 20 times "
+      "the chunk size. Sizes accept SI and binary suffixes, e.g. 64Mi.",
+      cxxopts::value<std::string>() )
     ( "verify", "Verify CRC32 checksum during decompression. Will slow down decompression and there are already "
                 "some implicit and explicit checks like whether the end of the file could be reached and whether "
                 "the stream size is correct. If no action is specified, this will do nothing. Use --test to "
@@ -476,6 +485,9 @@ rapidgzipCLI( int                  argc,
         };
 
     args.chunkSize = parsedArgs["chunk-size"].as<unsigned int>() * 1_Ki;
+    if ( parsedArgs.count( "max-decompressed-chunk-size" ) > 0 ) {
+        args.maxDecompressedChunkSize = parseByteSize( parsedArgs["max-decompressed-chunk-size"].as<std::string>() );
+    }
 
     auto errorCode = DecompressErrorCode::SUCCESS;
     const auto hasOutputFiles = ( outputFileDescriptor != -1 ) || ( stdoutFileDescriptor != -1 );
