@@ -709,7 +709,18 @@ public:
         if ( initialWindow ) {
             bitReader.seekTo( blockOffset );
             const auto window = initialWindow->decompress();
-            return decodeChunkWithRapidgzip( &bitReader, untilOffset, *window, chunkDataConfiguration );
+            auto result = decodeChunkWithRapidgzip( &bitReader, untilOffset, *window, chunkDataConfiguration );
+            /* The custom decoder stops at block boundaries and can overshoot a stale imported index. */
+            if ( untilOffsetIsExact && decodedSize && ( result.decodedSizeInBytes != *decodedSize ) ) {
+                std::stringstream message;
+                message << "Decoded chunk size does not match the requested decoded size!\n"
+                        << "  Block offset          : " << blockOffset << " b\n"
+                        << "  Until offset          : " << untilOffset << " b\n"
+                        << "  Decoded size          : " << result.decodedSizeInBytes << " B\n"
+                        << "  Expected decoded size : " << *decodedSize << " B\n";
+                throw std::runtime_error( std::move( message ).str() );
+            }
+            return result;
         }
 
         const auto tryToDecode =
